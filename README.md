@@ -59,7 +59,7 @@ full-featured competition management that Wix has no built-in system for.
   own survivors, finishing in a Grand Final between the two brackets' champions. Because
   the losers-bracket entrant already has one loss and the winners-bracket entrant has
   none, winning the Grand Final isn't enough for the losers-bracket entrant on its
-  own - beating the winners-bracket champion there only draws them level, so a single
+  own — beating the winners-bracket champion there only draws them level, so a single
   **bracket-reset decider** is automatically created and must be won too; if the
   winners-bracket champion wins the Grand Final outright, the tournament ends there.
   The Fixtures list on the division page groups fixtures into "Winners Bracket",
@@ -158,9 +158,10 @@ full-featured competition management that Wix has no built-in system for.
   "Submit for Confirmation"; the other side (or an admin) then either confirms it -
   finalizing the result exactly as before - or disputes it, which locks the fixture
   until an admin resolves it. See **Score confirmation** below.
-- **Game Adjustments**: an admin page (Admin Portal → "Game Adjustments") to search for
-  a player, pick one of their fixtures, and directly override the score or reopen a
-  pending/disputed result for further scoring - the tool the score-confirmation
+- **Game Adjustments**: an admin page (Admin Portal → "Game Adjustments") that opens on
+  a "Needs Attention" list of every disputed/pending-confirmation result across every
+  league - no need to search for the player first - plus a player search to find and
+  directly override or reopen any other result. The tool the score-confirmation
   workflow's "disputed" banner points admins at.
 
 ## What's deliberately out of scope for v1
@@ -397,11 +398,20 @@ to it (or an admin has stepped in).
 
 ## Game Adjustments
 
-From the Admin Portal → "Game Adjustments", an admin searches for a player by name,
-picks one of their fixtures (every status is shown, not just upcoming ones - handy for
-finding a `disputed` or `pending_confirmation` result), and either overrides the final
-score directly (same underlying action as the per-fixture Admin Override panel) or, for
-a pending/disputed result, reopens it for further scoring instead. This is the tool the
+From the Admin Portal → "Game Adjustments", the page opens straight onto a **Needs
+Attention** list - every result across every league that's currently `disputed` or
+`pending_confirmation`, pulled from `GET /api/admin/fixtures/needs-attention` - so an
+admin doesn't have to know (or search for) which player is involved just to find
+something that needs resolving. Clicking a singles/doubles item jumps straight to step 3
+below to override or reopen it; a disputed/pending team-fixture *leg* links out to that
+fixture's own page instead, since leg-level resolution isn't something the Override form
+here handles (see **Score confirmation** - `LegRow`'s own Confirm/Dispute/Reopen
+controls cover that).
+
+Below that, an admin can also search for a player by name, pick one of their fixtures
+(every status is shown, not just upcoming ones), and either override the final score
+directly (same underlying action as the per-fixture Admin Override panel) or, for a
+pending/disputed result, reopen it for further scoring instead. This is the tool the
 score-confirmation workflow's "Result disputed" banner links admins to.
 
 ## Architecture
@@ -620,6 +630,7 @@ the Express server to serve) rather than Pages.
 | POST | `/api/admin/users/import` | Bulk-create user accounts by row (CSV/Excel/manual) from Manage Users, no season/division attached (requires admin; logged) |
 | GET | `/api/admin/audit-log` | Most recent 500 admin actions (requires admin) |
 | GET | `/api/admin/players/:playerId/fixtures` | Every fixture involving a player, any status - backs the Game Adjustments search (requires admin) |
+| GET | `/api/admin/fixtures/needs-attention` | Every `disputed`/`pending_confirmation` result (fixture-level or team-leg-level) across every league - backs the Game Adjustments "Needs Attention" list (requires admin) |
 | POST | `/api/admin/seasons` | Season Setup Wizard step 1–2: create a season (League) with N divisions (requires admin) |
 | POST | `/api/admin/seasons/:leagueId/import-players` | Season Setup Wizard step 3: bulk-import players by row (CSV/Excel/manual), creating accounts as needed (requires admin; logged) |
 | POST | `/api/admin/seasons/:leagueId/generate` | Season Setup Wizard step 5: generate fixtures across every eligible division with date scheduling (requires admin) |
