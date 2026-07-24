@@ -34,6 +34,10 @@ const networkApi = {
     request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   register: (data) =>
     request('/users/register', { method: 'POST', body: JSON.stringify(data) }),
+  // Public - consumes an admin-generated password reset link (see
+  // adminSendResetLink below).
+  resetPassword: (token, newPassword) =>
+    request(`/auth/reset-password/${token}`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
   getMe: () => request('/users/me'),
   updateMe: (data) => request('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
   changePassword: (currentPassword, newPassword) =>
@@ -49,8 +53,15 @@ const networkApi = {
   adminSetStatus: (id, status) => request(`/admin/users/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
   adminResetPassword: (id, newPassword) =>
     request(`/admin/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
+  adminSendResetLink: (id) => request(`/admin/users/${id}/send-reset-link`, { method: 'POST' }),
+  adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),
+
+  // Admin: Game Adjustments
+  adminGetPlayerFixtures: (playerId) => request(`/admin/players/${playerId}/fixtures`),
+  adminReopenFixture: (fixtureId) => request(`/fixtures/${fixtureId}/reopen`, { method: 'POST' }),
+  adminReopenLeg: (fixtureId, legNumber) => request(`/fixtures/${fixtureId}/legs/${legNumber}/reopen`, { method: 'POST' }),
 
   // Venues
   getVenues: () => request('/venues'),
@@ -97,6 +108,9 @@ const networkApi = {
   recordFrame: (fixtureId, winnerPlayerId) =>
     request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId }) }),
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),
+  submitResult: (fixtureId) => request(`/fixtures/${fixtureId}/submit-result`, { method: 'POST' }),
+  confirmResult: (fixtureId) => request(`/fixtures/${fixtureId}/confirm-result`, { method: 'POST' }),
+  disputeResult: (fixtureId) => request(`/fixtures/${fixtureId}/dispute-result`, { method: 'POST' }),
 
   // Teams (team divisions only)
   createTeam: (divisionId, name) =>
@@ -131,6 +145,12 @@ const networkApi = {
     }),
   undoLastLegFrame: (fixtureId, legNumber) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/frames/last`, { method: 'DELETE' }),
+  submitLegResult: (fixtureId, legNumber) =>
+    request(`/fixtures/${fixtureId}/legs/${legNumber}/submit-result`, { method: 'POST' }),
+  confirmLegResult: (fixtureId, legNumber) =>
+    request(`/fixtures/${fixtureId}/legs/${legNumber}/confirm-result`, { method: 'POST' }),
+  disputeLegResult: (fixtureId, legNumber) =>
+    request(`/fixtures/${fixtureId}/legs/${legNumber}/dispute-result`, { method: 'POST' }),
 
   getPlayerProfile: (playerId) => request(`/players/${playerId}`),
 };

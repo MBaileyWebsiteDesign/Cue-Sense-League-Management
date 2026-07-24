@@ -89,9 +89,29 @@ export function buildPlayerProfile(db, playerId) {
 
   const headToHead = [...headToHeadMap.values()].sort((a, b) => b.played - a.played);
 
+  // Every league/division this player currently shows up in - directly
+  // (singles), via a team roster, or via a doubles/triples pairing. Powers
+  // the admin "League" context shown above Career on the profile page;
+  // reassigning a player between divisions isn't a feature yet (see
+  // README roadmap / player substitution for the closest existing tool), so
+  // this is read-only for now.
+  const memberTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
+  const memberPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+  const divisions = db.divisions
+    .filter((d) =>
+      d.playerIds?.includes(playerId) ||
+      d.teamIds?.some((id) => memberTeamIds.includes(id)) ||
+      d.pairingIds?.some((id) => memberPairingIds.includes(id))
+    )
+    .map((d) => {
+      const league = db.leagues.find((l) => l.id === d.leagueId);
+      return { id: d.id, name: d.name, leagueId: d.leagueId, leagueName: league?.name || null };
+    });
+
   return {
     id: player.id,
     name: player.name,
+    divisions,
     career: { ...career, frameDifference: career.framesFor - career.framesAgainst },
     headToHead,
     results,

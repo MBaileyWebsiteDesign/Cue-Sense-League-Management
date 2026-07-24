@@ -26,6 +26,7 @@ const EMPTY_STATE = {
   users: [],
   auditLog: [],
   venues: [],
+  passwordResets: [],
 };
 
 function ensureDataFile() {
@@ -46,6 +47,7 @@ export function readDb() {
   if (!state.users) state.users = [];
   if (!state.auditLog) state.auditLog = [];
   if (!state.venues) state.venues = [];
+  if (!state.passwordResets) state.passwordResets = [];
   for (const user of state.users) {
     // Migrate the old single-value `role: 'player'|'admin'` field (from when
     // admin/player were separate login flows) into the current boolean
