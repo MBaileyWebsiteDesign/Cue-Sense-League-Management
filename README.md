@@ -59,7 +59,7 @@ full-featured competition management that Wix has no built-in system for.
   own survivors, finishing in a Grand Final between the two brackets' champions. Because
   the losers-bracket entrant already has one loss and the winners-bracket entrant has
   none, winning the Grand Final isn't enough for the losers-bracket entrant on its
-  own — beating the winners-bracket champion there only draws them level, so a single
+  own - beating the winners-bracket champion there only draws them level, so a single
   **bracket-reset decider** is automatically created and must be won too; if the
   winners-bracket champion wins the Grand Final outright, the tournament ends there.
   The Fixtures list on the division page groups fixtures into "Winners Bracket",
@@ -147,6 +147,21 @@ full-featured competition management that Wix has no built-in system for.
   designed to be keyed over video in OBS (or any other streaming software with a
   browser-source layer). Works for singles, teams, and doubles/triples fixtures alike.
   See **Stream overlay** below.
+- **Admin: edit a player's account from their profile page**: above a player's Career
+  stats, an admin sees an "Account Details" panel to edit the registered account linked
+  to that player - name, email, phone, venue, team name, classification - plus a
+  read-only list of the league(s)/division(s) they're currently registered in, and a
+  "Send Password Reset Link" button in place of setting a new password directly. See
+  **Password reset links** below.
+- **Score confirmation workflow**: recording frames no longer finishes a match by
+  itself. Once a side reaches the race target, whoever's been entering scores clicks
+  "Submit for Confirmation"; the other side (or an admin) then either confirms it -
+  finalizing the result exactly as before - or disputes it, which locks the fixture
+  until an admin resolves it. See **Score confirmation** below.
+- **Game Adjustments**: an admin page (Admin Portal → "Game Adjustments") to search for
+  a player, pick one of their fixtures, and directly override the score or reopen a
+  pending/disputed result for further scoring - the tool the score-confirmation
+  workflow's "disputed" banner points admins at.
 
 ## What's deliberately out of scope for v1
 
@@ -213,7 +228,8 @@ From the Admin Portal → "Manage Users", an admin can:
 - Grant or revoke `isAdmin` on any account.
 - Mark or unmark any account as a captain (`isCaptain`).
 - Suspend an account (blocks that account's login immediately) or reactivate it.
-- Force-set a new password for a user without needing their current one.
+- Force-set a new password for a user without needing their current one, or send them a
+  reset link instead (see **Password reset links** below) so they choose their own.
 - **Bulk-add users** ("Bulk Add Users" panel, top of the page) — download a CSV or
   Excel template, fill in a row per player, and upload it back; or add players one at a
   time with the same fields. This creates accounts only, with no season/division
@@ -341,6 +357,53 @@ software) to key a live scoreboard over a table camera or commentary feed:
   normalizes all three into the same `{ home, away }` shape server-side, so the overlay
   page itself never needs to branch on the division's `entryType`.
 
+## Password reset links
+
+From a player's profile page (`/players/:playerId`), an admin sees an "Account Details"
+panel above Career with the same editable fields as Manage Users (name, email, phone,
+venue, team, classification), plus a read-only list of the league(s)/division(s) that
+player is currently registered in. Instead of a "type a new password" field, there's a
+**Send Password Reset Link** button: it generates a single-use, 1-hour token and shows
+the admin a link (`/reset-password?token=...`) to relay to the player however they'd
+like (text, email, WhatsApp, in person).
+
+**This is not wired up to a real email provider yet** - this is a self-hosted v1 with no
+SMTP configuration (see the roadmap). The link is displayed to the admin and also
+printed to the server's console log as a fallback, but nothing is actually emailed.
+Visiting the link takes the player to a public "Reset Password" page where they choose
+their own new password; the token is rejected if it's already been used or has expired.
+
+## Score confirmation
+
+Recording frames (or leg frames, for a team match) no longer finishes a match by
+itself. Once a side's score reaches the race target, the fixture stays `in_progress`
+and a **Submit for Confirmation** button appears - clicking it moves the result to
+`pending_confirmation` without yet touching standings or bracket propagation (both only
+ever count a fixture once its status is `completed`). From there:
+
+- The **away side** (or an admin) sees **Confirm Result** / **Dispute Result** buttons.
+  For a doubles/triples pairing, any player in that pairing can confirm/dispute; for a
+  team leg, the away side's nominated player for that leg.
+- **Confirm** finalizes the match exactly the way automatic completion used to -
+  standings update, and a knockout winner/loser propagates into the next round.
+- **Dispute** locks the fixture as `disputed` - no more frames can be recorded or
+  undone until an admin steps in, either by overriding the score directly or by
+  reopening the fixture back to `in_progress` (unlocking frame entry again, without
+  setting a score) from the fixture page or **Game Adjustments** (see below).
+
+This intentionally adds friction to reduce mis-recorded results and one-sided score
+entry: a result can't count until the person on the other side of the table has agreed
+to it (or an admin has stepped in).
+
+## Game Adjustments
+
+From the Admin Portal → "Game Adjustments", an admin searches for a player by name,
+picks one of their fixtures (every status is shown, not just upcoming ones - handy for
+finding a `disputed` or `pending_confirmation` result), and either overrides the final
+score directly (same underlying action as the per-fixture Admin Override panel) or, for
+a pending/disputed result, reopens it for further scoring instead. This is the tool the
+score-confirmation workflow's "Result disputed" banner links admins to.
+
 ## Architecture
 
 ```
@@ -368,10 +431,11 @@ pool-league/
   client/            React (Vite) single-page app
     src/
       pages/                LeagueList, LeagueDetail, DivisionDetail, FixtureDetail,
-                            PlayerProfile, Login, Register, PlayerPortal, CaptainPortal,
-                            AdminPortal, AdminSeasonWizard, AdminUsers, AdminUserEdit,
-                            AdminAuditLog, AdminVenues, StreamOverlay (standalone, no
-                            app shell - see "Stream overlay" above)
+                            PlayerProfile, Login, Register, ResetPassword, PlayerPortal,
+                            CaptainPortal, AdminPortal, AdminSeasonWizard, AdminUsers,
+                            AdminUserEdit, AdminAuditLog, AdminVenues, GameAdjustments,
+                            StreamOverlay (standalone, no app shell - see "Stream
+                            overlay" above)
       components/
         Breadcrumbs.jsx      Renders the shared breadcrumb trail
         VenueSelect.jsx      Venue dropdown + "not listed" free-text fallback
@@ -407,7 +471,15 @@ script, not a rewrite. This is the top item in the roadmap.
 - Singles `Fixture` (also used for doubles/triples - see below): `id, leagueId,
   divisionId, round, homePlayerId, awayPlayerId, raceTo, frames[], homeFrameScore,
   awayFrameScore, status, winnerPlayerId, nextFixtureId, nextFixtureSlot, bracketRole,
-  loserNextFixtureId, loserNextFixtureSlot, resetFixtureId, scheduledDate`
+  loserNextFixtureId, loserNextFixtureSlot, resetFixtureId, scheduledDate,
+  resultSubmittedAt, resultSubmittedBy`
+  - `status`: `'scheduled' | 'in_progress' | 'pending_confirmation' | 'disputed' |
+    'completed'` - a match moves to `pending_confirmation` via
+    `POST .../submit-result` once the race target is reached, not automatically; only
+    `confirm-result` (not the frame-recording routes) moves it to `completed` and
+    triggers standings/bracket propagation. See **Score confirmation**.
+  - `resultSubmittedAt`/`resultSubmittedBy`: set by `submit-result`, recording when the
+    result was submitted and which account submitted it.
   - `frames[]`: `{ frameNumber, winnerPlayerId }` — the source of truth; scores are
     derived from this list, never stored independently of it.
   - `scheduledDate`: `YYYY-MM-DD` string, set when the division's fixtures were
@@ -425,7 +497,10 @@ script, not a rewrite. This is the top item in the roadmap.
   resetFixtureId, scheduledDate`
   - `legs[]`: `{ legNumber, homePlayerId, awayPlayerId, frames[], homeFrameScore,
     awayFrameScore, status, winnerPlayerId, raceTo }` — one leg per nominated
-    player-vs-player mini-match, structurally identical to a singles fixture.
+    player-vs-player mini-match, structurally identical to a singles fixture,
+    including the same `'pending' | 'scheduled' | 'in_progress' |
+    'pending_confirmation' | 'disputed' | 'completed'` status progression and
+    submit/confirm/dispute/reopen routes (scoped to that one leg).
   - `nextFixtureId`/`nextFixtureSlot` (`'home'|'away'`) link a knockout fixture to the
     one its winner advances into; both are `null` for round-robin fixtures and for a
     knockout final.
@@ -451,6 +526,9 @@ script, not a rewrite. This is the top item in the roadmap.
   for the seeded starter venues; everything else is auto-created the first time someone's
   `venue` field is set to a name that isn't already in the table (see `ensureVenue` in
   `server/src/index.js`).
+- `PasswordReset`: `id, userId, token, createdAt, expiresAt, usedAt`. Created by
+  `POST /api/admin/users/:id/send-reset-link`; consumed once (`usedAt` set) by
+  `POST /api/auth/reset-password/:token`. See **Password reset links**.
 
 ## Running it locally
 
@@ -536,8 +614,12 @@ the Express server to serve) rather than Pages.
 | POST | `/api/admin/users/:id/permissions` | Set `isAdmin` and/or `isCaptain` on a user (requires admin; logged) |
 | POST | `/api/admin/users/:id/status` | Set a user's status to `active` or `suspended` (requires admin; logged) |
 | POST | `/api/admin/users/:id/reset-password` | Force-set a new password for a user (requires admin; logged) |
+| POST | `/api/admin/users/:id/send-reset-link` | Generate a single-use, 1-hour password reset link for a user and hand it back to the admin (not emailed - see **Password reset links**) (requires admin; logged) |
+| POST | `/api/auth/reset-password/:token` | Consume a reset link and set a new password (public - the token is the credential) |
+| GET | `/api/admin/users/by-player/:playerId` | The registered account (if any) linked to a Player - backs the admin Account Details panel on the player profile page (requires admin) |
 | POST | `/api/admin/users/import` | Bulk-create user accounts by row (CSV/Excel/manual) from Manage Users, no season/division attached (requires admin; logged) |
 | GET | `/api/admin/audit-log` | Most recent 500 admin actions (requires admin) |
+| GET | `/api/admin/players/:playerId/fixtures` | Every fixture involving a player, any status - backs the Game Adjustments search (requires admin) |
 | POST | `/api/admin/seasons` | Season Setup Wizard step 1–2: create a season (League) with N divisions (requires admin) |
 | POST | `/api/admin/seasons/:leagueId/import-players` | Season Setup Wizard step 3: bulk-import players by row (CSV/Excel/manual), creating accounts as needed (requires admin; logged) |
 | POST | `/api/admin/seasons/:leagueId/generate` | Season Setup Wizard step 5: generate fixtures across every eligible division with date scheduling (requires admin) |
@@ -556,11 +638,19 @@ the Express server to serve) rather than Pages.
 | POST | `/api/divisions/:id/substitute-player` | Swap a player out for a replacement (singles only) - reassigns not-yet-started fixtures, leaves completed/in-progress ones alone; `reason: 'substitution'` (default) keeps the outgoing player on the League Table, `reason: 'retirement'` removes them from it (requires admin; logged) |
 | GET | `/api/fixtures/:id` | Fixture detail (requires login; singles, team, or doubles/triples - the latter includes `homePairing`/`awayPairing` instead of `homePlayer`/`awayPlayer`; includes `bothEntrantsKnown` for knockout TBD slots) |
 | GET | `/api/overlay/fixtures/:id` | Public (no login required), trimmed scoreboard summary of one fixture - powers the `/overlay/:fixtureId` OBS stream overlay page (singles, team, and doubles/triples fixtures all normalized into the same `{ home, away }` shape) |
-| POST | `/api/fixtures/:id/frames` | Record a frame winner (singles or doubles/triples) |
-| DELETE | `/api/fixtures/:id/frames/last` | Undo the last recorded frame (blocked once the result has advanced a bracket) |
+| POST | `/api/fixtures/:id/frames` | Record a frame winner (singles or doubles/triples); rejected once the race target is reached - submit the result instead |
+| DELETE | `/api/fixtures/:id/frames/last` | Undo the last recorded frame (blocked once the result has advanced a bracket, or is pending/disputed) |
+| POST | `/api/fixtures/:id/submit-result` | Move an in-progress match that's reached its race target to `pending_confirmation` (requires login) |
+| POST | `/api/fixtures/:id/confirm-result` | Confirm a pending result -> `completed`, propagating into standings/the bracket (away side or admin only) |
+| POST | `/api/fixtures/:id/dispute-result` | Dispute a pending result -> `disputed`, locking it until an admin resolves it (away side or admin only) |
+| POST | `/api/fixtures/:id/reopen` | Reopen a pending/disputed result back to `in_progress` for further scoring (requires admin) |
 | POST | `/api/fixtures/:id/legs/:legNumber/nominate` | Nominate the two players for a team-fixture leg |
-| POST | `/api/fixtures/:id/legs/:legNumber/frames` | Record a frame winner within a leg |
+| POST | `/api/fixtures/:id/legs/:legNumber/frames` | Record a frame winner within a leg; rejected once the leg's race target is reached |
 | DELETE | `/api/fixtures/:id/legs/:legNumber/frames/last` | Undo the last frame within a leg |
+| POST | `/api/fixtures/:id/legs/:legNumber/submit-result` | Move an in-progress leg that's reached its race target to `pending_confirmation` |
+| POST | `/api/fixtures/:id/legs/:legNumber/confirm-result` | Confirm a pending leg result -> `completed` (away-nominated player or admin only) |
+| POST | `/api/fixtures/:id/legs/:legNumber/dispute-result` | Dispute a pending leg result -> `disputed` (away-nominated player or admin only) |
+| POST | `/api/fixtures/:id/legs/:legNumber/reopen` | Reopen a pending/disputed leg back to `in_progress` (requires admin) |
 | GET | `/api/players/:id` | Player profile: career record, head-to-head, match history (requires login) |
 | GET | `/api/venues` | Approved venues, plus the logged-in user's own pending/rejected requests if any (no login required, so registration can use it) |
 | GET | `/api/admin/venues` | All venues, pending first (requires admin) |
@@ -574,8 +664,10 @@ the Express server to serve) rather than Pages.
    Portal, gated to just the team(s) a captain account actually captains (today
    `isCaptain` is a flag with no team-specific behaviour yet, since the app is
    singles-focused).
-3. Password reset via email and email verification at registration (currently a
-   forgotten password requires an admin to force-reset it).
+3. Real email delivery: an admin can now generate a password reset link from a
+   player's profile page (see **Password reset links**), but it isn't actually emailed
+   anywhere yet - no SMTP provider is wired up, so the link is just shown to the admin
+   to relay manually. Email verification at registration is also still outstanding.
 4. Further scheduling methods: home/away double round robin, mini-knockouts, and the
    ability to mix formats within one competition (double elimination is now
    implemented - see **Knockout / double-elimination format** above).
