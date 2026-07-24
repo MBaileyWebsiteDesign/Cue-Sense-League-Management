@@ -48,7 +48,15 @@ function loadInitialDb() {
   // Backfill for a seed/save that predates `pairings` (doubles/triples) -
   // mirrors db.js's readDb() migration on the real server.
   if (!base.pairings) base.pairings = [];
+  if (!base.passwordResets) base.passwordResets = [];
   return base;
+}
+
+// Browser-safe stand-in for Node's crypto.randomBytes(...).toString('hex'),
+// used for password-reset tokens (see adminSendResetLink/resetPassword).
+function randomToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 let db = loadInitialDb();
@@ -353,6 +361,42 @@ function propagateWinner(division, fixture, winnerId) {
   }
 }
 
+function propagateLoser(division, fixture, loserId) {
+  if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
+  const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
+  if (!dest) return;
+  if (division.entryType === 'teams') {
+    if (fixture.loserNextFixtureSlot === 'home') dest.homeTeamId = loserId;
+    else dest.awayTeamId = loserId;
+  } else if (fixture.loserNextFixtureSlot === 'home') {
+    dest.homePlayerId = loserId;
+  } else {
+    dest.awayPlayerId = loserId;
+  }
+}
+
+function checkGrandFinalReset(division, fixture) {
+  if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
+  const isTeams = division.entryType === 'teams';
+  const winnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
+  const awayId = isTeams ? fixture.awayTeamId : fixture.awayPlayerId;
+  if (!winnerId || winnerId !== awayId) return;
+
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  const makeFixture = isTeams ? makeTeamFixture : makeSinglesFixture;
+  const reset = makeFixture({ league, division, round: fixture.round + 1 });
+  reset.bracketRole = 'grand_final_reset';
+  if (isTeams) {
+    reset.homeTeamId = fixture.homeTeamId;
+    reset.awayTeamId = fixture.awayTeamId;
+  } else {
+    reset.homePlayerId = fixture.homePlayerId;
+    reset.awayPlayerId = fixture.awayPlayerId;
+  }
+  db.fixtures.push(reset);
+  fixture.resetFixtureId = reset.id;
+}
+
 function generateKnockoutFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const bracketRounds = buildBracketRounds(entrantIds);
@@ -389,51 +433,6 @@ function generateKnockoutFixtures({ league, division, entrantIds }) {
 // into its assigned losers-bracket slot (mirrors propagateWinner). No-op for
 // anything other than a winners-bracket fixture - a losers-bracket loss is
 // simply an elimination, nowhere further to go.
-function propagateLoser(division, fixture, loserId) {
-  if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
-  const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
-  if (!dest) return;
-  if (division.entryType === 'teams') {
-    if (fixture.loserNextFixtureSlot === 'home') dest.homeTeamId = loserId;
-    else dest.awayTeamId = loserId;
-  } else if (fixture.loserNextFixtureSlot === 'home') {
-    dest.homePlayerId = loserId;
-  } else {
-    dest.awayPlayerId = loserId;
-  }
-}
-
-// Double-elimination only: the losers-bracket champion enters the Grand
-// Final with one life already spent, the winners-bracket champion with
-// none - so if the losers-bracket entrant (always the "away" slot - see
-// generateDoubleElimFixtures) wins the Grand Final, a single decider
-// ("bracket reset") is required to settle the title. No-op once a reset has
-// already been created, or if the winners-bracket (home) side won outright.
-function checkGrandFinalReset(division, fixture) {
-  if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
-  const isTeams = division.entryType === 'teams';
-  const winnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
-  const awayId = isTeams ? fixture.awayTeamId : fixture.awayPlayerId;
-  if (!winnerId || winnerId !== awayId) return;
-
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  const makeFixture = isTeams ? makeTeamFixture : makeSinglesFixture;
-  const reset = makeFixture({ league, division, round: fixture.round + 1 });
-  reset.bracketRole = 'grand_final_reset';
-  if (isTeams) {
-    reset.homeTeamId = fixture.homeTeamId;
-    reset.awayTeamId = fixture.awayTeamId;
-  } else {
-    reset.homePlayerId = fixture.homePlayerId;
-    reset.awayPlayerId = fixture.awayPlayerId;
-  }
-  db.fixtures.push(reset);
-  fixture.resetFixtureId = reset.id;
-}
-
-// Double-elimination fixture generation - see server/src/index.js's
-// generateDoubleElimFixtures for the full design notes (this is a direct
-// port, adapted only for demoApi's closed-over `db` instead of a db param).
 function generateDoubleElimFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds);
@@ -583,13 +582,22 @@ export const demoApi = {
   login: op((email, password) => {
     const normalizedEmail = (email || '').trim().toLowerCase();
     const user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
-    // Real passwords aren't part of the bundled demo data (nothing to check
-    // them against), so any password is accepted for a known demo account -
-    // this is a public, throwaway playground, not a real login boundary.
     if (!user) throw new ApiError(401, 'Invalid email or password');
     if (user.status === 'suspended') throw new ApiError(403, 'This account has been suspended');
     setCurrentUser(user.id);
     return { token: 'demo-token', expiresAt: Date.now() + 24 * 60 * 60 * 1000, user: publicUser(user) };
+  }),
+
+  // Public - consumes a demo password-reset token (see adminSendResetLink).
+  resetPassword: op((token, newPassword) => {
+    const reset = db.passwordResets.find((r) => r.token === token);
+    if (!reset) throw new ApiError(404, 'This reset link is invalid');
+    if (reset.usedAt) throw new ApiError(400, 'This reset link has already been used - ask an admin to send a new one');
+    if (Date.now() > reset.expiresAt) throw new ApiError(400, 'This reset link has expired - ask an admin to send a new one');
+    const user = db.users.find((u) => u.id === reset.userId);
+    if (!user) throw new ApiError(404, 'Account not found');
+    reset.usedAt = new Date().toISOString();
+    return { ok: true };
   }),
 
   register: op((data) => {
@@ -669,6 +677,49 @@ export const demoApi = {
     return enriched;
   }),
 
+  // Admin: Game Adjustments - same shape as getMyFixtures but for any
+  // playerId, including every status (not just upcoming), since an admin
+  // might be specifically looking for a disputed/pending result to resolve.
+  adminGetPlayerFixtures: op((playerId) => {
+    const myTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
+    const myPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+    const fixtures = db.fixtures.filter((f) => {
+      if (f.homePlayerId === playerId || f.awayPlayerId === playerId) return true;
+      if (myTeamIds.includes(f.homeTeamId) || myTeamIds.includes(f.awayTeamId)) return true;
+      if (myPairingIds.includes(f.homePlayerId) || myPairingIds.includes(f.awayPlayerId)) return true;
+      if (f.legs) return f.legs.some((l) => l.homePlayerId === playerId || l.awayPlayerId === playerId);
+      return false;
+    });
+    const enriched = fixtures.map((f) => {
+      const division = db.divisions.find((d) => d.id === f.divisionId);
+      const league = db.leagues.find((l) => l.id === f.leagueId);
+      const isTeams = !!f.legs;
+      const isDoubles = division?.entryType === 'doubles';
+      const opponentId = isTeams
+        ? (myTeamIds.includes(f.homeTeamId) ? f.awayTeamId : f.homeTeamId)
+        : isDoubles
+          ? (myPairingIds.includes(f.homePlayerId) ? f.awayPlayerId : f.homePlayerId)
+          : (f.homePlayerId === playerId ? f.awayPlayerId : f.homePlayerId);
+      const opponentName = isTeams
+        ? db.teams.find((t) => t.id === opponentId)?.name
+        : isDoubles
+          ? db.pairings.find((p) => p.id === opponentId)?.name
+          : db.players.find((p) => p.id === opponentId)?.name;
+      return {
+        id: f.id,
+        leagueName: league?.name,
+        divisionName: division?.name,
+        round: f.round,
+        status: f.status,
+        scoreLabel: isTeams ? `${f.homeLegsWon}-${f.awayLegsWon} legs` : `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+        scheduledDate: f.scheduledDate || null,
+        opponentName: opponentName || 'TBD',
+      };
+    });
+    enriched.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || b.round - a.round);
+    return enriched;
+  }),
+
   adminListUsers: op((q = '') => {
     const query = (q || '').trim().toLowerCase();
     let users = db.users;
@@ -688,6 +739,11 @@ export const demoApi = {
     const user = db.users.find((u) => u.id === id);
     if (!user) throw new ApiError(404, 'User not found');
     return publicUser(user);
+  }),
+
+  adminGetUserByPlayer: op((playerId) => {
+    const user = db.users.find((u) => u.playerId === playerId) || null;
+    return { user: publicUser(user) };
   }),
 
   adminUpdateUser: op((id, data) => {
@@ -791,6 +847,20 @@ export const demoApi = {
       });
     }
     return { created, skipped, errors };
+  }),
+
+  adminSendResetLink: op((id) => {
+    const user = db.users.find((u) => u.id === id);
+    if (!user) throw new ApiError(404, 'User not found');
+    const token = randomToken();
+    const expiresAt = Date.now() + 60 * 60 * 1000;
+    db.passwordResets.push({ id: uuid(), userId: user.id, token, createdAt: new Date().toISOString(), expiresAt, usedAt: null });
+    const resetLink = `${window.location.origin}${window.location.pathname}#/reset-password?token=${token}`;
+    recordAudit(db, {
+      actor: adminLabel(), action: 'user.send_reset_link', targetType: 'user', targetId: user.id,
+      details: `Generated a password reset link for ${user.firstName} ${user.lastName} (${user.email})`,
+    });
+    return { resetLink, expiresAt, email: user.email };
   }),
 
   adminGetAuditLog: op(() => [...db.auditLog].reverse().slice(0, 200)),
@@ -1362,26 +1432,24 @@ export const demoApi = {
     if (fixture.status === 'completed') {
       throw new ApiError(400, `Match is already complete (${fixture.homeFrameScore}-${fixture.awayFrameScore}). Undo a frame to make corrections.`);
     }
+    if (fixture.status === 'pending_confirmation') {
+      throw new ApiError(400, 'This result has already been submitted and is awaiting confirmation from the other side.');
+    }
+    if (fixture.status === 'disputed') {
+      throw new ApiError(400, 'This result is disputed - an admin needs to resolve it (Game Adjustments) before more frames can be recorded.');
+    }
     if (![fixture.homePlayerId, fixture.awayPlayerId].includes(winnerPlayerId)) {
       throw new ApiError(400, 'winnerPlayerId must be one of the two players in this fixture');
+    }
+    if (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo) {
+      throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
     }
     fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId });
     fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
     fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
     fixture.status = 'in_progress';
-    if (fixture.homeFrameScore >= fixture.raceTo) {
-      fixture.status = 'completed';
-      fixture.winnerPlayerId = fixture.homePlayerId;
-    } else if (fixture.awayFrameScore >= fixture.raceTo) {
-      fixture.status = 'completed';
-      fixture.winnerPlayerId = fixture.awayPlayerId;
-    }
-    if (fixture.status === 'completed') {
-      propagateWinner(division, fixture, fixture.winnerPlayerId);
-      const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
-      propagateLoser(division, fixture, loserPlayerId);
-      checkGrandFinalReset(division, fixture);
-    }
+    // No auto-complete - see the server's matching route for why (reaching
+    // the race target just unlocks "Submit for Confirmation").
     return fixture;
   }),
 
@@ -1395,11 +1463,80 @@ export const demoApi = {
     if (fixture.resetFixtureId) {
       throw new ApiError(400, 'This Grand Final result already triggered a bracket-reset decider and cannot be undone here');
     }
+    if (fixture.status === 'pending_confirmation' || fixture.status === 'disputed') {
+      throw new ApiError(400, 'This result is awaiting confirmation or is disputed - an admin needs to reopen it (Game Adjustments) before frames can be undone');
+    }
     fixture.frames.pop();
     fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
     fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
     fixture.winnerPlayerId = null;
     fixture.status = fixture.frames.length === 0 ? 'scheduled' : 'in_progress';
+    return fixture;
+  }),
+
+  // ---- Result confirmation (singles/doubles) - mirrors server/src/index.js's
+  // submit-result / confirm-result / dispute-result / reopen routes. ----
+  submitResult: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    if (division.entryType === 'teams') throw new ApiError(400, 'This is a team fixture - submit each leg individually');
+    if (fixture.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress match can be submitted for confirmation');
+    if (fixture.homeFrameScore < fixture.raceTo && fixture.awayFrameScore < fixture.raceTo) {
+      throw new ApiError(400, `Neither side has reached the race target (${fixture.raceTo}) yet`);
+    }
+    fixture.winnerPlayerId = fixture.homeFrameScore >= fixture.raceTo ? fixture.homePlayerId : fixture.awayPlayerId;
+    fixture.status = 'pending_confirmation';
+    fixture.resultSubmittedAt = new Date().toISOString();
+    fixture.resultSubmittedBy = currentUser()?.id || null;
+    return fixture;
+  }),
+
+  confirmResult: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
+    const user = currentUser();
+    const isAway = division.entryType === 'doubles'
+      ? !!db.pairings.find((p) => p.id === fixture.awayPlayerId)?.playerIds.includes(user?.playerId)
+      : fixture.awayPlayerId === user?.playerId;
+    if (!user?.isAdmin && !isAway) throw new ApiError(403, 'Only the away side (or an admin) can confirm this result');
+    fixture.status = 'completed';
+    propagateWinner(division, fixture, fixture.winnerPlayerId);
+    const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+    propagateLoser(division, fixture, loserPlayerId);
+    checkGrandFinalReset(division, fixture);
+    return fixture;
+  }),
+
+  disputeResult: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
+    const user = currentUser();
+    const isAway = division.entryType === 'doubles'
+      ? !!db.pairings.find((p) => p.id === fixture.awayPlayerId)?.playerIds.includes(user?.playerId)
+      : fixture.awayPlayerId === user?.playerId;
+    if (!user?.isAdmin && !isAway) throw new ApiError(403, 'Only the away side (or an admin) can dispute this result');
+    fixture.status = 'disputed';
+    fixture.winnerPlayerId = null;
+    return fixture;
+  }),
+
+  adminReopenFixture: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    if (!['pending_confirmation', 'disputed'].includes(fixture.status)) {
+      throw new ApiError(400, 'Only a pending or disputed result can be reopened');
+    }
+    fixture.status = 'in_progress';
+    fixture.winnerPlayerId = null;
+    recordAudit(db, {
+      actor: adminLabel(), action: 'fixture.reopen', targetType: 'fixture', targetId: fixture.id,
+      details: 'Reopened a pending/disputed result for further scoring',
+    });
     return fixture;
   }),
 
@@ -1466,20 +1603,22 @@ export const demoApi = {
     if (leg.status === 'completed') {
       throw new ApiError(400, `This leg is already complete (${leg.homeFrameScore}-${leg.awayFrameScore}). Undo a frame to make corrections.`);
     }
+    if (leg.status === 'pending_confirmation') {
+      throw new ApiError(400, "This leg's result has already been submitted and is awaiting confirmation from the away side.");
+    }
+    if (leg.status === 'disputed') {
+      throw new ApiError(400, "This leg's result is disputed - an admin needs to resolve it (Game Adjustments) before more frames can be recorded.");
+    }
     if (![leg.homePlayerId, leg.awayPlayerId].includes(winnerPlayerId)) {
       throw new ApiError(400, 'winnerPlayerId must be one of the two nominated players for this leg');
+    }
+    if (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo) {
+      throw new ApiError(400, `This leg's race target (${leg.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
     }
     leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId });
     leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
     leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
     leg.status = 'in_progress';
-    if (leg.homeFrameScore >= leg.raceTo) {
-      leg.status = 'completed';
-      leg.winnerPlayerId = leg.homePlayerId;
-    } else if (leg.awayFrameScore >= leg.raceTo) {
-      leg.status = 'completed';
-      leg.winnerPlayerId = leg.awayPlayerId;
-    }
     recomputeTeamFixture(division, fixture);
     return fixture;
   }),
@@ -1494,12 +1633,70 @@ export const demoApi = {
     if (fixture.resetFixtureId) {
       throw new ApiError(400, 'This Grand Final result already triggered a bracket-reset decider and cannot be undone here');
     }
+    if (leg.status === 'pending_confirmation' || leg.status === 'disputed') {
+      throw new ApiError(400, "This leg's result is awaiting confirmation or is disputed - an admin needs to reopen it (Game Adjustments) before frames can be undone");
+    }
     leg.frames.pop();
     leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
     leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
     leg.winnerPlayerId = null;
     leg.status = leg.frames.length === 0 ? 'scheduled' : 'in_progress';
     recomputeTeamFixture(division, fixture);
+    return fixture;
+  }),
+
+  // ---- Result confirmation (team legs) - mirrors the singles version above. ----
+  submitLegResult: op((fixtureId, legNumber) => {
+    const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
+    if (leg.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress leg can be submitted for confirmation');
+    if (leg.homeFrameScore < leg.raceTo && leg.awayFrameScore < leg.raceTo) {
+      throw new ApiError(400, `Neither side has reached this leg's race target (${leg.raceTo}) yet`);
+    }
+    leg.winnerPlayerId = leg.homeFrameScore >= leg.raceTo ? leg.homePlayerId : leg.awayPlayerId;
+    leg.status = 'pending_confirmation';
+    return fixture;
+  }),
+
+  confirmLegResult: op((fixtureId, legNumber) => {
+    const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
+    const user = currentUser();
+    if (!user?.isAdmin && leg.awayPlayerId !== user?.playerId) {
+      throw new ApiError(403, 'Only the away-team nominated player (or an admin) can confirm this leg');
+    }
+    leg.status = 'completed';
+    recomputeTeamFixture(division, fixture);
+    return fixture;
+  }),
+
+  disputeLegResult: op((fixtureId, legNumber) => {
+    const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
+    const user = currentUser();
+    if (!user?.isAdmin && leg.awayPlayerId !== user?.playerId) {
+      throw new ApiError(403, 'Only the away-team nominated player (or an admin) can dispute this leg');
+    }
+    leg.status = 'disputed';
+    leg.winnerPlayerId = null;
+    recomputeTeamFixture(division, fixture);
+    return fixture;
+  }),
+
+  adminReopenLeg: op((fixtureId, legNumber) => {
+    const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    if (!['pending_confirmation', 'disputed'].includes(leg.status)) {
+      throw new ApiError(400, 'Only a pending or disputed leg can be reopened');
+    }
+    leg.status = 'in_progress';
+    leg.winnerPlayerId = null;
+    recomputeTeamFixture(division, fixture);
+    recordAudit(db, {
+      actor: adminLabel(), action: 'fixture.leg_reopen', targetType: 'fixture', targetId: fixture.id,
+      details: `Reopened Leg ${leg.legNumber} for further scoring`,
+    });
     return fixture;
   }),
 
