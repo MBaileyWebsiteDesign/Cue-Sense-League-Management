@@ -361,42 +361,6 @@ function propagateWinner(division, fixture, winnerId) {
   }
 }
 
-function propagateLoser(division, fixture, loserId) {
-  if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
-  const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
-  if (!dest) return;
-  if (division.entryType === 'teams') {
-    if (fixture.loserNextFixtureSlot === 'home') dest.homeTeamId = loserId;
-    else dest.awayTeamId = loserId;
-  } else if (fixture.loserNextFixtureSlot === 'home') {
-    dest.homePlayerId = loserId;
-  } else {
-    dest.awayPlayerId = loserId;
-  }
-}
-
-function checkGrandFinalReset(division, fixture) {
-  if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
-  const isTeams = division.entryType === 'teams';
-  const winnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
-  const awayId = isTeams ? fixture.awayTeamId : fixture.awayPlayerId;
-  if (!winnerId || winnerId !== awayId) return;
-
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  const makeFixture = isTeams ? makeTeamFixture : makeSinglesFixture;
-  const reset = makeFixture({ league, division, round: fixture.round + 1 });
-  reset.bracketRole = 'grand_final_reset';
-  if (isTeams) {
-    reset.homeTeamId = fixture.homeTeamId;
-    reset.awayTeamId = fixture.awayTeamId;
-  } else {
-    reset.homePlayerId = fixture.homePlayerId;
-    reset.awayPlayerId = fixture.awayPlayerId;
-  }
-  db.fixtures.push(reset);
-  fixture.resetFixtureId = reset.id;
-}
-
 function generateKnockoutFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const bracketRounds = buildBracketRounds(entrantIds);
@@ -433,6 +397,51 @@ function generateKnockoutFixtures({ league, division, entrantIds }) {
 // into its assigned losers-bracket slot (mirrors propagateWinner). No-op for
 // anything other than a winners-bracket fixture - a losers-bracket loss is
 // simply an elimination, nowhere further to go.
+function propagateLoser(division, fixture, loserId) {
+  if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
+  const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
+  if (!dest) return;
+  if (division.entryType === 'teams') {
+    if (fixture.loserNextFixtureSlot === 'home') dest.homeTeamId = loserId;
+    else dest.awayTeamId = loserId;
+  } else if (fixture.loserNextFixtureSlot === 'home') {
+    dest.homePlayerId = loserId;
+  } else {
+    dest.awayPlayerId = loserId;
+  }
+}
+
+// Double-elimination only: the losers-bracket champion enters the Grand
+// Final with one life already spent, the winners-bracket champion with
+// none - so if the losers-bracket entrant (always the "away" slot - see
+// generateDoubleElimFixtures) wins the Grand Final, a single decider
+// ("bracket reset") is required to settle the title. No-op once a reset has
+// already been created, or if the winners-bracket (home) side won outright.
+function checkGrandFinalReset(division, fixture) {
+  if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
+  const isTeams = division.entryType === 'teams';
+  const winnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
+  const awayId = isTeams ? fixture.awayTeamId : fixture.awayPlayerId;
+  if (!winnerId || winnerId !== awayId) return;
+
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  const makeFixture = isTeams ? makeTeamFixture : makeSinglesFixture;
+  const reset = makeFixture({ league, division, round: fixture.round + 1 });
+  reset.bracketRole = 'grand_final_reset';
+  if (isTeams) {
+    reset.homeTeamId = fixture.homeTeamId;
+    reset.awayTeamId = fixture.awayTeamId;
+  } else {
+    reset.homePlayerId = fixture.homePlayerId;
+    reset.awayPlayerId = fixture.awayPlayerId;
+  }
+  db.fixtures.push(reset);
+  fixture.resetFixtureId = reset.id;
+}
+
+// Double-elimination fixture generation - see server/src/index.js's
+// generateDoubleElimFixtures for the full design notes (this is a direct
+// port, adapted only for demoApi's closed-over `db` instead of a db param).
 function generateDoubleElimFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds);
@@ -582,6 +591,9 @@ export const demoApi = {
   login: op((email, password) => {
     const normalizedEmail = (email || '').trim().toLowerCase();
     const user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+    // Real passwords aren't part of the bundled demo data (nothing to check
+    // them against), so any password is accepted for a known demo account -
+    // this is a public, throwaway playground, not a real login boundary.
     if (!user) throw new ApiError(401, 'Invalid email or password');
     if (user.status === 'suspended') throw new ApiError(403, 'This account has been suspended');
     setCurrentUser(user.id);
@@ -597,6 +609,9 @@ export const demoApi = {
     const user = db.users.find((u) => u.id === reset.userId);
     if (!user) throw new ApiError(404, 'Account not found');
     reset.usedAt = new Date().toISOString();
+    // Demo mode never checks password hashes at login (see login() below),
+    // so there's nothing real to update here - the reset flow itself (token
+    // validity, single-use, expiry) still works exactly like the real app.
     return { ok: true };
   }),
 
@@ -718,6 +733,60 @@ export const demoApi = {
     });
     enriched.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || b.round - a.round);
     return enriched;
+  }),
+
+  // Powers the Game Adjustments "Needs Attention" list - mirrors the server's
+  // GET /api/admin/fixtures/needs-attention (see that route for design notes).
+  adminGetFixturesNeedingAttention: op(() => {
+    const NEEDS_ATTENTION = ['pending_confirmation', 'disputed'];
+    const results = [];
+    for (const f of db.fixtures) {
+      const division = db.divisions.find((d) => d.id === f.divisionId);
+      const league = db.leagues.find((l) => l.id === f.leagueId);
+      if (f.legs) {
+        const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+        const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
+        for (const leg of f.legs) {
+          if (!NEEDS_ATTENTION.includes(leg.status)) continue;
+          results.push({
+            fixtureId: f.id,
+            legNumber: leg.legNumber,
+            leagueName: league?.name,
+            divisionName: division?.name,
+            round: f.round,
+            status: leg.status,
+            label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
+            scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+          });
+        }
+        continue;
+      }
+      if (!NEEDS_ATTENTION.includes(f.status)) continue;
+      const isDoubles = division?.entryType === 'doubles';
+      const homeName = isDoubles
+        ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
+        : db.players.find((p) => p.id === f.homePlayerId)?.name;
+      const awayName = isDoubles
+        ? db.pairings.find((p) => p.id === f.awayPlayerId)?.name
+        : db.players.find((p) => p.id === f.awayPlayerId)?.name;
+      results.push({
+        fixtureId: f.id,
+        legNumber: null,
+        leagueName: league?.name,
+        divisionName: division?.name,
+        round: f.round,
+        status: f.status,
+        label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
+        scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+      });
+    }
+    const STATUS_ORDER = { disputed: 0, pending_confirmation: 1 };
+    results.sort((a, b) =>
+      STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+      (a.leagueName || '').localeCompare(b.leagueName || '') ||
+      a.round - b.round
+    );
+    return results;
   }),
 
   adminListUsers: op((q = '') => {
