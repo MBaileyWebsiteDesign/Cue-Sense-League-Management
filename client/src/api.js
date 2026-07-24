@@ -60,6 +60,7 @@ const networkApi = {
 
   // Admin: Game Adjustments
   adminGetPlayerFixtures: (playerId) => request(`/admin/players/${playerId}/fixtures`),
+  adminGetFixturesNeedingAttention: () => request('/admin/fixtures/needs-attention'),
   adminReopenFixture: (fixtureId) => request(`/fixtures/${fixtureId}/reopen`, { method: 'POST' }),
   adminReopenLeg: (fixtureId, legNumber) => request(`/fixtures/${fixtureId}/legs/${legNumber}/reopen`, { method: 'POST' }),
 

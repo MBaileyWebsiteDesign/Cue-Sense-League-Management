@@ -89,9 +89,20 @@ export default function GameAdjustments() {
   const [error, setError] = useState('');
   const [banner, setBanner] = useState('');
   const [loadingFixtures, setLoadingFixtures] = useState(false);
+  const [needsAttention, setNeedsAttention] = useState([]);
+  const [loadingAttention, setLoadingAttention] = useState(true);
+
+  const loadNeedsAttention = () => {
+    setLoadingAttention(true);
+    api.adminGetFixturesNeedingAttention()
+      .then(setNeedsAttention)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoadingAttention(false));
+  };
 
   useEffect(() => {
     api.getRegisteredPlayers().then(setPlayers).catch((e) => setError(e.message));
+    loadNeedsAttention();
   }, []);
 
   const filteredPlayers = useMemo(() => {
@@ -128,6 +139,16 @@ export default function GameAdjustments() {
     }
   };
 
+  // Jumping straight to a fixture from the Needs Attention list - clears any
+  // in-progress player search so step 2's fixture list (which is scoped to
+  // whichever player was searched for) doesn't linger stale on screen.
+  const resolveDirectly = (fixtureId) => {
+    setSelectedPlayerId('');
+    setQuery('');
+    setPlayerFixtures([]);
+    loadFixture(fixtureId);
+  };
+
   const isTeams = selectedFixture ? Array.isArray(selectedFixture.legs) : false;
 
   return (
@@ -142,7 +163,44 @@ export default function GameAdjustments() {
       {banner && <p className="banner banner-success">{banner}</p>}
 
       <section className="card">
-        <h2>1. Find a player</h2>
+        <h2>Needs Attention</h2>
+        <p className="muted">
+          Every result currently disputed or awaiting confirmation, across every league - resolve one
+          directly here without searching for the player first.
+        </p>
+        {loadingAttention ? (
+          <p>Loading…</p>
+        ) : needsAttention.length === 0 ? (
+          <p className="muted">Nothing needs attention right now.</p>
+        ) : (
+          <ul className="fixture-list">
+            {needsAttention.map((item) => (
+              <li key={`${item.fixtureId}-${item.legNumber ?? 'main'}`}>
+                {item.legNumber ? (
+                  <Link to={`/fixtures/${item.fixtureId}`} style={{ flex: 1 }}>
+                    {item.label} <strong>{item.scoreLabel}</strong>
+                    <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
+                  </Link>
+                ) : (
+                  <button className="btn" style={{ width: '100%', textAlign: 'left' }} onClick={() => resolveDirectly(item.fixtureId)}>
+                    {item.label} <strong>{item.scoreLabel}</strong>
+                    <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
+                  </button>
+                )}
+                <span className={`status status-${item.status}`}>{item.status.replace('_', ' ')}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {needsAttention.some((item) => !!item.legNumber) && (
+          <p className="muted" style={{ fontSize: '0.85rem', marginTop: 8 }}>
+            Team-fixture legs open on that fixture's own page - reopen or override an individual leg from there.
+          </p>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Or search: 1. Find a player</h2>
         <input
           type="text"
           placeholder="Search by name…"
@@ -199,7 +257,7 @@ export default function GameAdjustments() {
           <OverrideForm
             fixture={selectedFixture}
             isTeams={isTeams}
-            onChange={() => loadFixture(selectedFixture.id)}
+            onChange={() => { loadFixture(selectedFixture.id); loadNeedsAttention(); }}
             setBanner={setBanner}
           />
         </section>
