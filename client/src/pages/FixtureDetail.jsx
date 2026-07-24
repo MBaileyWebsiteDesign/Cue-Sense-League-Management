@@ -3,6 +3,70 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useIsAdminSession } from '../useAdminSession.js';
+import { useAuth } from '../AuthContext.jsx';
+
+// Shared "submitted, awaiting confirmation / disputed" banner + action
+// buttons for a result that's reached the submit -> confirm handshake (see
+// server/src/index.js's "Result confirmation" section for the full design).
+// `canDecide` is true for the away-side entrant or an admin - only they can
+// confirm or dispute; everyone else just sees the status.
+function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDispute, onReopen, homeLabel, awayLabel }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const run = async (fn) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (status === 'pending_confirmation') {
+    return (
+      <section className="card">
+        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+          {homeLabel} submitted this result - awaiting confirmation from {awayLabel}.
+        </p>
+        {error && <p className="error">{error}</p>}
+        {canDecide ? (
+          <div className="inline-form">
+            <button className="btn btn-primary" disabled={busy} onClick={() => run(onConfirm)}>Confirm Result</button>
+            <button className="btn" disabled={busy} onClick={() => run(onDispute)}>Dispute Result</button>
+          </div>
+        ) : (
+          <p className="muted">Waiting on {awayLabel} to confirm or dispute this result.</p>
+        )}
+        {isAdmin && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            <button className="btn" disabled={busy} onClick={() => run(onReopen)}>Reopen for scoring</button>
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  if (status === 'disputed') {
+    return (
+      <section className="card">
+        <p className="banner" style={{ background: '#fee2e2', color: '#991b1b' }}>
+          {awayLabel} disputed this result - an admin needs to resolve it, either by overriding the
+          score directly or reopening it for further scoring. See <Link to="/admin/game-adjustments">Game Adjustments</Link>.
+        </p>
+        {error && <p className="error">{error}</p>}
+        {isAdmin && (
+          <button className="btn" disabled={busy} onClick={() => run(onReopen)}>Reopen for scoring</button>
+        )}
+      </section>
+    );
+  }
+
+  return null;
+}
 
 function AdminOverridePanel({ fixture, isTeams, isDoubles, onChange }) {
   const homeName = isTeams ? fixture.homeTeam?.name : isDoubles ? fixture.homePairing?.name : fixture.homePlayer?.name;
@@ -135,7 +199,11 @@ function LegNominationForm({ fixture, leg, onChange, setError }) {
 }
 
 function LegRow({ fixture, leg, onChange, setError }) {
+  const { user, isAdmin } = useAuth();
   const complete = leg.status === 'completed';
+  const locked = complete || leg.status === 'pending_confirmation' || leg.status === 'disputed';
+  const raceTargetReached = leg.status === 'in_progress' && (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo);
+  const isAwayNominee = user?.playerId === leg.awayPlayerId;
 
   const onRecord = async (winnerPlayerId) => {
     setError('');
@@ -151,6 +219,16 @@ function LegRow({ fixture, leg, onChange, setError }) {
     setError('');
     try {
       await api.undoLastLegFrame(fixture.id, leg.legNumber);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const onSubmitResult = async () => {
+    setError('');
+    try {
+      await api.submitLegResult(fixture.id, leg.legNumber);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -174,7 +252,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
             <div className="scoreboard-player">
               <h2><Link to={`/players/${leg.homePlayerId}`}>{leg.homePlayer.name}</Link></h2>
               <div className="score">{leg.homeFrameScore}</div>
-              <button className="btn btn-primary" disabled={complete} onClick={() => onRecord(leg.homePlayerId)}>
+              <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.homePlayerId)}>
                 Frame won
               </button>
             </div>
@@ -182,17 +260,37 @@ function LegRow({ fixture, leg, onChange, setError }) {
             <div className="scoreboard-player">
               <h2><Link to={`/players/${leg.awayPlayerId}`}>{leg.awayPlayer.name}</Link></h2>
               <div className="score">{leg.awayFrameScore}</div>
-              <button className="btn btn-primary" disabled={complete} onClick={() => onRecord(leg.awayPlayerId)}>
+              <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.awayPlayerId)}>
                 Frame won
               </button>
             </div>
           </div>
           <div className="page-header">
             <span className="muted">Race to {leg.raceTo}</span>
-            <button className="btn" disabled={leg.frames.length === 0} onClick={onUndo}>
+            <button className="btn" disabled={leg.frames.length === 0 || locked} onClick={onUndo}>
               Undo last frame
             </button>
           </div>
+
+          {raceTargetReached && (
+            <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+              Race to {leg.raceTo} reached ({leg.homeFrameScore}-{leg.awayFrameScore}).{' '}
+              <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
+                Submit for Confirmation
+              </button>
+            </p>
+          )}
+
+          <ResultConfirmationPanel
+            status={leg.status}
+            canDecide={isAdmin || isAwayNominee}
+            isAdmin={isAdmin}
+            homeLabel={leg.homePlayer.name}
+            awayLabel={leg.awayPlayer.name}
+            onConfirm={async () => { await api.confirmLegResult(fixture.id, leg.legNumber); onChange(); }}
+            onDispute={async () => { await api.disputeLegResult(fixture.id, leg.legNumber); onChange(); }}
+            onReopen={async () => { await api.adminReopenLeg(fixture.id, leg.legNumber); onChange(); }}
+          />
         </>
       )}
     </div>
@@ -255,9 +353,18 @@ function TeamFixtureView({ fixture, onChange, setError }) {
 // identical (one continuous frame race, no legs), differing only in what
 // the "entrant" is and whether it links to a player profile page.
 function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
+  const { user, isAdmin } = useAuth();
   const complete = fixture.status === 'completed';
+  // Scoring is locked once a result has been submitted (pending_confirmation)
+  // or disputed - only "Submit for Confirmation" / Confirm / Dispute /
+  // Reopen apply from that point on, not more frames.
+  const locked = complete || fixture.status === 'pending_confirmation' || fixture.status === 'disputed';
+  const raceTargetReached = fixture.status === 'in_progress' && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo);
   const homeEntrant = isDoubles ? fixture.homePairing : fixture.homePlayer;
   const awayEntrant = isDoubles ? fixture.awayPairing : fixture.awayPlayer;
+  const isAwayEntrant = isDoubles
+    ? !!(user?.playerId && awayEntrant?.players?.some((p) => p.id === user.playerId))
+    : user?.playerId === fixture.awayPlayerId;
 
   const EntrantName = ({ entrant, id }) => {
     if (!entrant) return 'TBD';
@@ -311,13 +418,23 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
     }
   };
 
+  const onSubmitResult = async () => {
+    setError('');
+    try {
+      await api.submitResult(fixture.id);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
     <div>
       <section className="card scoreboard">
         <div className="scoreboard-player">
           <h2><EntrantName entrant={homeEntrant} id={fixture.homePlayerId} /></h2>
           <div className="score">{fixture.homeFrameScore}</div>
-          <button className="btn btn-primary" disabled={complete} onClick={() => onRecord(fixture.homePlayerId)}>
+          <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.homePlayerId)}>
             Frame won by {homeEntrant.name}
           </button>
         </div>
@@ -325,11 +442,31 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
         <div className="scoreboard-player">
           <h2><EntrantName entrant={awayEntrant} id={fixture.awayPlayerId} /></h2>
           <div className="score">{fixture.awayFrameScore}</div>
-          <button className="btn btn-primary" disabled={complete} onClick={() => onRecord(fixture.awayPlayerId)}>
+          <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.awayPlayerId)}>
             Frame won by {awayEntrant.name}
           </button>
         </div>
       </section>
+
+      {raceTargetReached && (
+        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+          Race to {fixture.raceTo} reached ({fixture.homeFrameScore}-{fixture.awayFrameScore}).{' '}
+          <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
+            Submit for Confirmation
+          </button>
+        </p>
+      )}
+
+      <ResultConfirmationPanel
+        status={fixture.status}
+        canDecide={isAdmin || isAwayEntrant}
+        isAdmin={isAdmin}
+        homeLabel={homeEntrant.name}
+        awayLabel={awayEntrant.name}
+        onConfirm={async () => { await api.confirmResult(fixture.id); onChange(); }}
+        onDispute={async () => { await api.disputeResult(fixture.id); onChange(); }}
+        onReopen={async () => { await api.adminReopenFixture(fixture.id); onChange(); }}
+      />
 
       {complete && (
         <p className="banner banner-success">
@@ -340,7 +477,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
       <section className="card">
         <div className="page-header">
           <h2>Frame history</h2>
-          <button className="btn" disabled={fixture.frames.length === 0} onClick={onUndo}>
+          <button className="btn" disabled={fixture.frames.length === 0 || locked} onClick={onUndo}>
             Undo last frame
           </button>
         </div>
