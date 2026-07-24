@@ -361,8 +361,7 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
 //   `Pairing` and play alternate-shot as a single side - structurally a
 //   Pairing is just a named group of players like a Team, but a doubles/
 //   triples fixture is scored exactly like a singles fixture: one continuous
-//   frame race, no legs, `homePlayerId`/`awayPlayerId` just hold a Pairing id
-//   instead of a Player id - see the "Pairings" section below)
+//   frame race, no legs - see the "Pairings" section below)
 // - scheduling: "round_robin_single" (default - everyone plays everyone once),
 //   "knockout_single_elim" (single-elimination bracket, byes if the entrant
 //   count isn't a power of 2), or "knockout_double_elim" (winners bracket +
@@ -525,6 +524,69 @@ app.get('/api/admin/players/:playerId/fixtures', requireAdmin, asyncRoute((req, 
 
   enriched.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || b.round - a.round);
   res.json(enriched);
+}));
+
+// Powers the Game Adjustments page's "Needs Attention" list - every
+// pending_confirmation/disputed result across the whole app, so an admin can
+// jump straight to resolving one without first knowing (and searching for)
+// which player it involves. Scans both fixture-level status (singles/
+// doubles) and leg-level status (team fixtures, since an individual leg can
+// be disputed while the overall team match is still in_progress).
+app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const NEEDS_ATTENTION = ['pending_confirmation', 'disputed'];
+  const results = [];
+
+  for (const f of db.fixtures) {
+    const division = db.divisions.find((d) => d.id === f.divisionId);
+    const league = db.leagues.find((l) => l.id === f.leagueId);
+
+    if (f.legs) {
+      const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+      const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
+      for (const leg of f.legs) {
+        if (!NEEDS_ATTENTION.includes(leg.status)) continue;
+        results.push({
+          fixtureId: f.id,
+          legNumber: leg.legNumber,
+          leagueName: league?.name,
+          divisionName: division?.name,
+          round: f.round,
+          status: leg.status,
+          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
+          scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+        });
+      }
+      continue;
+    }
+
+    if (!NEEDS_ATTENTION.includes(f.status)) continue;
+    const isDoubles = division?.entryType === 'doubles';
+    const homeName = isDoubles
+      ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
+      : db.players.find((p) => p.id === f.homePlayerId)?.name;
+    const awayName = isDoubles
+      ? db.pairings.find((p) => p.id === f.awayPlayerId)?.name
+      : db.players.find((p) => p.id === f.awayPlayerId)?.name;
+    results.push({
+      fixtureId: f.id,
+      legNumber: null,
+      leagueName: league?.name,
+      divisionName: division?.name,
+      round: f.round,
+      status: f.status,
+      label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
+      scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+    });
+  }
+
+  const STATUS_ORDER = { disputed: 0, pending_confirmation: 1 };
+  results.sort((a, b) =>
+    STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+    (a.leagueName || '').localeCompare(b.leagueName || '') ||
+    a.round - b.round
+  );
+  res.json(results);
 }));
 
 app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
