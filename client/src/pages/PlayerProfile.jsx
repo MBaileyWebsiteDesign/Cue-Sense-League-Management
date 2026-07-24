@@ -2,11 +2,161 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import { useIsAdminSession } from '../useAdminSession.js';
+import VenueSelect from '../components/VenueSelect.jsx';
+
+const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
+
+// Admin-only panel shown above Career - lets an admin edit the account
+// linked to this player (name/email/phone/venue/team/classification, reusing
+// the same PATCH /api/admin/users/:id route as the Manage Users edit screen)
+// without leaving the stats page, plus a read-only list of the leagues this
+// player is currently registered in ("League" context) and a button to
+// generate a password reset link. Not every Player has a linked account
+// (older seed/demo rows can be bare names with no registered user) - in that
+// case there's nothing to edit here, so the panel just says so.
+function AdminAccountPanel({ playerId, divisions }) {
+  const [linkedUser, setLinkedUser] = useState(undefined); // undefined = loading, null = none
+  const [form, setForm] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [resetLink, setResetLink] = useState(null);
+  const [sendingReset, setSendingReset] = useState(false);
+
+  useEffect(() => {
+    setLinkedUser(undefined);
+    setResetLink(null);
+    api.adminGetUserByPlayer(playerId).then(({ user }) => {
+      setLinkedUser(user);
+      if (user) {
+        setForm({
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone || '',
+          venue: user.venue,
+          teamName: user.teamName,
+          classification: user.classification || '',
+        });
+      }
+    }).catch((e) => setError(e.message));
+  }, [playerId]);
+
+  if (linkedUser === undefined) return null; // still loading - avoid a flash of "no account"
+
+  if (!linkedUser) {
+    return (
+      <section className="card">
+        <h2>Admin: Account Details</h2>
+        <p className="muted">
+          This player isn't linked to a registered user account (common for older seed
+          data), so there's nothing to edit here.
+        </p>
+      </section>
+    );
+  }
+
+  const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setSubmitting(true);
+    try {
+      const updated = await api.adminUpdateUser(linkedUser.id, { ...form, classification: form.classification || null });
+      setLinkedUser(updated);
+      setSuccess('Account details updated.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onSendResetLink = async () => {
+    setError('');
+    setSuccess('');
+    setSendingReset(true);
+    try {
+      const result = await api.adminSendResetLink(linkedUser.id);
+      setResetLink(result.resetLink);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
+  return (
+    <section className="card form">
+      <h2>Admin: Account Details</h2>
+      <p className="muted">
+        Editing the registered account linked to this player. <Link to={`/admin/users/${linkedUser.id}`}>Open in Manage Users</Link>
+      </p>
+      {error && <p className="error">{error}</p>}
+      {success && <p className="banner banner-success">{success}</p>}
+
+      <form onSubmit={onSubmit}>
+        <label>First name<input value={form.firstName} onChange={set('firstName')} required /></label>
+        <label>Last name<input value={form.lastName} onChange={set('lastName')} required /></label>
+        <label>Email<input type="email" value={form.email} onChange={set('email')} required /></label>
+        <label>Phone <span className="muted">(optional)</span><input type="tel" value={form.phone} onChange={set('phone')} /></label>
+        <label>Venue<VenueSelect value={form.venue} onChange={(name) => setForm({ ...form, venue: name })} /></label>
+        <label>Team name<input value={form.teamName} onChange={set('teamName')} required /></label>
+        <label>
+          Classification <span className="muted">(optional)</span>
+          <select value={form.classification} onChange={set('classification')}>
+            <option value="">Not set</option>
+            {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label>
+          League(s)
+          {divisions.length === 0 ? (
+            <p className="muted" style={{ marginTop: 4 }}>Not currently registered in any league/division.</p>
+          ) : (
+            <p className="muted" style={{ marginTop: 4 }}>
+              {divisions.map((d, i) => (
+                <span key={d.id}>
+                  {i > 0 && ', '}
+                  <Link to={`/divisions/${d.id}`}>{d.leagueName ? `${d.leagueName} - ` : ''}{d.name}</Link>
+                </span>
+              ))}
+            </p>
+          )}
+        </label>
+        <button className="btn btn-primary" type="submit" disabled={submitting}>
+          {submitting ? 'Saving…' : 'Save Account Details'}
+        </button>
+      </form>
+
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border, #333)' }}>
+        <p className="muted">
+          To change this player's password, send them a reset link rather than setting one
+          directly - they'll use it to choose their own new password.
+        </p>
+        <button className="btn" type="button" onClick={onSendResetLink} disabled={sendingReset}>
+          {sendingReset ? 'Generating…' : 'Send Password Reset Link'}
+        </button>
+        {resetLink && (
+          <p className="banner banner-success" style={{ marginTop: 8, wordBreak: 'break-all' }}>
+            Reset link generated (expires in 1 hour) - copy and send this to {linkedUser.email}:
+            <br />
+            <code>{resetLink}</code>
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export default function PlayerProfile() {
   const { playerId } = useParams();
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
+  const isAdmin = useIsAdminSession();
 
   useEffect(() => {
     api.getPlayerProfile(playerId).then(setProfile).catch((e) => setError(e.message));
@@ -28,6 +178,8 @@ export default function PlayerProfile() {
     <div>
       <h1>{profile.name}</h1>
       <p className="muted">Career record across every league and division</p>
+
+      {isAdmin && <AdminAccountPanel playerId={profile.id} divisions={profile.divisions || []} />}
 
       <section className="card">
         <h2>Career</h2>
