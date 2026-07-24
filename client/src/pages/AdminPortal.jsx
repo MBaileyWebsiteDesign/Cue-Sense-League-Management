@@ -15,7 +15,7 @@ export default function AdminPortal() {
       <h1>Admin Portal</h1>
       <p className="muted">
         Manage accounts, venues, and whole seasons from here. Score corrections for a
-        specific match are on that match's own page.
+        specific match are on that match's own page, or search for one directly below.
       </p>
 
       <div className="card-grid">
@@ -49,6 +49,14 @@ export default function AdminPortal() {
           <p className="muted">
             Approve or reject venues players have typed in that aren't already on the
             shared list.
+          </p>
+        </Link>
+
+        <Link to="/admin/game-adjustments" className="card card-link">
+          <h2>Game Adjustments</h2>
+          <p className="muted">
+            Search for a player, pick one of their fixtures, and directly override or reopen
+            the result - the tool a "Result disputed" banner points you at.
           </p>
         </Link>
 

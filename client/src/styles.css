@@ -255,6 +255,8 @@ h2 { margin-top: 0; }
 
 .status-completed { background: #d1fae5; color: #065f46; }
 .status-in_progress { background: #fef3c7; color: #92400e; }
+.status-pending_confirmation { background: #dbeafe; color: #1e40af; }
+.status-disputed { background: #fee2e2; color: #991b1b; }
 
 .scoreboard {
   display: flex;

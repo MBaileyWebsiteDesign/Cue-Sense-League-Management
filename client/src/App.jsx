@@ -6,6 +6,8 @@ import FixtureDetail from './pages/FixtureDetail.jsx';
 import PlayerProfile from './pages/PlayerProfile.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
+import GameAdjustments from './pages/GameAdjustments.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
 import CaptainPortal from './pages/CaptainPortal.jsx';
 import AdminPortal from './pages/AdminPortal.jsx';
@@ -112,6 +114,7 @@ function AppShell() {
           <Route path="/" element={<RequireLogin><LeagueList /></RequireLogin>} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
           <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
           <Route path="/admin" element={<RequireAdmin><AdminPortal /></RequireAdmin>} />
@@ -119,6 +122,7 @@ function AppShell() {
           <Route path="/admin/users/:userId" element={<RequireAdmin><AdminUserEdit /></RequireAdmin>} />
           <Route path="/admin/audit-log" element={<RequireAdmin><AdminAuditLog /></RequireAdmin>} />
           <Route path="/admin/venues" element={<RequireAdmin><AdminVenues /></RequireAdmin>} />
+          <Route path="/admin/game-adjustments" element={<RequireAdmin><GameAdjustments /></RequireAdmin>} />
           <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
           <Route path="/leagues/:leagueId" element={<RequireLogin><LeagueDetail /></RequireLogin>} />
           <Route path="/divisions/:divisionId" element={<RequireLogin><DivisionDetail /></RequireLogin>} />
