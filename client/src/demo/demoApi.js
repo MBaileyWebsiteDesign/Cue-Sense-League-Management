@@ -598,6 +598,28 @@ function findTeamFixtureAndLeg(fixtureId, legNumber) {
   return { fixture, leg };
 }
 
+// Mirrors server/src/index.js's isAwayEntrant/isHomeEntrant - whether the
+// given playerId is (or is part of, for doubles pairings) the home/away side
+// of a singles or doubles fixture. Used by the mutual result-confirmation
+// and no-show-claim logic below.
+function isAwayEntrant(division, fixture, playerId) {
+  if (!playerId) return false;
+  if (division.entryType === 'doubles') {
+    const pairing = db.pairings.find((p) => p.id === fixture.awayPlayerId);
+    return !!pairing && pairing.playerIds.includes(playerId);
+  }
+  return fixture.awayPlayerId === playerId;
+}
+
+function isHomeEntrant(division, fixture, playerId) {
+  if (!playerId) return false;
+  if (division.entryType === 'doubles') {
+    const pairing = db.pairings.find((p) => p.id === fixture.homePlayerId);
+    return !!pairing && pairing.playerIds.includes(playerId);
+  }
+  return fixture.homePlayerId === playerId;
+}
+
 // Synchronous session lookup for AuthContext's initial state - there's no
 // server round-trip to await in demo mode, so a visitor is "logged in" the
 // instant the page loads rather than seeing a login screen first.
@@ -664,6 +686,26 @@ export const demoApi = {
   }),
 
   getMe: op(() => publicUser(currentUser())),
+
+  // Mirrors server/src/index.js's GET /api/users/me/leagues - static
+  // read-only league/division membership shown in the Player Portal's "Your
+  // Details" section.
+  getMyLeagueMembership: op(() => {
+    const user = currentUser();
+    if (!user || !user.playerId) return [];
+    const playerId = user.playerId;
+    const myTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
+    const myPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+    const divisions = db.divisions.filter((d) =>
+      (d.playerIds || []).includes(playerId) ||
+      (d.teamIds || []).some((id) => myTeamIds.includes(id)) ||
+      (d.pairingIds || []).some((id) => myPairingIds.includes(id))
+    );
+    return divisions.map((d) => {
+      const league = db.leagues.find((l) => l.id === d.leagueId);
+      return { leagueName: league?.name || 'Unknown league', divisionName: d.name };
+    });
+  }),
 
   updateMe: op((data) => {
     const user = currentUser();
@@ -737,16 +779,22 @@ export const demoApi = {
 
       if (f.legs) {
         const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+        const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
         for (const leg of f.legs) {
-          if (leg.status !== 'pending_confirmation' || leg.awayPlayerId !== playerId) continue;
-          const homePlayer = db.players.find((p) => p.id === leg.homePlayerId);
+          if (leg.status !== 'pending_confirmation') continue;
+          const isHome = leg.homePlayerId === playerId;
+          const isAway = leg.awayPlayerId === playerId;
+          if (!isHome && !isAway) continue;
+          if (isHome && leg.homeConfirmed) continue;
+          if (isAway && leg.awayConfirmed) continue;
+          const opponentPlayer = db.players.find((p) => p.id === (isHome ? leg.awayPlayerId : leg.homePlayerId));
           results.push({
             fixtureId: f.id,
             legNumber: leg.legNumber,
             leagueName: league?.name,
             divisionName: division?.name,
             round: f.round,
-            opponentName: (homePlayer ? homePlayer.name : null) || (homeTeam ? homeTeam.name : 'TBD'),
+            opponentName: opponentPlayer?.name || (isHome ? awayTeam?.name : homeTeam?.name) || 'TBD',
             scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
           });
         }
@@ -754,21 +802,23 @@ export const demoApi = {
       }
 
       if (f.status !== 'pending_confirmation') continue;
-      const isAway = division?.entryType === 'doubles'
-        ? !!db.pairings.find((p) => p.id === f.awayPlayerId)?.playerIds.includes(playerId)
-        : f.awayPlayerId === playerId;
-      if (!isAway) continue;
       const isDoubles = division?.entryType === 'doubles';
-      const homeName = isDoubles
-        ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
-        : db.players.find((p) => p.id === f.homePlayerId)?.name;
+      const isHome = isHomeEntrant(division, f, playerId);
+      const isAway = isAwayEntrant(division, f, playerId);
+      if (!isHome && !isAway) continue;
+      if (isHome && f.homeConfirmed) continue;
+      if (isAway && f.awayConfirmed) continue;
+      const opponentId = isHome ? f.awayPlayerId : f.homePlayerId;
+      const opponentName = isDoubles
+        ? db.pairings.find((p) => p.id === opponentId)?.name
+        : db.players.find((p) => p.id === opponentId)?.name;
       results.push({
         fixtureId: f.id,
         legNumber: null,
         leagueName: league?.name,
         divisionName: division?.name,
         round: f.round,
-        opponentName: homeName || 'TBD',
+        opponentName: opponentName || 'TBD',
         scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
         submittedAt: f.resultSubmittedAt || null,
       });
@@ -844,6 +894,7 @@ export const demoApi = {
             label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
             scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
             disputeReason: leg.disputeReason || null,
+            noShowClaim: leg.noShowClaim || null,
           });
         }
         continue;
@@ -866,6 +917,7 @@ export const demoApi = {
         label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
         scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
         disputeReason: f.disputeReason || null,
+        noShowClaim: f.noShowClaim || null,
       });
     }
     const STATUS_ORDER = { disputed: 0, pending_confirmation: 1 };
@@ -1706,6 +1758,8 @@ export const demoApi = {
     }
     fixture.winnerPlayerId = fixture.homeFrameScore >= fixture.raceTo ? fixture.homePlayerId : fixture.awayPlayerId;
     fixture.status = 'pending_confirmation';
+    fixture.homeConfirmed = false;
+    fixture.awayConfirmed = false;
     fixture.resultSubmittedAt = new Date().toISOString();
     fixture.resultSubmittedBy = currentUser()?.id || null;
     return fixture;
@@ -1720,15 +1774,25 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
-    const isAway = division.entryType === 'doubles'
-      ? !!db.pairings.find((p) => p.id === fixture.awayPlayerId)?.playerIds.includes(user?.playerId)
-      : fixture.awayPlayerId === user?.playerId;
-    if (!user?.isAdmin && !isAway) throw new ApiError(403, 'Only the away side (or an admin) can confirm this result');
-    fixture.status = 'completed';
-    propagateWinner(division, fixture, fixture.winnerPlayerId);
-    const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
-    propagateLoser(division, fixture, loserPlayerId);
-    checkGrandFinalReset(division, fixture);
+    const isHome = isHomeEntrant(division, fixture, user?.playerId);
+    const isAway = isAwayEntrant(division, fixture, user?.playerId);
+    if (!user?.isAdmin && !isHome && !isAway) {
+      throw new ApiError(403, 'Only a player in this fixture (or an admin) can confirm this result');
+    }
+    if (user?.isAdmin) {
+      fixture.homeConfirmed = true;
+      fixture.awayConfirmed = true;
+    } else {
+      if (isHome) fixture.homeConfirmed = true;
+      if (isAway) fixture.awayConfirmed = true;
+    }
+    if (fixture.homeConfirmed && fixture.awayConfirmed) {
+      fixture.status = 'completed';
+      propagateWinner(division, fixture, fixture.winnerPlayerId);
+      const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+      propagateLoser(division, fixture, loserPlayerId);
+      checkGrandFinalReset(division, fixture);
+    }
     return fixture;
   }),
 
@@ -1741,10 +1805,11 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
-    const isAway = division.entryType === 'doubles'
-      ? !!db.pairings.find((p) => p.id === fixture.awayPlayerId)?.playerIds.includes(user?.playerId)
-      : fixture.awayPlayerId === user?.playerId;
-    if (!user?.isAdmin && !isAway) throw new ApiError(403, 'Only the away side (or an admin) can dispute this result');
+    const isHome = isHomeEntrant(division, fixture, user?.playerId);
+    const isAway = isAwayEntrant(division, fixture, user?.playerId);
+    if (!user?.isAdmin && !isHome && !isAway) {
+      throw new ApiError(403, 'Only a player in this fixture (or an admin) can dispute this result');
+    }
     if (!reason || !reason.trim()) throw new ApiError(400, 'A reason is required when disputing a result');
     fixture.status = 'disputed';
     fixture.winnerPlayerId = null;
@@ -1761,9 +1826,116 @@ export const demoApi = {
     fixture.status = 'in_progress';
     fixture.winnerPlayerId = null;
     fixture.disputeReason = null;
+    fixture.homeConfirmed = false;
+    fixture.awayConfirmed = false;
+    fixture.noShowClaim = null;
     recordAudit(db, {
       actor: adminLabel(), action: 'fixture.reopen', targetType: 'fixture', targetId: fixture.id,
       details: 'Reopened a pending/disputed result for further scoring',
+    });
+    return fixture;
+  }),
+
+  // ---- Non-contactable / No-Show claims - mirrors server/src/index.js's
+  // POST .../no-show and POST .../no-show/authorize (see that file for the
+  // full design note). ----
+  claimNoShow: op((fixtureId, legNumber) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    const user = currentUser();
+    if (!user?.isAdmin && !isRoundVisible(division, fixture.round)) {
+      throw new ApiError(403, "This round hasn't been released to players yet");
+    }
+    const claimantName = user ? `${user.firstName} ${user.lastName}` : 'A player';
+
+    if (legNumber !== undefined && legNumber !== null) {
+      const { leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
+      if (!['scheduled', 'in_progress'].includes(leg.status)) {
+        throw new ApiError(400, 'Only a leg with both players nominated, that has not yet been submitted, can be reported as a no-show');
+      }
+      const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
+      const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
+      if (!user?.isAdmin && !isHome && !isAway) {
+        throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can report a no-show');
+      }
+      const winnerPlayerId = isHome ? leg.homePlayerId : leg.awayPlayerId;
+      leg.status = 'disputed';
+      leg.winnerPlayerId = null;
+      leg.disputeReason = `${claimantName} reported the opponent as non-contactable / a no-show, and is claiming a 0-0 walkover win.`;
+      leg.noShowClaim = {
+        claimedBy: user?.id,
+        claimedByName: claimantName,
+        claimedSide: isHome ? 'home' : 'away',
+        winnerPlayerId,
+        at: new Date().toISOString(),
+      };
+      recomputeTeamFixture(division, fixture);
+      return fixture;
+    }
+
+    if (division.entryType === 'teams') {
+      throw new ApiError(400, 'This is a team fixture - report a no-show against the specific leg');
+    }
+    if (!['scheduled', 'in_progress'].includes(fixture.status)) {
+      throw new ApiError(400, 'Only a match that has not yet been submitted can be reported as a no-show');
+    }
+    const isHome = isHomeEntrant(division, fixture, user?.playerId);
+    const isAway = isAwayEntrant(division, fixture, user?.playerId);
+    if (!user?.isAdmin && !isHome && !isAway) {
+      throw new ApiError(403, 'Only a player in this fixture (or an admin) can report a no-show');
+    }
+    const winnerPlayerId = isHome ? fixture.homePlayerId : fixture.awayPlayerId;
+    fixture.status = 'disputed';
+    fixture.winnerPlayerId = null;
+    fixture.disputeReason = `${claimantName} reported the opponent as non-contactable / a no-show, and is claiming a 0-0 walkover win.`;
+    fixture.noShowClaim = {
+      claimedBy: user?.id,
+      claimedByName: claimantName,
+      claimedSide: isHome ? 'home' : 'away',
+      winnerPlayerId,
+      at: new Date().toISOString(),
+    };
+    return fixture;
+  }),
+
+  authorizeNoShow: op((fixtureId, legNumber) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+
+    if (legNumber !== undefined && legNumber !== null) {
+      const { leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
+      if (!leg.noShowClaim) throw new ApiError(400, 'This leg has no no-show claim to authorise');
+      leg.homeFrameScore = 0;
+      leg.awayFrameScore = 0;
+      leg.frames = [];
+      leg.winnerPlayerId = leg.noShowClaim.winnerPlayerId;
+      leg.status = 'completed';
+      leg.disputeReason = null;
+      recomputeTeamFixture(division, fixture);
+      recordAudit(db, {
+        actor: adminLabel(), action: 'fixture.no_show_authorized', targetType: 'fixture', targetId: fixture.id,
+        details: `Authorised a non-contactable/no-show 0-0 walkover win for ${leg.noShowClaim.claimedByName} on Leg ${leg.legNumber}`,
+      });
+      return fixture;
+    }
+
+    if (!fixture.noShowClaim) throw new ApiError(400, 'This fixture has no no-show claim to authorise');
+    fixture.homeFrameScore = 0;
+    fixture.awayFrameScore = 0;
+    fixture.frames = [];
+    fixture.winnerPlayerId = fixture.noShowClaim.winnerPlayerId;
+    fixture.status = 'completed';
+    fixture.disputeReason = null;
+    fixture.adminOverride = { at: new Date().toISOString(), by: adminLabel() };
+    propagateWinner(division, fixture, fixture.winnerPlayerId);
+    const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+    propagateLoser(division, fixture, loserPlayerId);
+    checkGrandFinalReset(division, fixture);
+    recordAudit(db, {
+      actor: adminLabel(), action: 'fixture.no_show_authorized', targetType: 'fixture', targetId: fixture.id,
+      details: `Authorised a non-contactable/no-show 0-0 walkover win for ${fixture.noShowClaim.claimedByName}`,
     });
     return fixture;
   }),
@@ -1896,6 +2068,8 @@ export const demoApi = {
     }
     leg.winnerPlayerId = leg.homeFrameScore >= leg.raceTo ? leg.homePlayerId : leg.awayPlayerId;
     leg.status = 'pending_confirmation';
+    leg.homeConfirmed = false;
+    leg.awayConfirmed = false;
     return fixture;
   }),
 
@@ -1907,10 +2081,21 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
-    if (!user?.isAdmin && leg.awayPlayerId !== user?.playerId) {
-      throw new ApiError(403, 'Only the away-team nominated player (or an admin) can confirm this leg');
+    const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
+    const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
+    if (!user?.isAdmin && !isHome && !isAway) {
+      throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can confirm this leg');
     }
-    leg.status = 'completed';
+    if (user?.isAdmin) {
+      leg.homeConfirmed = true;
+      leg.awayConfirmed = true;
+    } else {
+      if (isHome) leg.homeConfirmed = true;
+      if (isAway) leg.awayConfirmed = true;
+    }
+    if (leg.homeConfirmed && leg.awayConfirmed) {
+      leg.status = 'completed';
+    }
     recomputeTeamFixture(division, fixture);
     return fixture;
   }),
@@ -1923,8 +2108,10 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
-    if (!user?.isAdmin && leg.awayPlayerId !== user?.playerId) {
-      throw new ApiError(403, 'Only the away-team nominated player (or an admin) can dispute this leg');
+    const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
+    const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
+    if (!user?.isAdmin && !isHome && !isAway) {
+      throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can dispute this leg');
     }
     if (!reason || !reason.trim()) throw new ApiError(400, 'A reason is required when disputing a result');
     leg.status = 'disputed';
@@ -1943,6 +2130,9 @@ export const demoApi = {
     leg.status = 'in_progress';
     leg.winnerPlayerId = null;
     leg.disputeReason = null;
+    leg.homeConfirmed = false;
+    leg.awayConfirmed = false;
+    leg.noShowClaim = null;
     recomputeTeamFixture(division, fixture);
     recordAudit(db, {
       actor: adminLabel(), action: 'fixture.leg_reopen', targetType: 'fixture', targetId: fixture.id,
