@@ -361,7 +361,8 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
 //   `Pairing` and play alternate-shot as a single side - structurally a
 //   Pairing is just a named group of players like a Team, but a doubles/
 //   triples fixture is scored exactly like a singles fixture: one continuous
-//   frame race, no legs - see the "Pairings" section below)
+//   frame race, no legs, `homePlayerId`/`awayPlayerId` just hold a Pairing id
+//   instead of a Player id - see the "Pairings" section below)
 // - scheduling: "round_robin_single" (default - everyone plays everyone once),
 //   "knockout_single_elim" (single-elimination bracket, byes if the entrant
 //   count isn't a power of 2), or "knockout_double_elim" (winners bracket +
@@ -414,6 +415,11 @@ app.post('/api/leagues/:leagueId/divisions', requireAdmin, asyncRoute((req, res)
 }));
 
 function hydrateDivision(db, division) {
+  // Filtered once here, then reused below - computeStandings/
+  // computeTeamStandings used to each be handed the *whole* db.fixtures
+  // array and re-filter it by divisionId themselves, meaning every call to
+  // hydrateDivision (every division page load, every roster/fixture change)
+  // did two full scans over every fixture in the entire app instead of one.
   const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const leagueName = league ? league.name : null;
@@ -422,7 +428,7 @@ function hydrateDivision(db, division) {
     const teams = db.teams
       .filter((t) => division.teamIds.includes(t.id))
       .map((t) => ({ ...t, players: db.players.filter((p) => t.playerIds.includes(p.id)) }));
-    const standings = computeTeamStandings(division, db.fixtures, db.teams);
+    const standings = computeTeamStandings(division, fixtures, db.teams);
     return { ...division, leagueName, teams, fixtures, standings };
   }
 
@@ -434,12 +440,12 @@ function hydrateDivision(db, division) {
     // a matching list of { id, name } entrants to label rows with - a Pairing
     // already has both fields, so this reuses the singles standings
     // calculation unmodified rather than needing its own version.
-    const standings = computeStandings({ ...division, playerIds: division.pairingIds }, db.fixtures, pairings);
+    const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
     return { ...division, leagueName, pairings, fixtures, standings };
   }
 
   const players = db.players.filter((p) => division.playerIds.includes(p.id));
-  const standings = computeStandings(division, db.fixtures, db.players);
+  const standings = computeStandings(division, fixtures, db.players);
   return { ...division, leagueName, players, fixtures, standings };
 }
 
