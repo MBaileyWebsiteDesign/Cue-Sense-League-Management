@@ -65,6 +65,28 @@ export function readDb() {
   if (!state.auditLog) state.auditLog = [];
   if (!state.venues) state.venues = [];
   if (!state.passwordResets) state.passwordResets = [];
+  if (!state.divisions) state.divisions = [];
+  if (!state.fixtures) state.fixtures = [];
+  // Round visibility (Manage Fixtures / "Needs Your Confirmation" gating):
+  // `visibleRounds` is the list of round numbers a non-admin account is
+  // allowed to see or play at all - see the `isRoundVisible` helper and the
+  // `POST /api/divisions/:id/rounds/:round/visibility` route in index.js.
+  // Backfilling this for a division created before the feature existed
+  // defaults to "every round it currently has fixtures for" if fixtures were
+  // already generated, so nothing that was already visible to players
+  // suddenly disappears; a division with no fixtures yet just starts empty,
+  // same as a brand-new one - the admin releases each round explicitly going
+  // forward.
+  for (const division of state.divisions) {
+    if (division.visibleRounds === undefined) {
+      if (division.fixturesGenerated) {
+        const rounds = new Set(state.fixtures.filter((f) => f.divisionId === division.id).map((f) => f.round));
+        division.visibleRounds = Array.from(rounds).sort((a, b) => a - b);
+      } else {
+        division.visibleRounds = [];
+      }
+    }
+  }
   for (const user of state.users) {
     // Migrate the old single-value `role: 'player'|'admin'` field (from when
     // admin/player were separate login flows) into the current boolean

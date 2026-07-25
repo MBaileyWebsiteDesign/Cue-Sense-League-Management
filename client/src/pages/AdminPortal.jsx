@@ -60,6 +60,14 @@ export default function AdminPortal() {
           </p>
         </Link>
 
+        <Link to="/admin/manage-fixtures" className="card card-link">
+          <h2>Manage Fixtures</h2>
+          <p className="muted">
+            Pick a league and division, then release each round to players week by week -
+            only admins see the whole season's fixtures until you release them.
+          </p>
+        </Link>
+
         <Link to="/admin/audit-log" className="card card-link">
           <h2>Audit Log</h2>
           <p className="muted">

@@ -80,7 +80,7 @@ db.leagues.push(league);
 // SEEDED_PLAYER_PASSWORD below and the README's "Seeded demo data" section)
 // - change or reset these before deploying anywhere real people can reach
 // it, same caveat as the seeded admin account above.
-const SEEDED_PLAYER_PASSWORD = 'Player123!';
+const SEEDED_PLAYER_PASSWORD = 'Test12!@';
 const seededPlayerPasswordHash = hashPassword(SEEDED_PLAYER_PASSWORD);
 let seededPlayerEmailIndex = 0;
 const usedSeededSlugs = new Map(); // slug -> count seen so far, for the (currently theoretical) case of two same-named players
