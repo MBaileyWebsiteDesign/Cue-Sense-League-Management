@@ -17,8 +17,11 @@ export function buildPlayerProfile(db, playerId) {
     if (won) career.won += 1;
     else career.lost += 1;
 
+    // Looked up once and reused below - this used to call db.players.find()
+    // a second time for the same id just a few lines later.
+    const opponent = db.players.find((p) => p.id === opponentId);
+
     if (!headToHeadMap.has(opponentId)) {
-      const opponent = db.players.find((p) => p.id === opponentId);
       headToHeadMap.set(opponentId, {
         opponentId,
         opponentName: opponent ? opponent.name : 'Unknown player',
@@ -32,7 +35,6 @@ export function buildPlayerProfile(db, playerId) {
     if (won) h2h.won += 1;
     else h2h.lost += 1;
 
-    const opponent = db.players.find((p) => p.id === opponentId);
     results.push({
       fixtureId,
       leagueName,

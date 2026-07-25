@@ -462,6 +462,39 @@ functions and nothing touches the filesystem directly elsewhere, so swapping thi
 Postgres (with Prisma or similar) is a contained change to one file plus a migration
 script, not a rewrite. This is the top item in the roadmap.
 
+## Performance notes
+
+A few efficiency passes on top of the JSON-file architecture above, all safe/contained
+changes with no behavior change:
+
+- **`db.js` read caching**: almost every route calls `readDb()` twice - once in the
+  `requireAuth`/`requireAdmin` middleware to look up the caller, again in the route
+  handler itself. `readDb()` now caches the last-parsed (and migrated) state keyed to
+  the data file's mtime, so a second call within the same request (or a burst of GET
+  requests between writes) returns a `structuredClone()` of the cached state instead of
+  re-reading and re-parsing the file from disk. `writeDb()` primes the cache with what
+  it just wrote, so the very next read doesn't hit disk either. An external change to
+  `db.json` (a different process, a manual edit) is still picked up correctly, since the
+  cache is invalidated the moment the file's mtime no longer matches.
+- **`hydrateDivision` double-scan**: `computeStandings`/`computeTeamStandings` used to
+  each be handed the *whole* `db.fixtures` array and re-filter it down to the current
+  division themselves, even though `hydrateDivision` had already done that exact filter
+  one line earlier. Every division page load (and every roster/fixture-generation call)
+  now reuses the one already-filtered list instead of scanning every fixture in the
+  entire app twice.
+- **Standings/team-standings entrant lookup**: `computeStandings`/`computeTeamStandings`
+  used to call `Array.find()` against the *whole* player/team pool for every entrant in
+  a division - O(division size × total players) instead of O(division size + total
+  players) with a `Map` built once. Not yet noticeable at today's data volume, but scales
+  a lot better as more seasons/leagues accumulate.
+- **Frontend code-splitting**: every page used to be one static import, so the whole
+  app - including the Season Setup Wizard and Manage Users pages' `xlsx`/`papaparse`
+  CSV/Excel parsing libraries (443 KB alone) - shipped in a single ~970 KB bundle to
+  every visitor, admin or not. Admin/captain-only pages are now `React.lazy()`-loaded,
+  splitting `xlsx` and each admin page into their own chunks fetched only when actually
+  visited; the bundle every regular player downloads on first load dropped to roughly
+  490 KB, about half. Applies to both the real build and the GitHub Pages demo build.
+
 ## Data model
 
 - `League`: `id, name, sport, format { matchFormat, raceTo, scheduling }`

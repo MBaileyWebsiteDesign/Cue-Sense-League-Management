@@ -3,9 +3,13 @@
 // frame difference then by frames won, head-to-head is left as a manual
 // tie-break for the admin since it's rarely needed in a single round-robin.
 export function computeStandings(division, fixtures, players) {
+  // Index once by id instead of Array.find()-ing `players` for every entrant
+  // (was O(entrants * players) - a real cost once `players` is the whole
+  // app's player pool, not just this division's roster).
+  const playersById = new Map(players.map((p) => [p.id, p]));
   const table = new Map();
   for (const playerId of division.playerIds) {
-    const player = players.find((p) => p.id === playerId);
+    const player = playersById.get(playerId);
     table.set(playerId, {
       playerId,
       playerName: player ? player.name : 'Unknown player',

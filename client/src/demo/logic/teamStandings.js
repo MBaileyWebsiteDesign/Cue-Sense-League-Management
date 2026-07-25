@@ -3,9 +3,13 @@
 // singles standings table - each leg is itself a nominated-player race-to-N
 // mini-match (see roundLegs.js / the fixture leg endpoints).
 export function computeTeamStandings(division, fixtures, teams) {
+  // Index once by id instead of Array.find()-ing `teams` for every entrant
+  // (was O(entrants * teams) - a real cost once `teams` is the whole app's
+  // team pool, not just this division's roster).
+  const teamsById = new Map(teams.map((t) => [t.id, t]));
   const table = new Map();
   for (const teamId of division.teamIds || []) {
-    const team = teams.find((t) => t.id === teamId);
+    const team = teamsById.get(teamId);
     table.set(teamId, {
       teamId,
       teamName: team ? team.name : 'Unknown team',
