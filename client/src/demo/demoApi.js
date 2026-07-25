@@ -219,6 +219,10 @@ function applyProfileFields(user, fields) {
 // ---------- fixture / bracket helpers (ported from server/src/index.js) ----------
 
 function hydrateDivision(division) {
+  // Filtered once here, then reused below - mirrors the same fix in
+  // server/src/index.js's hydrateDivision (see that copy for the full note):
+  // computeStandings/computeTeamStandings used to each re-filter the whole
+  // db.fixtures array by divisionId themselves instead of reusing this.
   const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const leagueName = league ? league.name : null;
@@ -227,7 +231,7 @@ function hydrateDivision(division) {
     const teams = db.teams
       .filter((t) => division.teamIds.includes(t.id))
       .map((t) => ({ ...t, players: db.players.filter((p) => t.playerIds.includes(p.id)) }));
-    const standings = computeTeamStandings(division, db.fixtures, db.teams);
+    const standings = computeTeamStandings(division, fixtures, db.teams);
     return { ...division, leagueName, teams, fixtures, standings };
   }
 
@@ -235,12 +239,12 @@ function hydrateDivision(division) {
     const pairings = db.pairings
       .filter((p) => division.pairingIds.includes(p.id))
       .map((p) => ({ ...p, players: db.players.filter((pl) => p.playerIds.includes(pl.id)) }));
-    const standings = computeStandings({ ...division, playerIds: division.pairingIds }, db.fixtures, pairings);
+    const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
     return { ...division, leagueName, pairings, fixtures, standings };
   }
 
   const players = db.players.filter((p) => division.playerIds.includes(p.id));
-  const standings = computeStandings(division, db.fixtures, db.players);
+  const standings = computeStandings(division, fixtures, db.players);
   return { ...division, leagueName, players, fixtures, standings };
 }
 
