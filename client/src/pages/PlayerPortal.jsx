@@ -7,7 +7,7 @@ import VenueSelect from '../components/VenueSelect.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
-function ProfileForm({ player, onSaved }) {
+function ProfileForm({ player, leagues, onSaved }) {
   const [form, setForm] = useState({
     firstName: player.firstName,
     lastName: player.lastName,
@@ -42,6 +42,17 @@ function ProfileForm({ player, onSaved }) {
   return (
     <form className="card form" onSubmit={onSubmit}>
       <h2>Your Details</h2>
+      {/* Static, read-only - which league(s)/division(s) you're registered in
+          is set by an admin (Season Setup / division rosters), not something
+          a player edits here. */}
+      <label>
+        League
+        <p style={{ margin: '4px 0 0', fontWeight: 400 }}>
+          {leagues && leagues.length > 0
+            ? leagues.map((l) => `${l.leagueName} — ${l.divisionName}`).join(', ')
+            : 'Not yet assigned to a league'}
+        </p>
+      </label>
       <label>
         First name
         <input value={form.firstName} onChange={set('firstName')} required />
@@ -186,13 +197,15 @@ function DisputeControl({ onDispute }) {
   );
 }
 
-// Results your opponent has already submitted that are sitting at
-// `pending_confirmation`, waiting specifically on you (the away side/nominee)
-// to confirm or dispute - the player-facing counterpart to the admin's
-// Game Adjustments "Games disputed" list. Shown above My Fixtures so it's
-// the first thing a player sees if something needs their attention; renders
+// Played games sitting at `pending_confirmation` where YOUR side hasn't
+// confirmed the score yet - either because you just submitted it and your
+// opponent hasn't acted, or your opponent submitted it and it's waiting on
+// you. Both players have to independently confirm before a result counts
+// (see homeConfirmed/awayConfirmed in server/src/index.js's "Result
+// confirmation" section) - the player-facing counterpart to the admin's
+// Game Adjustments "Games disputed" list. Shown below My Fixtures; renders
 // nothing at all once there's nothing pending, to keep the page uncluttered.
-function NeedsYourConfirmation() {
+function MySubmissions() {
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
   const [banner, setBanner] = useState('');
@@ -228,9 +241,9 @@ function NeedsYourConfirmation() {
 
   return (
     <section className="card">
-      <h2>Needs Your Confirmation</h2>
+      <h2>My Submissions</h2>
       <p className="muted">
-        Results submitted by your opponent that are waiting on you to confirm or dispute.
+        This is a list of played games waiting for confirmation of the score.
       </p>
       {banner && <p className="banner banner-success">{banner}</p>}
       <ul className="fixture-list">
@@ -317,7 +330,12 @@ function MyFixtures() {
 // player account first.
 export default function PlayerPortal() {
   const { user, updateUser } = useAuth();
+  const [leagues, setLeagues] = useState([]);
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'My Account' }]);
+
+  useEffect(() => {
+    api.getMyLeagueMembership().then(setLeagues).catch(() => setLeagues([]));
+  }, []);
 
   if (!user) return <p>Loading…</p>;
 
@@ -337,9 +355,9 @@ export default function PlayerPortal() {
         </div>
       </div>
 
-      <NeedsYourConfirmation />
       <MyFixtures />
-      <ProfileForm player={user} onSaved={updateUser} />
+      <MySubmissions />
+      <ProfileForm player={user} leagues={leagues} onSaved={updateUser} />
       <ChangePasswordForm />
     </div>
   );

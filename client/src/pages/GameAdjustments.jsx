@@ -139,6 +139,28 @@ export default function GameAdjustments() {
     }
   };
 
+  // Approves a player's "Non-contactable / No Show" claim (see
+  // POST .../no-show/authorize in server/src/index.js): the reporting player
+  // is awarded the game win with a 0-0 frame score, and the fixture/leg
+  // moves straight to completed - added to the table exactly like any other
+  // admin-resolved result.
+  const [authorizing, setAuthorizing] = useState('');
+  const authorizeNoShow = async (item) => {
+    setError('');
+    setBanner('');
+    setAuthorizing(`${item.fixtureId}-${item.legNumber ?? 'main'}`);
+    try {
+      await api.authorizeNoShow(item.fixtureId, item.legNumber ?? undefined);
+      setBanner(`Non-contactable/No Show win authorised for ${item.noShowClaim?.claimedByName || 'the reporting player'}.`);
+      loadNeedsAttention();
+      if (selectedFixture?.id === item.fixtureId) loadFixture(item.fixtureId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAuthorizing('');
+    }
+  };
+
   // Jumping straight to a fixture from the Needs Attention list - clears any
   // in-progress player search so step 2's fixture list (which is scoped to
   // whichever player was searched for) doesn't linger stale on screen.
@@ -171,10 +193,12 @@ export default function GameAdjustments() {
       {banner && <p className="banner banner-success">{banner}</p>}
 
       <section className="card">
-        <h2>1. Games disputed</h2>
+        <h2>1. Games disputed and Non-contactable/No Show</h2>
         <p className="muted">
           Every result currently disputed, across every league - resolve one directly here
-          without searching for the player first.
+          without searching for the player first. This includes "Non-contactable / No Show"
+          walkover claims (tagged below), which need one click to authorise before the 0-0
+          win counts toward the table.
         </p>
         {loadingAttention ? (
           <p>Loading…</p>
@@ -202,6 +226,18 @@ export default function GameAdjustments() {
                   <p className="muted" style={{ fontSize: '0.85rem', margin: '4px 0 0' }}>
                     <strong>Reason given:</strong> {item.disputeReason}
                   </p>
+                )}
+                {item.noShowClaim && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                    <span className="status status-disputed">Non-contactable / No Show claim</span>
+                    <button
+                      className="btn btn-primary"
+                      disabled={authorizing === `${item.fixtureId}-${item.legNumber ?? 'main'}`}
+                      onClick={() => authorizeNoShow(item)}
+                    >
+                      {authorizing === `${item.fixtureId}-${item.legNumber ?? 'main'}` ? 'Authorising…' : 'Authorise No-Show Win'}
+                    </button>
+                  </div>
                 )}
               </li>
             ))}

@@ -8,9 +8,14 @@ import { useAuth } from '../AuthContext.jsx';
 // Shared "submitted, awaiting confirmation / disputed" banner + action
 // buttons for a result that's reached the submit -> confirm handshake (see
 // server/src/index.js's "Result confirmation" section for the full design).
-// `canDecide` is true for the away-side entrant or an admin - only they can
-// confirm or dispute; everyone else just sees the status.
-function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDispute, onReopen, homeLabel, awayLabel, disputeReason }) {
+// BOTH the home and away entrant have to independently confirm before a
+// result finalizes - `isHomeEntrant`/`isAwayEntrant` say which side (if any)
+// the viewer is, and `homeConfirmed`/`awayConfirmed` say where each side
+// currently stands.
+function ResultConfirmationPanel({
+  status, isAdmin, isHomeEntrant, isAwayEntrant, homeConfirmed, awayConfirmed,
+  onConfirm, onDispute, onReopen, homeLabel, awayLabel, disputeReason,
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [disputing, setDisputing] = useState(false);
@@ -42,14 +47,19 @@ function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDisp
   };
 
   if (status === 'pending_confirmation') {
+    const canAct = isAdmin || isHomeEntrant || isAwayEntrant;
+    const myConfirmed = !isAdmin && ((isHomeEntrant && homeConfirmed) || (isAwayEntrant && awayConfirmed));
     return (
       <section className="card">
         <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
-          {homeLabel} submitted this result - awaiting confirmation from {awayLabel}.
+          Result submitted - both players need to confirm the score before it counts.{' '}
+          {homeLabel} confirmed: <strong>{homeConfirmed ? 'Yes' : 'Not yet'}</strong> · {awayLabel} confirmed: <strong>{awayConfirmed ? 'Yes' : 'Not yet'}</strong>
         </p>
         {error && <p className="error">{error}</p>}
-        {canDecide ? (
-          disputing ? (
+        {canAct ? (
+          myConfirmed ? (
+            <p className="muted">You’ve confirmed this result - waiting on the other player to confirm too.</p>
+          ) : disputing ? (
             <div className="inline-form" style={{ flexWrap: 'wrap' }}>
               <input
                 type="text"
@@ -69,7 +79,7 @@ function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDisp
             </div>
           )
         ) : (
-          <p className="muted">Waiting on {awayLabel} to confirm or dispute this result.</p>
+          <p className="muted">Waiting on {homeLabel} and {awayLabel} to both confirm this result.</p>
         )}
         {isAdmin && (
           <p className="muted" style={{ marginTop: 8 }}>
@@ -84,7 +94,7 @@ function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDisp
     return (
       <section className="card">
         <p className="banner" style={{ background: '#fee2e2', color: '#991b1b' }}>
-          {awayLabel} disputed this result - an admin needs to resolve it, either by overriding the
+          This result is disputed - an admin needs to resolve it, either by overriding the
           score directly or reopening it for further scoring. See <Link to="/admin/game-adjustments">Game Adjustments</Link>.
         </p>
         {disputeReason && (
@@ -99,6 +109,50 @@ function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDisp
   }
 
   return null;
+}
+
+// "Non-contactable / No Show" button - lets a player report their opponent
+// as unreachable, claiming a 0-0-frames game win pending admin authorisation
+// (see POST .../no-show / .../no-show/authorize in server/src/index.js).
+// Only shown to an actual entrant of the fixture/leg, and only while it's
+// still open for scoring (not already submitted, completed, or disputed).
+function NoShowClaimButton({ onClaim }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await onClaim();
+      setOpen(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {error && <p className="error">{error}</p>}
+      {open ? (
+        <div className="inline-form" style={{ flexWrap: 'wrap' }}>
+          <span className="muted" style={{ flex: '1 1 320px' }}>
+            This reports your opponent as non-contactable / a no-show, claiming a 0-0 walkover win for
+            you - an admin has to authorise it before it counts.
+          </span>
+          <button className="btn btn-primary" disabled={busy} onClick={submit}>
+            {busy ? 'Reporting…' : 'Confirm report'}
+          </button>
+          <button className="btn" disabled={busy} onClick={() => { setOpen(false); setError(''); }}>Cancel</button>
+        </div>
+      ) : (
+        <button className="btn" onClick={() => setOpen(true)}>Non-contactable / No Show</button>
+      )}
+    </div>
+  );
 }
 
 function AdminOverridePanel({ fixture, isTeams, isDoubles, onChange }) {
@@ -236,7 +290,9 @@ function LegRow({ fixture, leg, onChange, setError }) {
   const complete = leg.status === 'completed';
   const locked = complete || leg.status === 'pending_confirmation' || leg.status === 'disputed';
   const raceTargetReached = leg.status === 'in_progress' && (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo);
-  const isAwayNominee = user?.playerId === leg.awayPlayerId;
+  const isHomeNominee = !!user?.playerId && user.playerId === leg.homePlayerId;
+  const isAwayNominee = !!user?.playerId && user.playerId === leg.awayPlayerId;
+  const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status);
 
   const onRecord = async (winnerPlayerId) => {
     setError('');
@@ -314,10 +370,19 @@ function LegRow({ fixture, leg, onChange, setError }) {
             </p>
           )}
 
+          {canReportNoShow && (
+            <NoShowClaimButton
+              onClaim={async () => { await api.claimNoShow(fixture.id, leg.legNumber); onChange(); }}
+            />
+          )}
+
           <ResultConfirmationPanel
             status={leg.status}
-            canDecide={isAdmin || isAwayNominee}
             isAdmin={isAdmin}
+            isHomeEntrant={isHomeNominee}
+            isAwayEntrant={isAwayNominee}
+            homeConfirmed={!!leg.homeConfirmed}
+            awayConfirmed={!!leg.awayConfirmed}
             homeLabel={leg.homePlayer.name}
             awayLabel={leg.awayPlayer.name}
             disputeReason={leg.disputeReason}
@@ -396,9 +461,13 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   const raceTargetReached = fixture.status === 'in_progress' && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo);
   const homeEntrant = isDoubles ? fixture.homePairing : fixture.homePlayer;
   const awayEntrant = isDoubles ? fixture.awayPairing : fixture.awayPlayer;
-  const isAwayEntrant = isDoubles
+  const amHomeEntrant = isDoubles
+    ? !!(user?.playerId && homeEntrant?.players?.some((p) => p.id === user.playerId))
+    : user?.playerId === fixture.homePlayerId;
+  const amAwayEntrant = isDoubles
     ? !!(user?.playerId && awayEntrant?.players?.some((p) => p.id === user.playerId))
     : user?.playerId === fixture.awayPlayerId;
+  const canReportNoShow = (amHomeEntrant || amAwayEntrant) && ['scheduled', 'in_progress'].includes(fixture.status);
 
   const EntrantName = ({ entrant, id }) => {
     if (!entrant) return 'TBD';
@@ -491,10 +560,19 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
         </p>
       )}
 
+      {canReportNoShow && (
+        <NoShowClaimButton
+          onClaim={async () => { await api.claimNoShow(fixture.id); onChange(); }}
+        />
+      )}
+
       <ResultConfirmationPanel
         status={fixture.status}
-        canDecide={isAdmin || isAwayEntrant}
         isAdmin={isAdmin}
+        isHomeEntrant={amHomeEntrant}
+        isAwayEntrant={amAwayEntrant}
+        homeConfirmed={!!fixture.homeConfirmed}
+        awayConfirmed={!!fixture.awayConfirmed}
         homeLabel={homeEntrant.name}
         awayLabel={awayEntrant.name}
         disputeReason={fixture.disputeReason}

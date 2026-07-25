@@ -44,6 +44,7 @@ const networkApi = {
     request('/users/me/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   getMyFixtures: () => request('/users/me/fixtures'),
   getMyPendingConfirmations: () => request('/users/me/pending-confirmations'),
+  getMyLeagueMembership: () => request('/users/me/leagues'),
 
   // Admin: user management
   adminListUsers: (q = '') => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
@@ -118,6 +119,10 @@ const networkApi = {
   confirmResult: (fixtureId) => request(`/fixtures/${fixtureId}/confirm-result`, { method: 'POST' }),
   disputeResult: (fixtureId, reason) =>
     request(`/fixtures/${fixtureId}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  claimNoShow: (fixtureId, legNumber) =>
+    request(`/fixtures/${fixtureId}/no-show`, { method: 'POST', body: JSON.stringify({ legNumber: legNumber ?? undefined }) }),
+  authorizeNoShow: (fixtureId, legNumber) =>
+    request(`/fixtures/${fixtureId}/no-show/authorize`, { method: 'POST', body: JSON.stringify({ legNumber: legNumber ?? undefined }) }),
 
   // Teams (team divisions only)
   createTeam: (divisionId, name) =>
