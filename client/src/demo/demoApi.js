@@ -153,7 +153,6 @@ function createUserAccount(fields) {
     email: fields.email,
     passwordHash: fields.passwordHash || null,
     phone: fields.phone || '',
-    venue: fields.venue,
     teamName: fields.teamName,
     classification: fields.classification || null,
     isAdmin: !!fields.isAdmin,
@@ -172,26 +171,8 @@ function syncLinkedPlayerName(user) {
   if (player) player.name = `${user.firstName} ${user.lastName}`;
 }
 
-function ensureVenue(venueName, requestedByUserId, requestedByName) {
-  const trimmed = venueName.trim();
-  const existing = db.venues.find((v) => v.name.toLowerCase() === trimmed.toLowerCase());
-  if (existing) return existing;
-  const venue = {
-    id: uuid(),
-    name: trimmed,
-    status: 'pending',
-    requestedBy: requestedByUserId,
-    requestedByName,
-    requestedAt: new Date().toISOString(),
-    approvedBy: null,
-    approvedAt: null,
-  };
-  db.venues.push(venue);
-  return venue;
-}
-
 function applyProfileFields(user, fields) {
-  const { firstName, lastName, email, phone, venue, teamName, classification } = fields;
+  const { firstName, lastName, email, phone, teamName, classification } = fields;
   if (firstName !== undefined) {
     if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
     user.firstName = firstName.trim();
@@ -209,11 +190,6 @@ function applyProfileFields(user, fields) {
     user.email = email.trim();
   }
   if (phone !== undefined) user.phone = phone ? phone.trim() : '';
-  if (venue !== undefined) {
-    if (!venue || !venue.trim()) throw new ApiError(400, 'Venue is required');
-    user.venue = venue.trim();
-    ensureVenue(user.venue, user.id, `${user.firstName} ${user.lastName}`);
-  }
   if (teamName !== undefined) {
     if (!teamName || !teamName.trim()) throw new ApiError(400, 'Team name is required');
     user.teamName = teamName.trim();
@@ -661,12 +637,11 @@ export const demoApi = {
 
   register: op((data) => {
     const {
-      firstName, lastName, email, phone = '', venue, teamName, classification = null,
+      firstName, lastName, email, phone = '', teamName, classification = null,
     } = data;
     if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
     if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
     if (!email || !email.trim()) throw new ApiError(400, 'Email is required');
-    if (!venue || !venue.trim()) throw new ApiError(400, 'Venue is required');
     if (!teamName || !teamName.trim()) throw new ApiError(400, 'Team name is required');
     if (classification && !CLASSIFICATIONS.includes(classification)) {
       throw new ApiError(400, `classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
@@ -677,10 +652,9 @@ export const demoApi = {
     }
     const user = createUserAccount({
       firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim(),
-      phone: phone ? phone.trim() : '', venue: venue.trim(), teamName: teamName.trim(),
+      phone: phone ? phone.trim() : '', teamName: teamName.trim(),
       classification: classification || null, isAdmin: false, isCaptain: false,
     });
-    ensureVenue(user.venue, user.id, `${user.firstName} ${user.lastName}`);
     setCurrentUser(user.id);
     return { token: 'demo-token', expiresAt: Date.now() + 24 * 60 * 60 * 1000, user: publicUser(user) };
   }),
@@ -936,7 +910,6 @@ export const demoApi = {
       users = users.filter((u) =>
         `${u.firstName} ${u.lastName}`.toLowerCase().includes(query) ||
         u.email.toLowerCase().includes(query) ||
-        u.venue.toLowerCase().includes(query) ||
         u.teamName.toLowerCase().includes(query)
       );
     }
@@ -1021,7 +994,6 @@ export const demoApi = {
         const firstName = (row.firstName || '').trim();
         const lastName = (row.lastName || '').trim();
         const email = (row.email || '').trim();
-        const venue = (row.venue || '').trim();
         const teamName = (row.teamName || '').trim() || 'Unassigned';
         const classification = (row.classification || '').trim().toUpperCase() || null;
         const isAdminFlag = row.isAdmin === true || String(row.isAdmin).trim().toLowerCase() === 'true' || String(row.isAdmin).trim() === '1';
@@ -1029,7 +1001,6 @@ export const demoApi = {
         if (!firstName) throw new Error('firstName is required');
         if (!lastName) throw new Error('lastName is required');
         if (!email) throw new Error('email is required');
-        if (!venue) throw new Error('venue is required');
         if (classification && !CLASSIFICATIONS.includes(classification)) {
           throw new Error(`classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
         }
@@ -1040,10 +1011,9 @@ export const demoApi = {
           return;
         }
         const user = createUserAccount({
-          firstName, lastName, email, phone: (row.phone || '').trim(), venue, teamName, classification,
+          firstName, lastName, email, phone: (row.phone || '').trim(), teamName, classification,
           isAdmin: isAdminFlag, isCaptain,
         });
-        ensureVenue(user.venue, user.id, `${user.firstName} ${user.lastName}`);
         created.push({ row: rowNum, name: `${firstName} ${lastName}`, email, tempPassword: '(not needed in demo mode)' });
       } catch (err) {
         errors.push({ row: rowNum, reason: err.message });
@@ -1073,44 +1043,6 @@ export const demoApi = {
   }),
 
   adminGetAuditLog: op(() => [...db.auditLog].reverse().slice(0, 200)),
-
-  getVenues: op(() => {
-    const approved = db.venues.filter((v) => v.status === 'approved').sort((a, b) => a.name.localeCompare(b.name));
-    const user = currentUser();
-    const mine = user ? db.venues.filter((v) => v.requestedBy === user.id && v.status !== 'approved') : [];
-    return { approved, mine };
-  }),
-
-  adminListVenues: op(() => {
-    const statusOrder = { pending: 0, approved: 1, rejected: 2 };
-    return [...db.venues].sort((a, b) => statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name));
-  }),
-
-  adminApproveVenue: op((id) => {
-    const venue = db.venues.find((v) => v.id === id);
-    if (!venue) throw new ApiError(404, 'Venue not found');
-    venue.status = 'approved';
-    venue.approvedBy = adminLabel();
-    venue.approvedAt = new Date().toISOString();
-    recordAudit(db, {
-      actor: adminLabel(), action: 'venue.approve', targetType: 'venue', targetId: venue.id,
-      details: `Approved venue "${venue.name}"`,
-    });
-    return venue;
-  }),
-
-  adminRejectVenue: op((id) => {
-    const venue = db.venues.find((v) => v.id === id);
-    if (!venue) throw new ApiError(404, 'Venue not found');
-    venue.status = 'rejected';
-    venue.approvedBy = adminLabel();
-    venue.approvedAt = new Date().toISOString();
-    recordAudit(db, {
-      actor: adminLabel(), action: 'venue.reject', targetType: 'venue', targetId: venue.id,
-      details: `Rejected venue "${venue.name}"`,
-    });
-    return venue;
-  }),
 
   adminCreateSeason: op((data) => {
     const { name, leagueCount, playersPerLeague } = data;
@@ -1161,7 +1093,6 @@ export const demoApi = {
         const firstName = (row.firstName || '').trim();
         const lastName = (row.lastName || '').trim();
         const email = (row.email || '').trim();
-        const venue = (row.venue || '').trim();
         const teamName = (row.teamName || '').trim() || 'Unassigned';
         const classification = (row.classification || '').trim().toUpperCase() || null;
         const divisionName = (row.division || '').trim();
@@ -1169,7 +1100,6 @@ export const demoApi = {
         if (!firstName) throw new Error('firstName is required');
         if (!lastName) throw new Error('lastName is required');
         if (!email) throw new Error('email is required');
-        if (!venue) throw new Error('venue is required');
         if (!divisionName) throw new Error('division is required');
         if (classification && !CLASSIFICATIONS.includes(classification)) {
           throw new Error(`classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
@@ -1185,9 +1115,8 @@ export const demoApi = {
         let user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
         if (!user) {
           user = createUserAccount({
-            firstName, lastName, email, phone: (row.phone || '').trim(), venue, teamName, classification, isCaptain,
+            firstName, lastName, email, phone: (row.phone || '').trim(), teamName, classification, isCaptain,
           });
-          ensureVenue(user.venue, user.id, `${user.firstName} ${user.lastName}`);
           created.push({ row: rowNum, name: `${firstName} ${lastName}`, email, division: division.name, tempPassword: '(not needed in demo mode)' });
         } else {
           if (isCaptain && !user.isCaptain) user.isCaptain = true;
