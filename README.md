@@ -110,7 +110,9 @@ full-featured competition management that Wix has no built-in system for.
   update your own profile fields, change your password, and see a personal list of your
   upcoming fixtures and recent results across every division/team you're registered in,
   plus a link to your full stats/history if your account is linked to a `Player` roster
-  entry.
+  entry. An admin lands here too if they log in without needing the Admin Portal
+  straight away - see **Accounts & login** for exactly where each kind of account lands
+  after signing in.
 - **Captain Management Portal**: a dedicated landing page for accounts flagged as
   captain, currently showing the captain's own upcoming matches plus a placeholder for
   the team-management tools (roster management, leg nominations) planned once team
@@ -154,13 +156,19 @@ full-featured competition management that Wix has no built-in system for.
 - **Score confirmation workflow**: recording frames no longer finishes a match by
   itself. Once a side reaches the race target, whoever's been entering scores clicks
   "Submit for Confirmation"; the other side (or an admin) then either confirms it -
-  finalizing the result exactly as before - or disputes it, which locks the fixture
-  until an admin resolves it. See **Score confirmation** below.
+  finalizing the result exactly as before - or disputes it, which requires typing a
+  short reason and locks the fixture until an admin resolves it. The away side doesn't
+  have to go hunting for the fixture page to act on this either - their Account page
+  (`/account`) shows a **"Needs Your Confirmation"** panel, right above **My Fixtures**,
+  listing every result of theirs currently awaiting confirmation with one-click
+  Confirm/Dispute buttons. See **Score confirmation** below.
 - **Game Adjustments**: an admin page (Admin Portal → "Game Adjustments") that opens on
   a "Needs Attention" list of every disputed/pending-confirmation result across every
   league - no need to search for the player first - plus a player search to find and
   directly override or reopen any other result. The tool the score-confirmation
-  workflow's "disputed" banner points admins at.
+  workflow's "disputed" banner points admins at. A disputed item's stated reason is
+  shown right there too, so an admin doesn't have to track the disputing player down
+  just to find out why.
 
 ## What's deliberately out of scope for v1
 
@@ -189,6 +197,14 @@ An account can be neither, either, or both at once — a league organizer who al
 can have both flags set on the same login. Every request re-checks these flags against
 the database fresh, so granting or revoking either one takes effect immediately, even
 for a session that's already logged in.
+
+After signing in (or completing self-registration), where you land depends on
+`isAdmin`: an admin account goes straight to the Admin Portal (`/admin`); every other
+account (including a captain-only account) lands on the Player Portal / My Account
+(`/account`) instead, since every account is a player account first. Following a deep
+link that required login (e.g. sharing a fixture URL with a logged-out visitor) takes
+priority over both of these defaults - you land back on the page you were actually
+trying to reach.
 
 A seeded admin account is created the first time you run `npm run seed`:
 
@@ -388,7 +404,17 @@ ever count a fixture once its status is `completed`). From there:
 - **Dispute** locks the fixture as `disputed` - no more frames can be recorded or
   undone until an admin steps in, either by overriding the score directly or by
   reopening the fixture back to `in_progress` (unlocking frame entry again, without
-  setting a score) from the fixture page or **Game Adjustments** (see below).
+  setting a score) from the fixture page or **Game Adjustments** (see below). Disputing
+  requires typing a short reason explaining why - the button expands into a required
+  text field, and the API rejects the request outright (400) if the reason is missing
+  or blank - so whoever resolves it (the admin, via the fixture page or **Game
+  Adjustments**) always has some context to go on, not just a bare "disputed" status.
+
+The away side doesn't have to know to go looking for the fixture page to act on any of
+this: the Player Portal (`/account`) shows a **"Needs Your Confirmation"** panel, right
+above **My Fixtures**, listing every result of theirs currently sitting at
+`pending_confirmation` with Confirm and Dispute buttons right there - clicking Dispute
+expands the same reason field described above before it can actually be submitted.
 
 This intentionally adds friction to reduce mis-recorded results and one-sided score
 entry: a result can't count until the person on the other side of the table has agreed
@@ -404,7 +430,9 @@ something that needs resolving. Clicking a singles/doubles item jumps straight t
 below to override or reopen it; a disputed/pending team-fixture *leg* links out to that
 fixture's own page instead, since leg-level resolution isn't something the Override form
 here handles (see **Score confirmation** - `LegRow`'s own Confirm/Dispute/Reopen
-controls cover that).
+controls cover that). Each disputed item also shows the reason the disputing player gave
+when they disputed it, right underneath, so an admin doesn't have to track that player
+down separately just to find out why.
 
 Below that, an admin can also search for a player by name, pick one of their fixtures
 (every status is shown, not just upcoming ones), and either override the final score
@@ -513,7 +541,7 @@ changes with no behavior change:
   divisionId, round, homePlayerId, awayPlayerId, raceTo, frames[], homeFrameScore,
   awayFrameScore, status, winnerPlayerId, nextFixtureId, nextFixtureSlot, bracketRole,
   loserNextFixtureId, loserNextFixtureSlot, resetFixtureId, scheduledDate,
-  resultSubmittedAt, resultSubmittedBy`
+  resultSubmittedAt, resultSubmittedBy, disputeReason`
   - `status`: `'scheduled' | 'in_progress' | 'pending_confirmation' | 'disputed' |
     'completed'` - a match moves to `pending_confirmation` via
     `POST .../submit-result` once the race target is reached, not automatically; only
@@ -521,6 +549,10 @@ changes with no behavior change:
     triggers standings/bracket propagation. See **Score confirmation**.
   - `resultSubmittedAt`/`resultSubmittedBy`: set by `submit-result`, recording when the
     result was submitted and which account submitted it.
+  - `disputeReason`: the away side's (or admin's) stated reason for disputing the
+    result, set by `dispute-result` (required - the route rejects the request if it's
+    missing or blank) and cleared back to `null` by `reopen`/`override`. Surfaced on
+    the fixture page and on the Game Adjustments "Needs Attention" list.
   - `frames[]`: `{ frameNumber, winnerPlayerId }` — the source of truth; scores are
     derived from this list, never stored independently of it.
   - `scheduledDate`: `YYYY-MM-DD` string, set when the division's fixtures were
@@ -537,11 +569,12 @@ changes with no behavior change:
   nextFixtureSlot, bracketRole, loserNextFixtureId, loserNextFixtureSlot,
   resetFixtureId, scheduledDate`
   - `legs[]`: `{ legNumber, homePlayerId, awayPlayerId, frames[], homeFrameScore,
-    awayFrameScore, status, winnerPlayerId, raceTo }` — one leg per nominated
-    player-vs-player mini-match, structurally identical to a singles fixture,
+    awayFrameScore, status, winnerPlayerId, raceTo, disputeReason }` — one leg per
+    nominated player-vs-player mini-match, structurally identical to a singles fixture,
     including the same `'pending' | 'scheduled' | 'in_progress' |
     'pending_confirmation' | 'disputed' | 'completed'` status progression and
-    submit/confirm/dispute/reopen routes (scoped to that one leg).
+    submit/confirm/dispute/reopen routes (scoped to that one leg) and the same
+    `disputeReason` handling described above.
   - `nextFixtureId`/`nextFixtureSlot` (`'home'|'away'`) link a knockout fixture to the
     one its winner advances into; both are `null` for round-robin fixtures and for a
     knockout final.
@@ -649,6 +682,7 @@ the Express server to serve) rather than Pages.
 | PATCH | `/api/users/me` | Update the logged-in account's own profile fields |
 | POST | `/api/users/me/change-password` | Change the logged-in account's own password (requires current password) |
 | GET | `/api/users/me/fixtures` | The logged-in account's own upcoming/recent fixtures across every division/team (requires login) |
+| GET | `/api/users/me/pending-confirmations` | Results awaiting the logged-in account's own confirmation - they're the away side/nominee on a result someone else submitted - backs the Player Portal's "Needs Your Confirmation" panel (requires login) |
 | GET | `/api/admin/users` | Search/list all users, `?q=` filters by name/email/venue/team (requires admin) |
 | GET | `/api/admin/users/:id` | Full details for one user (requires admin) |
 | PATCH | `/api/admin/users/:id` | Update any profile field on a user (requires admin; logged) |
@@ -661,11 +695,11 @@ the Express server to serve) rather than Pages.
 | POST | `/api/admin/users/import` | Bulk-create user accounts by row (CSV/Excel/manual) from Manage Users, no season/division attached (requires admin; logged) |
 | GET | `/api/admin/audit-log` | Most recent 500 admin actions (requires admin) |
 | GET | `/api/admin/players/:playerId/fixtures` | Every fixture involving a player, any status - backs the Game Adjustments search (requires admin) |
-| GET | `/api/admin/fixtures/needs-attention` | Every `disputed`/`pending_confirmation` result (fixture-level or team-leg-level) across every league - backs the Game Adjustments "Needs Attention" list (requires admin) |
+| GET | `/api/admin/fixtures/needs-attention` | Every `disputed`/`pending_confirmation` result (fixture-level or team-leg-level) across every league, including each disputed item's `disputeReason` - backs the Game Adjustments "Needs Attention" list (requires admin) |
 | POST | `/api/admin/seasons` | Season Setup Wizard step 1–2: create a season (League) with N divisions (requires admin) |
 | POST | `/api/admin/seasons/:leagueId/import-players` | Season Setup Wizard step 3: bulk-import players by row (CSV/Excel/manual), creating accounts as needed (requires admin; logged) |
 | POST | `/api/admin/seasons/:leagueId/generate` | Season Setup Wizard step 5: generate fixtures across every eligible division with date scheduling (requires admin) |
-| POST | `/api/fixtures/:id/override` | Directly set a fixture's final score, bypassing frame-by-frame play (requires admin; logged; blocked if it would change a winner that's already advanced a started bracket fixture) |
+| POST | `/api/fixtures/:id/override` | Directly set a fixture's final score, bypassing frame-by-frame play (requires admin; logged; blocked if it would change a winner that's already advanced a started bracket fixture; clears any `disputeReason`) |
 | GET/POST | `/api/leagues` | List (requires login) / create leagues (requires admin) |
 | GET | `/api/leagues/:id` | League + its divisions (requires login) |
 | POST | `/api/leagues/:leagueId/divisions` | Add a division (requires admin; accepts `entryType`, `scheduling`, `legsPerMatch`, `pairingSize`) |
@@ -684,15 +718,15 @@ the Express server to serve) rather than Pages.
 | DELETE | `/api/fixtures/:id/frames/last` | Undo the last recorded frame (blocked once the result has advanced a bracket, or is pending/disputed) |
 | POST | `/api/fixtures/:id/submit-result` | Move an in-progress match that's reached its race target to `pending_confirmation` (requires login) |
 | POST | `/api/fixtures/:id/confirm-result` | Confirm a pending result -> `completed`, propagating into standings/the bracket (away side or admin only) |
-| POST | `/api/fixtures/:id/dispute-result` | Dispute a pending result -> `disputed`, locking it until an admin resolves it (away side or admin only) |
-| POST | `/api/fixtures/:id/reopen` | Reopen a pending/disputed result back to `in_progress` for further scoring (requires admin) |
+| POST | `/api/fixtures/:id/dispute-result` | Dispute a pending result -> `disputed`, locking it until an admin resolves it; requires a `reason` in the body, rejected with 400 if missing/blank, stored as `disputeReason` (away side or admin only) |
+| POST | `/api/fixtures/:id/reopen` | Reopen a pending/disputed result back to `in_progress` for further scoring, clearing any `disputeReason` (requires admin) |
 | POST | `/api/fixtures/:id/legs/:legNumber/nominate` | Nominate the two players for a team-fixture leg |
 | POST | `/api/fixtures/:id/legs/:legNumber/frames` | Record a frame winner within a leg; rejected once the leg's race target is reached |
 | DELETE | `/api/fixtures/:id/legs/:legNumber/frames/last` | Undo the last frame within a leg |
 | POST | `/api/fixtures/:id/legs/:legNumber/submit-result` | Move an in-progress leg that's reached its race target to `pending_confirmation` |
 | POST | `/api/fixtures/:id/legs/:legNumber/confirm-result` | Confirm a pending leg result -> `completed` (away-nominated player or admin only) |
-| POST | `/api/fixtures/:id/legs/:legNumber/dispute-result` | Dispute a pending leg result -> `disputed` (away-nominated player or admin only) |
-| POST | `/api/fixtures/:id/legs/:legNumber/reopen` | Reopen a pending/disputed leg back to `in_progress` (requires admin) |
+| POST | `/api/fixtures/:id/legs/:legNumber/dispute-result` | Dispute a pending leg result -> `disputed`; requires a `reason` in the body, rejected with 400 if missing/blank, stored as `disputeReason` (away-nominated player or admin only) |
+| POST | `/api/fixtures/:id/legs/:legNumber/reopen` | Reopen a pending/disputed leg back to `in_progress`, clearing any `disputeReason` (requires admin) |
 | GET | `/api/players/:id` | Player profile: career record, head-to-head, match history (requires login) |
 | GET | `/api/venues` | Approved venues, plus the logged-in user's own pending/rejected requests if any (no login required, so registration can use it) |
 | GET | `/api/admin/venues` | All venues, pending first (requires admin) |
