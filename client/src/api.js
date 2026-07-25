@@ -43,6 +43,7 @@ const networkApi = {
   changePassword: (currentPassword, newPassword) =>
     request('/users/me/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   getMyFixtures: () => request('/users/me/fixtures'),
+  getMyPendingConfirmations: () => request('/users/me/pending-confirmations'),
 
   // Admin: user management
   adminListUsers: (q = '') => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
@@ -111,7 +112,8 @@ const networkApi = {
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),
   submitResult: (fixtureId) => request(`/fixtures/${fixtureId}/submit-result`, { method: 'POST' }),
   confirmResult: (fixtureId) => request(`/fixtures/${fixtureId}/confirm-result`, { method: 'POST' }),
-  disputeResult: (fixtureId) => request(`/fixtures/${fixtureId}/dispute-result`, { method: 'POST' }),
+  disputeResult: (fixtureId, reason) =>
+    request(`/fixtures/${fixtureId}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
   // Teams (team divisions only)
   createTeam: (divisionId, name) =>
@@ -150,8 +152,8 @@ const networkApi = {
     request(`/fixtures/${fixtureId}/legs/${legNumber}/submit-result`, { method: 'POST' }),
   confirmLegResult: (fixtureId, legNumber) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/confirm-result`, { method: 'POST' }),
-  disputeLegResult: (fixtureId, legNumber) =>
-    request(`/fixtures/${fixtureId}/legs/${legNumber}/dispute-result`, { method: 'POST' }),
+  disputeLegResult: (fixtureId, legNumber, reason) =>
+    request(`/fixtures/${fixtureId}/legs/${legNumber}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
   getPlayerProfile: (playerId) => request(`/players/${playerId}`),
 };

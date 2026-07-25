@@ -26,11 +26,11 @@ export default function Login() {
       // If a protected page redirected here (RequireLogin/RequireAdmin/
       // RequireCaptain sets state.from), honor that - the account is
       // clearly trying to reach something specific. Otherwise, land admins
-      // on the Admin Portal rather than the plain league list, since that's
-      // almost always what an admin logs in to do; everyone else still
-      // lands on the home league list as before.
+      // on the Admin Portal (that's almost always what an admin logs in to
+      // do) and everyone else on their own My Account page, rather than the
+      // plain league list.
       const from = location.state?.from?.pathname;
-      navigate(from || (user.isAdmin ? '/admin' : '/'), { replace: true });
+      navigate(from || (user.isAdmin ? '/admin' : '/account'), { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

@@ -28,7 +28,9 @@ export default function Register() {
         classification: form.classification || null,
       });
       login(token, expiresAt, user);
-      navigate('/');
+      // New self-registrations are never admins, so this always lands on My
+      // Account - mirrors Login.jsx's default for a non-admin sign-in.
+      navigate('/account');
     } catch (err) {
       setError(err.message);
     } finally {
