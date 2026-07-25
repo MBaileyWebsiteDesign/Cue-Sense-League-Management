@@ -2,9 +2,9 @@ import { Link } from 'react-router-dom';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 // The Admin Management Portal - the single landing page for everything an
-// admin manages: players/accounts, venues, whole new seasons (leagues +
-// divisions + rosters + fixtures in one guided flow), and the audit trail.
-// Score overrides aren't listed here since they're contextual to a specific
+// admin manages: players/accounts, whole new seasons (leagues + divisions +
+// rosters + fixtures in one guided flow), and the audit trail. Score
+// overrides aren't listed here since they're contextual to a specific
 // fixture - they live on that fixture's own page instead (see
 // FixtureDetail.jsx's AdminOverridePanel).
 export default function AdminPortal() {
@@ -14,7 +14,7 @@ export default function AdminPortal() {
     <div>
       <h1>Admin Portal</h1>
       <p className="muted">
-        Manage accounts, venues, and whole seasons from here. Score corrections for a
+        Manage accounts and whole seasons from here. Score corrections for a
         specific match are on that match's own page, or search for one directly below.
       </p>
 
@@ -41,14 +41,6 @@ export default function AdminPortal() {
           <p className="muted">
             Search every account, edit any profile field, grant/revoke admin or captain
             status, suspend or reactivate accounts, and force-reset passwords.
-          </p>
-        </Link>
-
-        <Link to="/admin/venues" className="card card-link">
-          <h2>Manage Venues</h2>
-          <p className="muted">
-            Approve or reject venues players have typed in that aren't already on the
-            shared list.
           </p>
         </Link>
 

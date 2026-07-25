@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
-import VenueSelect from '../components/VenueSelect.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
@@ -11,7 +10,7 @@ export default function Register() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '',
-    phone: '', venue: '', teamName: '', classification: '',
+    phone: '', teamName: '', classification: '',
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -65,10 +64,6 @@ export default function Register() {
         <label>
           Phone <span className="muted">(optional)</span>
           <input type="tel" value={form.phone} onChange={set('phone')} />
-        </label>
-        <label>
-          Venue
-          <VenueSelect value={form.venue} onChange={(name) => setForm({ ...form, venue: name })} />
         </label>
         <label>
           Team name

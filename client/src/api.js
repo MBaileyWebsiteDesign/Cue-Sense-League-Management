@@ -66,12 +66,6 @@ const networkApi = {
   adminReopenFixture: (fixtureId) => request(`/fixtures/${fixtureId}/reopen`, { method: 'POST' }),
   adminReopenLeg: (fixtureId, legNumber) => request(`/fixtures/${fixtureId}/legs/${legNumber}/reopen`, { method: 'POST' }),
 
-  // Venues
-  getVenues: () => request('/venues'),
-  adminListVenues: () => request('/admin/venues'),
-  adminApproveVenue: (id) => request(`/admin/venues/${id}/approve`, { method: 'POST' }),
-  adminRejectVenue: (id) => request(`/admin/venues/${id}/reject`, { method: 'POST' }),
-
   // Admin: season setup wizard
   adminCreateSeason: (data) => request('/admin/seasons', { method: 'POST', body: JSON.stringify(data) }),
   adminImportSeasonPlayers: (leagueId, rows) =>
