@@ -59,13 +59,12 @@ login tokens, `server/src/userAuth.js`) to a random string in production.
   an admin resolves it - a reason is required and shown to whoever resolves it). Team
   fixtures score the same way per-leg (best-of-N legs, each a nominated player vs.
   player mini-match).
-- **Manage Fixtures (round visibility)** - admins release a division's fixtures round by
-  round (Admin Portal → "Manage Fixtures" → pick a league, then a division). Until a
-  round is released it's invisible to players everywhere (My Fixtures, Needs Your
-  Confirmation, the division page, direct fixture URLs) and none of its scoring routes
-  work for a non-admin. Admins always see the whole season. Divisions that already had
-  fixtures generated before this shipped keep everything visible; new divisions start
-  with nothing released.
+- **Manage Fixtures (round visibility)** - fixtures are hidden from players by default;
+  admins release a division's fixtures round by round (Admin Portal → "Manage Fixtures"
+  → pick a league, then a division). Until a round is released it's invisible to players
+  everywhere (My Fixtures, Needs Your Confirmation, the division page, direct fixture
+  URLs) and none of its scoring routes work for a non-admin. Admins always see the whole
+  season regardless.
 - **Player Portal ("My Account")** - every account's home base: edit your profile,
   change your password, see upcoming/recent fixtures, and a **"Needs Your
   Confirmation"** panel for results an opponent submitted that are waiting on you.
