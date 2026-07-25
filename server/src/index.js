@@ -317,6 +317,65 @@ app.get('/api/users/me/fixtures', requireAuth, asyncRoute((req, res) => {
   res.json(enriched);
 }));
 
+// A player's own results currently awaiting THEIR confirmation - fixtures
+// where they're the away entrant, or team-fixture legs where they're the
+// away-nominated player, sitting at `pending_confirmation`. This is the
+// player-facing counterpart to the admin's Game Adjustments "Needs
+// Attention" list (GET /api/admin/fixtures/needs-attention above), scoped to
+// just the actions this one account can actually take - powers the "Needs
+// Your Confirmation" panel on the Player Portal (My Account). Defined here,
+// ahead of isAwayEntrant's declaration further down - safe because Express
+// only calls this handler once a request arrives, long after every function
+// declaration in the module has been hoisted and is available.
+app.get('/api/users/me/pending-confirmations', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const playerId = req.auth.user.playerId;
+  const results = [];
+  if (!playerId) return res.json(results);
+
+  for (const f of db.fixtures) {
+    const division = db.divisions.find((d) => d.id === f.divisionId);
+    const league = db.leagues.find((l) => l.id === f.leagueId);
+
+    if (f.legs) {
+      const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+      for (const leg of f.legs) {
+        if (leg.status !== 'pending_confirmation' || leg.awayPlayerId !== playerId) continue;
+        const homePlayer = db.players.find((p) => p.id === leg.homePlayerId);
+        results.push({
+          fixtureId: f.id,
+          legNumber: leg.legNumber,
+          leagueName: league?.name,
+          divisionName: division?.name,
+          round: f.round,
+          opponentName: (homePlayer ? homePlayer.name : null) || (homeTeam ? homeTeam.name : 'TBD'),
+          scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+        });
+      }
+      continue;
+    }
+
+    if (f.status !== 'pending_confirmation' || !isAwayEntrant(db, division, f, playerId)) continue;
+    const isDoubles = division?.entryType === 'doubles';
+    const homeName = isDoubles
+      ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
+      : db.players.find((p) => p.id === f.homePlayerId)?.name;
+    results.push({
+      fixtureId: f.id,
+      legNumber: null,
+      leagueName: league?.name,
+      divisionName: division?.name,
+      round: f.round,
+      opponentName: homeName || 'TBD',
+      scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+      submittedAt: f.resultSubmittedAt || null,
+    });
+  }
+
+  results.sort((a, b) => (a.leagueName || '').localeCompare(b.leagueName || '') || a.round - b.round);
+  res.json(results);
+}));
+
 // ---------- Leagues ----------
 
 app.get('/api/leagues', requireAuth, asyncRoute((req, res) => {
@@ -561,6 +620,7 @@ app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, re
           status: leg.status,
           label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
           scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+          disputeReason: leg.disputeReason || null,
         });
       }
       continue;
@@ -583,6 +643,7 @@ app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, re
       status: f.status,
       label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
       scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+      disputeReason: f.disputeReason || null,
     });
   }
 
@@ -1327,6 +1388,7 @@ app.post('/api/fixtures/:id/confirm-result', requireAuth, asyncRoute((req, res) 
 }));
 
 app.post('/api/fixtures/:id/dispute-result', requireAuth, asyncRoute((req, res) => {
+  const { reason } = req.body || {};
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
@@ -1335,9 +1397,13 @@ app.post('/api/fixtures/:id/dispute-result', requireAuth, asyncRoute((req, res) 
   if (!req.auth.user.isAdmin && !isAwayEntrant(db, division, fixture, req.auth.user.playerId)) {
     throw new ApiError(403, 'Only the away side (or an admin) can dispute this result');
   }
+  if (!reason || !reason.trim()) {
+    throw new ApiError(400, 'A reason is required when disputing a result');
+  }
 
   fixture.status = 'disputed';
   fixture.winnerPlayerId = null;
+  fixture.disputeReason = reason.trim();
   writeDb(db);
   res.json(fixture);
 }));
@@ -1351,6 +1417,7 @@ app.post('/api/fixtures/:id/reopen', requireAdmin, asyncRoute((req, res) => {
   }
   fixture.status = 'in_progress';
   fixture.winnerPlayerId = null;
+  fixture.disputeReason = null;
   recordAudit(db, {
     actor: req.adminSession.label, action: 'fixture.reopen', targetType: 'fixture', targetId: fixture.id,
     details: 'Reopened a pending/disputed result for further scoring',
@@ -1528,6 +1595,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/confirm-result', requireAuth, asyncR
 }));
 
 app.post('/api/fixtures/:id/legs/:legNumber/dispute-result', requireAuth, asyncRoute((req, res) => {
+  const { reason } = req.body || {};
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
@@ -1535,8 +1603,12 @@ app.post('/api/fixtures/:id/legs/:legNumber/dispute-result', requireAuth, asyncR
   if (!req.auth.user.isAdmin && leg.awayPlayerId !== req.auth.user.playerId) {
     throw new ApiError(403, 'Only the away-team nominated player (or an admin) can dispute this leg');
   }
+  if (!reason || !reason.trim()) {
+    throw new ApiError(400, 'A reason is required when disputing a result');
+  }
   leg.status = 'disputed';
   leg.winnerPlayerId = null;
+  leg.disputeReason = reason.trim();
   recomputeTeamFixture(db, division, fixture);
   writeDb(db);
   res.json(fixture);
@@ -1551,6 +1623,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/reopen', requireAdmin, asyncRoute((r
   }
   leg.status = 'in_progress';
   leg.winnerPlayerId = null;
+  leg.disputeReason = null;
   recomputeTeamFixture(db, division, fixture);
   recordAudit(db, {
     actor: req.adminSession.label, action: 'fixture.leg_reopen', targetType: 'fixture', targetId: fixture.id,
@@ -1722,6 +1795,7 @@ app.post('/api/fixtures/:id/override', requireAdmin, asyncRoute((req, res) => {
   }
   fixture.status = 'completed';
   fixture.adminOverride = { at: new Date().toISOString(), by: req.adminSession.label };
+  fixture.disputeReason = null;
 
   if (fixture.nextFixtureId && newWinnerId && newWinnerId !== oldWinnerId) {
     propagateWinner(db, division, fixture, newWinnerId);
