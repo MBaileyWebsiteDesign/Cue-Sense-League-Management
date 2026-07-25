@@ -151,30 +151,38 @@ export default function GameAdjustments() {
 
   const isTeams = selectedFixture ? Array.isArray(selectedFixture.legs) : false;
 
+  // Section 1 is specifically disputed games - pending_confirmation results
+  // aren't a dispute yet (the away side just hasn't acted on them), so they're
+  // left out of this list rather than lumped in with genuine disputes. The
+  // underlying endpoint still returns both (adminGetFixturesNeedingAttention
+  // is a general "needs an admin's eyes" feed), this just narrows what
+  // Section 1 displays to match its "Games disputed" heading.
+  const disputedGames = useMemo(() => needsAttention.filter((item) => item.status === 'disputed'), [needsAttention]);
+
   return (
     <div>
       <h1>Game Adjustments</h1>
       <p className="muted">
-        Search for a player, pick one of their fixtures, and directly correct or reopen the
-        result. Use this for anything a "Result disputed" banner points you at, or for a
+        Resolve disputed results directly, or search for a player to correct or reopen any of
+        their fixtures. Use this for anything a "Result disputed" banner points you at, or for a
         straightforward scoring mistake.
       </p>
       {error && <p className="error">{error}</p>}
       {banner && <p className="banner banner-success">{banner}</p>}
 
       <section className="card">
-        <h2>Needs Attention</h2>
+        <h2>1. Games disputed</h2>
         <p className="muted">
-          Every result currently disputed or awaiting confirmation, across every league - resolve one
-          directly here without searching for the player first.
+          Every result currently disputed, across every league - resolve one directly here
+          without searching for the player first.
         </p>
         {loadingAttention ? (
           <p>Loading…</p>
-        ) : needsAttention.length === 0 ? (
-          <p className="muted">Nothing needs attention right now.</p>
+        ) : disputedGames.length === 0 ? (
+          <p className="muted">No disputed games right now.</p>
         ) : (
           <ul className="fixture-list">
-            {needsAttention.map((item) => (
+            {disputedGames.map((item) => (
               <li key={`${item.fixtureId}-${item.legNumber ?? 'main'}`}>
                 {item.legNumber ? (
                   <Link to={`/fixtures/${item.fixtureId}`} style={{ flex: 1 }}>
@@ -192,7 +200,7 @@ export default function GameAdjustments() {
             ))}
           </ul>
         )}
-        {needsAttention.some((item) => !!item.legNumber) && (
+        {disputedGames.some((item) => !!item.legNumber) && (
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 8 }}>
             Team-fixture legs open on that fixture's own page - reopen or override an individual leg from there.
           </p>
@@ -200,7 +208,7 @@ export default function GameAdjustments() {
       </section>
 
       <section className="card">
-        <h2>Or search: 1. Find a player</h2>
+        <h2>2. Find a player</h2>
         <input
           type="text"
           placeholder="Search by name…"
@@ -224,7 +232,7 @@ export default function GameAdjustments() {
 
       {selectedPlayerId && (
         <section className="card">
-          <h2>2. Pick a fixture</h2>
+          <h2>3. Pick a fixture</h2>
           {loadingFixtures ? (
             <p>Loading…</p>
           ) : playerFixtures.length === 0 ? (
@@ -248,7 +256,7 @@ export default function GameAdjustments() {
       {selectedFixture && (
         <section className="card">
           <div className="page-header">
-            <h2>3. Adjust the result</h2>
+            <h2>4. Adjust the result</h2>
             <Link to={`/fixtures/${selectedFixture.id}`}>Open full fixture page</Link>
           </div>
           <p className="muted">
