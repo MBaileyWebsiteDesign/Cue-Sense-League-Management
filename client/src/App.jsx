@@ -30,6 +30,7 @@ const AdminUserEdit = lazy(() => import('./pages/AdminUserEdit.jsx'));
 const AdminAuditLog = lazy(() => import('./pages/AdminAuditLog.jsx'));
 const AdminVenues = lazy(() => import('./pages/AdminVenues.jsx'));
 const AdminSeasonWizard = lazy(() => import('./pages/AdminSeasonWizard.jsx'));
+const ManageFixtures = lazy(() => import('./pages/ManageFixtures.jsx'));
 const StreamOverlay = lazy(() => import('./pages/StreamOverlay.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
@@ -69,7 +70,7 @@ function RequireCaptain({ children }) {
 }
 
 function HeaderNav() {
-  const { isLoggedIn, isAdmin, isCaptain, user, logout } = useAuth();
+  const { isLoggedIn, isAdmin, isCaptain, logout } = useAuth();
   const navigate = useNavigate();
 
   if (!isLoggedIn) {
@@ -87,15 +88,15 @@ function HeaderNav() {
           Admin Portal
         </Link>
       )}
-      {isCaptain && (
+      {(isAdmin || isCaptain) && (
         <Link to="/captain" className="header-link">
           Captain Portal
         </Link>
       )}
+      <Link to="/account" className="header-link">
+        Player Portal
+      </Link>
       <span className="header-admin">
-        <Link to="/account" className="admin-badge">
-          {user.firstName}{isAdmin ? ' · Admin' : ''}{isCaptain ? ' · Captain' : ''}
-        </Link>
         <button
           className="header-link header-link-button"
           onClick={() => {
@@ -136,6 +137,8 @@ function AppShell() {
             <Route path="/admin/venues" element={<RequireAdmin><AdminVenues /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAdmin><GameAdjustments /></RequireAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
+            <Route path="/admin/manage-fixtures" element={<RequireAdmin><ManageFixtures /></RequireAdmin>} />
+            <Route path="/admin/manage-fixtures/:divisionId" element={<RequireAdmin><ManageFixtures /></RequireAdmin>} />
             <Route path="/leagues/:leagueId" element={<RequireLogin><LeagueDetail /></RequireLogin>} />
             <Route path="/divisions/:divisionId" element={<RequireLogin><DivisionDetail /></RequireLogin>} />
             <Route path="/fixtures/:fixtureId" element={<RequireLogin><FixtureDetail /></RequireLogin>} />
