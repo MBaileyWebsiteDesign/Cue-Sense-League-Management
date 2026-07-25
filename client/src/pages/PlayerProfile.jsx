@@ -3,12 +3,11 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useIsAdminSession } from '../useAdminSession.js';
-import VenueSelect from '../components/VenueSelect.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
 // Admin-only panel shown above Career - lets an admin edit the account
-// linked to this player (name/email/phone/venue/team/classification, reusing
+// linked to this player (name/email/phone/team/classification, reusing
 // the same PATCH /api/admin/users/:id route as the Manage Users edit screen)
 // without leaving the stats page, plus a read-only list of the leagues this
 // player is currently registered in ("League" context) and a button to
@@ -35,7 +34,6 @@ function AdminAccountPanel({ playerId, divisions }) {
           lastName: user.lastName,
           email: user.email,
           phone: user.phone || '',
-          venue: user.venue,
           teamName: user.teamName,
           classification: user.classification || '',
         });
@@ -103,7 +101,6 @@ function AdminAccountPanel({ playerId, divisions }) {
         <label>Last name<input value={form.lastName} onChange={set('lastName')} required /></label>
         <label>Email<input type="email" value={form.email} onChange={set('email')} required /></label>
         <label>Phone <span className="muted">(optional)</span><input type="tel" value={form.phone} onChange={set('phone')} /></label>
-        <label>Venue<VenueSelect value={form.venue} onChange={(name) => setForm({ ...form, venue: name })} /></label>
         <label>Team name<input value={form.teamName} onChange={set('teamName')} required /></label>
         <label>
           Classification <span className="muted">(optional)</span>

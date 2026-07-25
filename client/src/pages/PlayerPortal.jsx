@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
-import VenueSelect from '../components/VenueSelect.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
@@ -13,7 +12,6 @@ function ProfileForm({ player, leagues, onSaved }) {
     lastName: player.lastName,
     email: player.email,
     phone: player.phone || '',
-    venue: player.venue,
     teamName: player.teamName,
     classification: player.classification || '',
   });
@@ -68,10 +66,6 @@ function ProfileForm({ player, leagues, onSaved }) {
       <label>
         Phone <span className="muted">(optional)</span>
         <input type="tel" value={form.phone} onChange={set('phone')} />
-      </label>
-      <label>
-        Venue
-        <VenueSelect value={form.venue} onChange={(name) => setForm({ ...form, venue: name })} />
       </label>
       <label>
         Team name

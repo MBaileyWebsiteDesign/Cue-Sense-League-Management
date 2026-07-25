@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
-import VenueSelect from '../components/VenueSelect.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
@@ -12,7 +11,6 @@ function ProfileForm({ user, onSaved, setError, setSuccess }) {
     lastName: user.lastName,
     email: user.email,
     phone: user.phone || '',
-    venue: user.venue,
     teamName: user.teamName,
     classification: user.classification || '',
   });
@@ -42,7 +40,6 @@ function ProfileForm({ user, onSaved, setError, setSuccess }) {
       <label>Last name<input value={form.lastName} onChange={set('lastName')} required /></label>
       <label>Email<input type="email" value={form.email} onChange={set('email')} required /></label>
       <label>Phone <span className="muted">(optional)</span><input type="tel" value={form.phone} onChange={set('phone')} /></label>
-      <label>Venue<VenueSelect value={form.venue} onChange={(name) => setForm({ ...form, venue: name })} /></label>
       <label>Team name<input value={form.teamName} onChange={set('teamName')} required /></label>
       <label>
         Classification <span className="muted">(optional)</span>
@@ -109,7 +106,7 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         </button>
       </div>
       <p className="muted" style={{ marginTop: 12, fontSize: '0.8rem' }}>
-        Admin unlocks the full Admin Portal (users, venues, seasons, audit log). Captain is
+        Admin unlocks the full Admin Portal (users, seasons, audit log). Captain is
         currently a flag only - team captain tools appear once team leagues launch.
       </p>
     </section>
