@@ -138,6 +138,121 @@ function ChangePasswordForm() {
   );
 }
 
+// Inline "why are you disputing this" prompt - collapsed to a single Dispute
+// button until clicked, then expands to a required reason field so the
+// admin resolving it (Game Adjustments) has context to work from.
+function DisputeControl({ onDispute }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!open) {
+    return <button className="btn" onClick={() => setOpen(true)}>Dispute</button>;
+  }
+
+  const submit = async () => {
+    if (!reason.trim()) {
+      setError('Please explain why you’re disputing this result.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      await onDispute(reason.trim());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 6, width: '100%' }}>
+      <div className="inline-form" style={{ flexWrap: 'wrap', marginBottom: error ? 4 : 0 }}>
+        <input
+          type="text"
+          placeholder="Why are you disputing this result?"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          style={{ flex: '1 1 220px' }}
+          autoFocus
+        />
+        <button className="btn btn-primary" disabled={submitting} onClick={submit}>Submit Dispute</button>
+        <button className="btn" disabled={submitting} onClick={() => { setOpen(false); setReason(''); setError(''); }}>Cancel</button>
+      </div>
+      {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
+    </div>
+  );
+}
+
+// Results your opponent has already submitted that are sitting at
+// `pending_confirmation`, waiting specifically on you (the away side/nominee)
+// to confirm or dispute - the player-facing counterpart to the admin's
+// Game Adjustments "Games disputed" list. Shown above My Fixtures so it's
+// the first thing a player sees if something needs their attention; renders
+// nothing at all once there's nothing pending, to keep the page uncluttered.
+function NeedsYourConfirmation() {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
+  const [banner, setBanner] = useState('');
+
+  const load = () => {
+    api.getMyPendingConfirmations().then(setItems).catch((e) => setError(e.message));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const onConfirm = async (item) => {
+    setError('');
+    setBanner('');
+    try {
+      if (item.legNumber) await api.confirmLegResult(item.fixtureId, item.legNumber);
+      else await api.confirmResult(item.fixtureId);
+      setBanner('Result confirmed.');
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const onDispute = async (item, reason) => {
+    if (item.legNumber) await api.disputeLegResult(item.fixtureId, item.legNumber, reason);
+    else await api.disputeResult(item.fixtureId, reason);
+    setBanner('Result disputed - an admin will review it.');
+    load();
+  };
+
+  if (error) return <p className="error">{error}</p>;
+  if (!items || items.length === 0) return null;
+
+  return (
+    <section className="card">
+      <h2>Needs Your Confirmation</h2>
+      <p className="muted">
+        Results submitted by your opponent that are waiting on you to confirm or dispute.
+      </p>
+      {banner && <p className="banner banner-success">{banner}</p>}
+      <ul className="fixture-list">
+        {items.map((item) => (
+          <li key={`${item.fixtureId}-${item.legNumber ?? 'main'}`} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <Link to={`/fixtures/${item.fixtureId}`}>
+                vs {item.opponentName} <strong>{item.scoreLabel}</strong>
+                <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
+              </Link>
+            </div>
+            <div className="inline-form" style={{ marginTop: 6, marginBottom: 0 }}>
+              <button className="btn btn-primary" onClick={() => onConfirm(item)}>Confirm</button>
+              <DisputeControl onDispute={(reason) => onDispute(item, reason)} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function MyFixtures() {
   const [fixtures, setFixtures] = useState(null);
   const [error, setError] = useState('');
@@ -222,6 +337,7 @@ export default function PlayerPortal() {
         </div>
       </div>
 
+      <NeedsYourConfirmation />
       <MyFixtures />
       <ProfileForm player={user} onSaved={updateUser} />
       <ChangePasswordForm />

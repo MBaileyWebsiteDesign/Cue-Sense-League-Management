@@ -183,19 +183,26 @@ export default function GameAdjustments() {
         ) : (
           <ul className="fixture-list">
             {disputedGames.map((item) => (
-              <li key={`${item.fixtureId}-${item.legNumber ?? 'main'}`}>
-                {item.legNumber ? (
-                  <Link to={`/fixtures/${item.fixtureId}`} style={{ flex: 1 }}>
-                    {item.label} <strong>{item.scoreLabel}</strong>
-                    <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
-                  </Link>
-                ) : (
-                  <button className="btn" style={{ width: '100%', textAlign: 'left' }} onClick={() => resolveDirectly(item.fixtureId)}>
-                    {item.label} <strong>{item.scoreLabel}</strong>
-                    <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
-                  </button>
+              <li key={`${item.fixtureId}-${item.legNumber ?? 'main'}`} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                  {item.legNumber ? (
+                    <Link to={`/fixtures/${item.fixtureId}`} style={{ flex: 1 }}>
+                      {item.label} <strong>{item.scoreLabel}</strong>
+                      <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
+                    </Link>
+                  ) : (
+                    <button className="btn" style={{ width: '100%', textAlign: 'left' }} onClick={() => resolveDirectly(item.fixtureId)}>
+                      {item.label} <strong>{item.scoreLabel}</strong>
+                      <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
+                    </button>
+                  )}
+                  <span className={`status status-${item.status}`}>{item.status.replace('_', ' ')}</span>
+                </div>
+                {item.disputeReason && (
+                  <p className="muted" style={{ fontSize: '0.85rem', margin: '4px 0 0' }}>
+                    <strong>Reason given:</strong> {item.disputeReason}
+                  </p>
                 )}
-                <span className={`status status-${item.status}`}>{item.status.replace('_', ' ')}</span>
               </li>
             ))}
           </ul>

@@ -10,9 +10,11 @@ import { useAuth } from '../AuthContext.jsx';
 // server/src/index.js's "Result confirmation" section for the full design).
 // `canDecide` is true for the away-side entrant or an admin - only they can
 // confirm or dispute; everyone else just sees the status.
-function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDispute, onReopen, homeLabel, awayLabel }) {
+function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDispute, onReopen, homeLabel, awayLabel, disputeReason }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [disputing, setDisputing] = useState(false);
+  const [reason, setReason] = useState('');
 
   const run = async (fn) => {
     setBusy(true);
@@ -26,6 +28,19 @@ function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDisp
     }
   };
 
+  // Disputing always requires a short explanation - it's the context an
+  // admin has to work from when resolving it in Game Adjustments, so the
+  // form won't submit without one.
+  const submitDispute = async () => {
+    if (!reason.trim()) {
+      setError('Please explain why you’re disputing this result.');
+      return;
+    }
+    await run(() => onDispute(reason.trim()));
+    setDisputing(false);
+    setReason('');
+  };
+
   if (status === 'pending_confirmation') {
     return (
       <section className="card">
@@ -34,10 +49,25 @@ function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDisp
         </p>
         {error && <p className="error">{error}</p>}
         {canDecide ? (
-          <div className="inline-form">
-            <button className="btn btn-primary" disabled={busy} onClick={() => run(onConfirm)}>Confirm Result</button>
-            <button className="btn" disabled={busy} onClick={() => run(onDispute)}>Dispute Result</button>
-          </div>
+          disputing ? (
+            <div className="inline-form" style={{ flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Why are you disputing this result?"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                style={{ flex: '1 1 240px' }}
+                autoFocus
+              />
+              <button className="btn btn-primary" disabled={busy} onClick={submitDispute}>Submit Dispute</button>
+              <button className="btn" disabled={busy} onClick={() => { setDisputing(false); setReason(''); setError(''); }}>Cancel</button>
+            </div>
+          ) : (
+            <div className="inline-form">
+              <button className="btn btn-primary" disabled={busy} onClick={() => run(onConfirm)}>Confirm Result</button>
+              <button className="btn" disabled={busy} onClick={() => setDisputing(true)}>Dispute Result</button>
+            </div>
+          )
         ) : (
           <p className="muted">Waiting on {awayLabel} to confirm or dispute this result.</p>
         )}
@@ -57,6 +87,9 @@ function ResultConfirmationPanel({ status, canDecide, isAdmin, onConfirm, onDisp
           {awayLabel} disputed this result - an admin needs to resolve it, either by overriding the
           score directly or reopening it for further scoring. See <Link to="/admin/game-adjustments">Game Adjustments</Link>.
         </p>
+        {disputeReason && (
+          <p className="muted"><strong>Reason given:</strong> {disputeReason}</p>
+        )}
         {error && <p className="error">{error}</p>}
         {isAdmin && (
           <button className="btn" disabled={busy} onClick={() => run(onReopen)}>Reopen for scoring</button>
@@ -287,8 +320,9 @@ function LegRow({ fixture, leg, onChange, setError }) {
             isAdmin={isAdmin}
             homeLabel={leg.homePlayer.name}
             awayLabel={leg.awayPlayer.name}
+            disputeReason={leg.disputeReason}
             onConfirm={async () => { await api.confirmLegResult(fixture.id, leg.legNumber); onChange(); }}
-            onDispute={async () => { await api.disputeLegResult(fixture.id, leg.legNumber); onChange(); }}
+            onDispute={async (reason) => { await api.disputeLegResult(fixture.id, leg.legNumber, reason); onChange(); }}
             onReopen={async () => { await api.adminReopenLeg(fixture.id, leg.legNumber); onChange(); }}
           />
         </>
@@ -463,8 +497,9 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
         isAdmin={isAdmin}
         homeLabel={homeEntrant.name}
         awayLabel={awayEntrant.name}
+        disputeReason={fixture.disputeReason}
         onConfirm={async () => { await api.confirmResult(fixture.id); onChange(); }}
-        onDispute={async () => { await api.disputeResult(fixture.id); onChange(); }}
+        onDispute={async (reason) => { await api.disputeResult(fixture.id, reason); onChange(); }}
         onReopen={async () => { await api.adminReopenFixture(fixture.id); onChange(); }}
       />
 
