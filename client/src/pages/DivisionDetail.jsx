@@ -520,20 +520,27 @@ export default function DivisionDetail() {
     grand_final_reset: 'Grand Final — Bracket Reset (decider)',
   };
 
-  function groupByRound(fixtures) {
+  function groupByRound(fixtures, useRawRoundNumber = false) {
     const byRound = {};
     for (const fixture of fixtures) {
       (byRound[fixture.round] ||= []).push(fixture);
     }
-    // Relabel rounds 1, 2, 3... in order of appearance within this group,
-    // rather than using the raw (globally-offset) round number.
+    // Relabel rounds 1, 2, 3... in order of appearance within this group
+    // (rather than the raw, globally-offset round number) - used for the
+    // Winners/Losers Bracket sections below, where round numbers are offset
+    // by however many rounds came before them. The top-level flat list
+    // (round robin / single elimination) passes useRawRoundNumber instead,
+    // since a non-admin viewer may not have every round visible yet (see
+    // "Manage Fixtures" / round release) - relabeling by position would
+    // silently renumber Round 3 as "Round 1" once Rounds 1-2 are hidden from
+    // them, which would be actively misleading rather than just cosmetic.
     return Object.keys(byRound)
       .map(Number)
       .sort((a, b) => a - b)
-      .map((round, i) => ({ label: `Round ${i + 1}`, fixtures: byRound[round] }));
+      .map((round, i) => ({ label: `Round ${useRawRoundNumber ? round : i + 1}`, fixtures: byRound[round] }));
   }
 
-  const fixturesByRound = groupByRound(division.fixtures).map((g) => [g.label, g.fixtures]);
+  const fixturesByRound = groupByRound(division.fixtures, true).map((g) => [g.label, g.fixtures]);
 
   const bracketSections = isDoubleElim
     ? ['winners', 'losers', 'grand_final', 'grand_final_reset']
@@ -621,7 +628,19 @@ export default function DivisionDetail() {
       </section>
 
       <section className="card">
-        <h2>Fixtures</h2>
+        <div className="page-header">
+          <h2>Fixtures</h2>
+          {isAdmin && division.fixturesGenerated && (
+            <Link to={`/admin/manage-fixtures/${division.id}`}>Manage round visibility</Link>
+          )}
+        </div>
+        {isAdmin && division.fixturesGenerated && (
+          <p className="muted" style={{ marginTop: -8, fontSize: '0.8rem' }}>
+            Players currently see: {division.visibleRounds && division.visibleRounds.length > 0
+              ? `Round${division.visibleRounds.length === 1 ? '' : 's'} ${[...division.visibleRounds].sort((a, b) => a - b).join(', ')}`
+              : 'no rounds yet'}.
+          </p>
+        )}
         {division.fixtures.length === 0 && <p className="muted">No fixtures yet.</p>}
         {isDoubleElim
           ? bracketSections.map(({ role, fixtures }) => (
