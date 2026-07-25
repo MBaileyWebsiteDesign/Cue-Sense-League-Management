@@ -1338,6 +1338,24 @@ export const demoApi = {
     return hydrateDivision(division);
   }),
 
+  // Convenience for correcting a division where rounds ended up visible
+  // before an admin was ready (e.g. legacy data saved before fixtures
+  // started defaulting to hidden) - mirrors the server's POST
+  // /api/divisions/:id/hide-all-rounds.
+  hideAllRounds: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const hadVisibleRounds = Array.isArray(division.visibleRounds) && division.visibleRounds.length > 0;
+    division.visibleRounds = [];
+    if (hadVisibleRounds) {
+      recordAudit(db, {
+        actor: adminLabel(), action: 'division.hide_all_rounds', targetType: 'division', targetId: division.id,
+        details: `Hid all rounds from players (${division.name})`,
+      });
+    }
+    return hydrateDivision(division);
+  }),
+
   getRegisteredPlayers: op(() => registeredPlayers()),
 
   addPlayer: op((divisionId, playerId) => {
