@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 
@@ -10,6 +10,7 @@ import { useAuth } from '../AuthContext.jsx';
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -22,7 +23,14 @@ export default function Login() {
     try {
       const { token, expiresAt, user } = await api.login(email, password);
       login(token, expiresAt, user);
-      navigate('/');
+      // If a protected page redirected here (RequireLogin/RequireAdmin/
+      // RequireCaptain sets state.from), honor that - the account is
+      // clearly trying to reach something specific. Otherwise, land admins
+      // on the Admin Portal rather than the plain league list, since that's
+      // almost always what an admin logs in to do; everyone else still
+      // lands on the home league list as before.
+      const from = location.state?.from?.pathname;
+      navigate(from || (user.isAdmin ? '/admin' : '/'), { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
