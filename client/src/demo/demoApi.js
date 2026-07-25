@@ -52,17 +52,12 @@ function loadInitialDb() {
   if (!base.divisions) base.divisions = [];
   if (!base.fixtures) base.fixtures = [];
   // Round visibility ("Manage Fixtures") - mirrors db.js's readDb() migration:
-  // a division saved before this feature existed gets every round it
-  // currently has fixtures for marked visible (nothing already-visible
-  // disappears), a division with no fixtures yet just starts empty.
+  // fixtures are hidden from players by default, even for a division saved
+  // before this feature existed and already has fixtures generated - an
+  // admin has to explicitly release each round from Manage Fixtures.
   for (const division of base.divisions) {
     if (division.visibleRounds === undefined) {
-      if (division.fixturesGenerated) {
-        const rounds = new Set(base.fixtures.filter((f) => f.divisionId === division.id).map((f) => f.round));
-        division.visibleRounds = Array.from(rounds).sort((a, b) => a - b);
-      } else {
-        division.visibleRounds = [];
-      }
+      division.visibleRounds = [];
     }
   }
   return base;
