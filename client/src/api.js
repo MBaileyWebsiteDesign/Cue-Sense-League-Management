@@ -98,6 +98,8 @@ const networkApi = {
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
   setRoundVisibility: (divisionId, round, visible) =>
     request(`/divisions/${divisionId}/rounds/${round}/visibility`, { method: 'POST', body: JSON.stringify({ visible }) }),
+  hideAllRounds: (divisionId) =>
+    request(`/divisions/${divisionId}/hide-all-rounds`, { method: 'POST' }),
   substitutePlayer: (divisionId, outgoingPlayerId, incomingPlayerId, reason = 'substitution') =>
     request(`/divisions/${divisionId}/substitute-player`, {
       method: 'POST',

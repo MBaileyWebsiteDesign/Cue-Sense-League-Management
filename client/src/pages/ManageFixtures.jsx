@@ -67,6 +67,7 @@ function RoundRow({ round, divisionId, onChanged, setError }) {
 function DivisionRounds({ divisionId }) {
   const [division, setDivision] = useState(null);
   const [error, setError] = useState('');
+  const [hidingAll, setHidingAll] = useState(false);
 
   const load = () => api.getDivision(divisionId).then(setDivision).catch((e) => setError(e.message));
 
@@ -88,6 +89,23 @@ function DivisionRounds({ divisionId }) {
   }
 
   const rounds = summarizeRounds(division);
+  const anyVisible = rounds.some((r) => r.visible);
+
+  // Fixes a division where every round somehow ended up visible before an
+  // admin was ready (e.g. legacy data saved before fixtures started
+  // defaulting to hidden) - one click instead of hiding each round by hand.
+  const hideAll = async () => {
+    setError('');
+    setHidingAll(true);
+    try {
+      await api.hideAllRounds(division.id);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setHidingAll(false);
+    }
+  };
 
   return (
     <section className="card">
@@ -102,6 +120,13 @@ function DivisionRounds({ divisionId }) {
         Release Round 1 now, then come back and release Round 2 the following week, and so on.
       </p>
       {error && <p className="error">{error}</p>}
+      {anyVisible && (
+        <p>
+          <button className="btn" disabled={hidingAll} onClick={hideAll}>
+            {hidingAll ? 'Hiding…' : 'Hide All Rounds'}
+          </button>
+        </p>
+      )}
       <ul className="fixture-list">
         {rounds.map((round) => (
           <RoundRow key={round.round} round={round} divisionId={division.id} onChanged={load} setError={setError} />
@@ -184,10 +209,10 @@ export default function ManageFixtures() {
             <ul className="fixture-list">
               {league.divisions.map((d) => (
                 <li key={d.id}>
-                  <button className="btn" style={{ width: '100%', textAlign: 'left' }} onClick={() => selectDivision(d)}>
-                    {d.name}
-                  </button>
-                  <span className="muted">{d.fixturesGenerated ? 'Fixtures generated' : 'No fixtures yet'}</span>
+                  <button className="btn" onClick={() => selectDivision(d)}>{d.name}</button>
+                  <span className={`status status-${d.fixturesGenerated ? 'completed' : 'scheduled'}`}>
+                    {d.fixturesGenerated ? 'Fixtures generated' : 'No fixtures yet'}
+                  </span>
                 </li>
               ))}
             </ul>
