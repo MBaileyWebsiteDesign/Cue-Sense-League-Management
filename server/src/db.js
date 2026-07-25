@@ -72,19 +72,12 @@ export function readDb() {
   // allowed to see or play at all - see the `isRoundVisible` helper and the
   // `POST /api/divisions/:id/rounds/:round/visibility` route in index.js.
   // Backfilling this for a division created before the feature existed
-  // defaults to "every round it currently has fixtures for" if fixtures were
-  // already generated, so nothing that was already visible to players
-  // suddenly disappears; a division with no fixtures yet just starts empty,
-  // same as a brand-new one - the admin releases each round explicitly going
-  // forward.
+  // always starts empty (hidden) - even if fixtures were already generated -
+  // so nothing is visible to players until an admin explicitly releases each
+  // round from Manage Fixtures.
   for (const division of state.divisions) {
     if (division.visibleRounds === undefined) {
-      if (division.fixturesGenerated) {
-        const rounds = new Set(state.fixtures.filter((f) => f.divisionId === division.id).map((f) => f.round));
-        division.visibleRounds = Array.from(rounds).sort((a, b) => a - b);
-      } else {
-        division.visibleRounds = [];
-      }
+      division.visibleRounds = [];
     }
   }
   for (const user of state.users) {
