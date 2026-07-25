@@ -287,7 +287,15 @@ app.get('/api/users/me/fixtures', requireAuth, asyncRoute((req, res) => {
     return false;
   });
 
-  const enriched = fixtures.map((f) => {
+  // Even a fixture you're actually in doesn't show up here until the admin
+  // has released its round - see isRoundVisible above. An admin viewing their
+  // own "My Fixtures" (if their account is also linked to a player) still
+  // sees everything, same as everywhere else this gate applies.
+  const visibleFixtures = user.isAdmin
+    ? fixtures
+    : fixtures.filter((f) => isRoundVisible(db.divisions.find((d) => d.id === f.divisionId), f.round));
+
+  const enriched = visibleFixtures.map((f) => {
     const division = db.divisions.find((d) => d.id === f.divisionId);
     const league = db.leagues.find((l) => l.id === f.leagueId);
     const isTeams = !!f.legs;
@@ -336,6 +344,12 @@ app.get('/api/users/me/pending-confirmations', requireAuth, asyncRoute((req, res
   for (const f of db.fixtures) {
     const division = db.divisions.find((d) => d.id === f.divisionId);
     const league = db.leagues.find((l) => l.id === f.leagueId);
+    // Same round-visibility gate as everywhere else - a result awaiting your
+    // confirmation on a not-yet-released round shouldn't surface here either
+    // (shouldn't normally happen since scoring itself is also blocked, but an
+    // admin could in principle score ahead of release, so this stays
+    // consistent rather than relying on that never happening).
+    if (!req.auth.user.isAdmin && !isRoundVisible(division, f.round)) continue;
 
     if (f.legs) {
       const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
@@ -467,11 +481,27 @@ app.post('/api/leagues/:leagueId/divisions', requireAdmin, asyncRoute((req, res)
     pairingSize: entryType === 'doubles' ? Number(pairingSize) : null,
     gapDays: null,
     fixturesGenerated: false,
+    // No round is visible to players until an admin explicitly releases it
+    // from "Manage Fixtures" - see isRoundVisible / POST
+    // /api/divisions/:id/rounds/:round/visibility below. Admins always see
+    // every round regardless of this list.
+    visibleRounds: [],
   };
   db.divisions.push(division);
   writeDb(db);
   res.status(201).json(division);
 }));
+
+// Round visibility ("Manage Fixtures"): a division's `visibleRounds` (array
+// of round numbers) controls which rounds a non-admin account is allowed to
+// see or take any action on at all - fixture lists, "My Fixtures"/"Needs Your
+// Confirmation", direct fixture pages, and every scoring route. Admins always
+// see and can act on every round regardless of this list, so a season can be
+// built (and even scored ahead of time) before any of it is revealed to
+// players. See POST /api/divisions/:id/rounds/:round/visibility below.
+function isRoundVisible(division, round) {
+  return !!division && Array.isArray(division.visibleRounds) && division.visibleRounds.includes(round);
+}
 
 function hydrateDivision(db, division) {
   // Filtered once here, then reused below - computeStandings/
@@ -512,7 +542,15 @@ app.get('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  res.json(hydrateDivision(db, division));
+  const hydrated = hydrateDivision(db, division);
+  // A non-admin only ever sees fixtures from rounds the admin has released -
+  // see isRoundVisible above. Standings are left untouched (computed from the
+  // full fixture list before this filter) since a not-yet-released round
+  // shouldn't have any results on it under normal use anyway.
+  if (!req.auth.user.isAdmin) {
+    hydrated.fixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
+  }
+  res.json(hydrated);
 }));
 
 // ---- Singles players ----
@@ -1229,6 +1267,39 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
   res.status(201).json(hydrateDivision(db, division));
 }));
 
+// Powers the admin "Manage Fixtures" page: release (or re-hide) one round of
+// a division's fixtures to/from players. Deliberately per-round rather than
+// an all-or-nothing flag, since the whole point is a week-by-week reveal
+// (release Round 1, then Round 2 the following week, and so on) rather than
+// publishing the whole season's fixtures up front - see isRoundVisible above
+// for what this actually gates.
+app.post('/api/divisions/:id/rounds/:round/visibility', requireAdmin, asyncRoute((req, res) => {
+  const { visible } = req.body || {};
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const round = Number(req.params.round);
+  if (!Number.isInteger(round)) throw new ApiError(400, 'round must be a whole number');
+  const roundExists = db.fixtures.some((f) => f.divisionId === division.id && f.round === round);
+  if (!roundExists) throw new ApiError(404, 'No fixtures found for this round in this division');
+
+  if (!Array.isArray(division.visibleRounds)) division.visibleRounds = [];
+  if (visible) {
+    if (!division.visibleRounds.includes(round)) division.visibleRounds.push(round);
+  } else {
+    division.visibleRounds = division.visibleRounds.filter((r) => r !== round);
+  }
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: visible ? 'division.round_release' : 'division.round_hide',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Round ${round} ${visible ? 'released to players' : 'hidden from players'} (${division.name})`,
+  });
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
 // ---------- Fixtures / frame scoring (singles) ----------
 
 app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
@@ -1237,6 +1308,13 @@ app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   const divisionName = division ? division.name : null;
+  // A non-admin can't see a fixture in a round that hasn't been released yet
+  // - not even by guessing/bookmarking its direct URL - so this reports the
+  // same 404 as a genuinely missing fixture rather than a 403 that would
+  // confirm one exists.
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(404, 'Fixture not found');
+  }
 
   if (division.entryType === 'teams') {
     const withPlayers = (team) => (team ? { ...team, players: db.players.filter((p) => team.playerIds.includes(p.id)) } : null);
@@ -1262,12 +1340,15 @@ app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
   res.json({ ...fixture, divisionName, homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
 }));
 
-app.post('/api/fixtures/:id/frames', asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
   const { winnerPlayerId } = req.body;
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (division.entryType === 'teams') {
     throw new ApiError(400, 'This is a team fixture - record frames against a specific leg instead');
   }
@@ -1304,10 +1385,14 @@ app.post('/api/fixtures/:id/frames', asyncRoute((req, res) => {
   res.json(fixture);
 }));
 
-app.delete('/api/fixtures/:id/frames/last', asyncRoute((req, res) => {
+app.delete('/api/fixtures/:id/frames/last', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (fixture.frames.length === 0) throw new ApiError(400, 'No frames recorded yet');
   if (fixture.nextFixtureId && fixture.status === 'completed') {
     throw new ApiError(400, 'This result has already advanced a player to the next round and cannot be undone here');
@@ -1354,6 +1439,9 @@ app.post('/api/fixtures/:id/submit-result', requireAuth, asyncRoute((req, res) =
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (division.entryType === 'teams') throw new ApiError(400, 'This is a team fixture - submit each leg individually');
   if (fixture.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress match can be submitted for confirmation');
   if (fixture.homeFrameScore < fixture.raceTo && fixture.awayFrameScore < fixture.raceTo) {
@@ -1373,6 +1461,9 @@ app.post('/api/fixtures/:id/confirm-result', requireAuth, asyncRoute((req, res) 
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
   if (!req.auth.user.isAdmin && !isAwayEntrant(db, division, fixture, req.auth.user.playerId)) {
     throw new ApiError(403, 'Only the away side (or an admin) can confirm this result');
@@ -1393,6 +1484,9 @@ app.post('/api/fixtures/:id/dispute-result', requireAuth, asyncRoute((req, res) 
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
   if (!req.auth.user.isAdmin && !isAwayEntrant(db, division, fixture, req.auth.user.playerId)) {
     throw new ApiError(403, 'Only the away side (or an admin) can dispute this result');
@@ -1476,10 +1570,14 @@ function findTeamFixtureAndLeg(db, fixtureId, legNumber) {
   return { fixture, leg };
 }
 
-app.post('/api/fixtures/:id/legs/:legNumber/nominate', asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/legs/:legNumber/nominate', requireAuth, asyncRoute((req, res) => {
   const { homePlayerId, awayPlayerId } = req.body;
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  const nominateDivision = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(nominateDivision, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (!fixture.homeTeamId || !fixture.awayTeamId) {
     throw new ApiError(400, 'Both teams for this fixture are not yet known - waiting on an earlier round');
   }
@@ -1499,11 +1597,14 @@ app.post('/api/fixtures/:id/legs/:legNumber/nominate', asyncRoute((req, res) => 
   res.json(fixture);
 }));
 
-app.post('/api/fixtures/:id/legs/:legNumber/frames', asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((req, res) => {
   const { winnerPlayerId } = req.body;
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (fixture.status === 'completed') throw new ApiError(400, 'This team match is already decided');
   if (leg.status === 'pending') throw new ApiError(400, 'Nominate both players for this leg before recording frames');
   if (leg.status === 'completed') {
@@ -1535,10 +1636,13 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', asyncRoute((req, res) => {
   res.json(fixture);
 }));
 
-app.delete('/api/fixtures/:id/legs/:legNumber/frames/last', asyncRoute((req, res) => {
+app.delete('/api/fixtures/:id/legs/:legNumber/frames/last', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (leg.frames.length === 0) throw new ApiError(400, 'No frames recorded yet for this leg');
   if (fixture.nextFixtureId && fixture.status === 'completed') {
     throw new ApiError(400, 'This result has already advanced a team to the next round and cannot be undone here');
@@ -1570,6 +1674,10 @@ app.delete('/api/fixtures/:id/legs/:legNumber/frames/last', asyncRoute((req, res
 app.post('/api/fixtures/:id/legs/:legNumber/submit-result', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  const submitDivision = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(submitDivision, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (leg.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress leg can be submitted for confirmation');
   if (leg.homeFrameScore < leg.raceTo && leg.awayFrameScore < leg.raceTo) {
     throw new ApiError(400, `Neither side has reached this leg's race target (${leg.raceTo}) yet`);
@@ -1584,6 +1692,9 @@ app.post('/api/fixtures/:id/legs/:legNumber/confirm-result', requireAuth, asyncR
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
   if (!req.auth.user.isAdmin && leg.awayPlayerId !== req.auth.user.playerId) {
     throw new ApiError(403, 'Only the away-team nominated player (or an admin) can confirm this leg');
@@ -1599,6 +1710,9 @@ app.post('/api/fixtures/:id/legs/:legNumber/dispute-result', requireAuth, asyncR
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
   if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
   if (!req.auth.user.isAdmin && leg.awayPlayerId !== req.auth.user.playerId) {
     throw new ApiError(403, 'Only the away-team nominated player (or an admin) can dispute this leg');
