@@ -1,7 +1,5 @@
 # The Ultimate Pool League
 
-Live on GitHub: https://github.com/MBaileyWebsiteDesign/the-ultimate-pool-league
-
 A self-hosted pool league management platform: admins create leagues, divisions and
 players (or spin up a whole new season in one guided wizard); the app schedules
 fixtures per division (round robin or knockout); captains or admins record match
