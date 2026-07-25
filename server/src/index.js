@@ -1300,6 +1300,29 @@ app.post('/api/divisions/:id/rounds/:round/visibility', requireAdmin, asyncRoute
   res.json(hydrateDivision(db, division));
 }));
 
+// Convenience for correcting a division where rounds ended up visible before
+// an admin was ready - e.g. legacy data saved before fixtures started
+// defaulting to hidden. Resets straight to "nothing released" in one request
+// instead of clicking "Hide from Players" round by round.
+app.post('/api/divisions/:id/hide-all-rounds', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const hadVisibleRounds = Array.isArray(division.visibleRounds) && division.visibleRounds.length > 0;
+  division.visibleRounds = [];
+  if (hadVisibleRounds) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'division.hide_all_rounds',
+      targetType: 'division',
+      targetId: division.id,
+      details: `Hid all rounds from players (${division.name})`,
+    });
+  }
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
 // ---------- Fixtures / frame scoring (singles) ----------
 
 app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
