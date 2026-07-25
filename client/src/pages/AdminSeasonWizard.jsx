@@ -6,7 +6,7 @@ import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
-const TEMPLATE_COLUMNS = ['firstName', 'lastName', 'email', 'phone', 'venue', 'teamName', 'classification', 'isCaptain', 'division'];
+const TEMPLATE_COLUMNS = ['firstName', 'lastName', 'email', 'phone', 'teamName', 'classification', 'isCaptain', 'division'];
 
 // Builds one example row per division so the template shows every valid
 // value for the `division` column - the single thing a CSV/Excel row is
@@ -15,7 +15,7 @@ const TEMPLATE_COLUMNS = ['firstName', 'lastName', 'email', 'phone', 'venue', 't
 // template avoids that entirely).
 function templateRows(divisions) {
   return divisions.map((d) => ({
-    firstName: '', lastName: '', email: '', phone: '', venue: '', teamName: '',
+    firstName: '', lastName: '', email: '', phone: '', teamName: '',
     classification: '', isCaptain: '', division: d.name,
   }));
 }
@@ -124,7 +124,7 @@ function ImportResultSummary({ result }) {
 
 function ManualAddForm({ league, onImported, setError }) {
   const [form, setForm] = useState({
-    firstName: '', lastName: '', email: '', phone: '', venue: '', teamName: '',
+    firstName: '', lastName: '', email: '', phone: '', teamName: '',
     classification: '', isCaptain: false, division: league.divisions[0]?.name || '',
   });
   const [submitting, setSubmitting] = useState(false);
@@ -152,7 +152,6 @@ function ManualAddForm({ league, onImported, setError }) {
       <label>Last name<input value={form.lastName} onChange={set('lastName')} required /></label>
       <label>Email<input type="email" value={form.email} onChange={set('email')} required /></label>
       <label>Phone <span className="muted">(optional)</span><input type="tel" value={form.phone} onChange={set('phone')} /></label>
-      <label>Venue<input value={form.venue} onChange={set('venue')} required /></label>
       <label>Team name <span className="muted">(optional)</span><input value={form.teamName} onChange={set('teamName')} /></label>
       <label>
         Classification <span className="muted">(optional)</span>

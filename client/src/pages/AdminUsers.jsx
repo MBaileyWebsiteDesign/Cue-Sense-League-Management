@@ -6,10 +6,10 @@ import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
-const TEMPLATE_COLUMNS = ['firstName', 'lastName', 'email', 'phone', 'venue', 'teamName', 'classification', 'isCaptain', 'isAdmin'];
+const TEMPLATE_COLUMNS = ['firstName', 'lastName', 'email', 'phone', 'teamName', 'classification', 'isCaptain', 'isAdmin'];
 const TEMPLATE_EXAMPLE_ROW = {
   firstName: 'Jamie', lastName: 'Smith', email: 'jamie.smith@example.com', phone: '',
-  venue: '', teamName: '', classification: '', isCaptain: '', isAdmin: '',
+  teamName: '', classification: '', isCaptain: '', isAdmin: '',
 };
 
 function downloadCsvTemplate() {
@@ -124,7 +124,7 @@ function ImportResultSummary({ result }) {
 
 function ManualAddForm({ onImported, setError }) {
   const emptyForm = {
-    firstName: '', lastName: '', email: '', phone: '', venue: '', teamName: '',
+    firstName: '', lastName: '', email: '', phone: '', teamName: '',
     classification: '', isCaptain: false, isAdmin: false,
   };
   const [form, setForm] = useState(emptyForm);
@@ -138,7 +138,7 @@ function ManualAddForm({ onImported, setError }) {
     try {
       const result = await api.adminImportUsers([{ ...form, classification: form.classification || null }]);
       onImported(result);
-      setForm({ ...emptyForm, venue: form.venue, teamName: form.teamName });
+      setForm({ ...emptyForm, teamName: form.teamName });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -153,7 +153,6 @@ function ManualAddForm({ onImported, setError }) {
       <label>Last name<input value={form.lastName} onChange={set('lastName')} required /></label>
       <label>Email<input type="email" value={form.email} onChange={set('email')} required /></label>
       <label>Phone <span className="muted">(optional)</span><input type="tel" value={form.phone} onChange={set('phone')} /></label>
-      <label>Venue<input value={form.venue} onChange={set('venue')} required /></label>
       <label>Team name <span className="muted">(optional)</span><input value={form.teamName} onChange={set('teamName')} /></label>
       <label>
         Classification <span className="muted">(optional)</span>
@@ -321,7 +320,7 @@ export default function AdminUsers() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name, email, venue or team…"
+          placeholder="Search by name, email or team…"
         />
         <button className="btn btn-primary" type="submit">Search</button>
       </form>
@@ -334,7 +333,7 @@ export default function AdminUsers() {
         <table className="standings-table">
           <thead>
             <tr>
-              <th>Name</th><th>Email</th><th>Venue</th><th>Team</th><th>Class</th><th>Flags</th><th>Status</th>
+              <th>Name</th><th>Email</th><th>Team</th><th>Class</th><th>Flags</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -344,7 +343,6 @@ export default function AdminUsers() {
                   <Link to={`/admin/users/${u.id}`}>{u.firstName} {u.lastName}</Link>
                 </td>
                 <td style={{ textAlign: 'left' }}>{u.email}</td>
-                <td style={{ textAlign: 'left' }}>{u.venue}</td>
                 <td style={{ textAlign: 'left' }}>{u.teamName}</td>
                 <td>{u.classification || '—'}</td>
                 <td>{[u.isAdmin && 'Admin', u.isCaptain && 'Captain'].filter(Boolean).join(', ') || '—'}</td>
@@ -354,7 +352,7 @@ export default function AdminUsers() {
               </tr>
             ))}
             {users.length === 0 && (
-              <tr><td colSpan={7} className="muted">No users match that search.</td></tr>
+              <tr><td colSpan={6} className="muted">No users match that search.</td></tr>
             )}
           </tbody>
         </table>
