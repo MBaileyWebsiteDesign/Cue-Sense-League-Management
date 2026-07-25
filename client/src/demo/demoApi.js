@@ -696,6 +696,63 @@ export const demoApi = {
     return enriched;
   }),
 
+  // A player's own results currently awaiting THEIR confirmation - mirrors
+  // server/src/index.js's GET /api/users/me/pending-confirmations (see that
+  // route for the full design note). Powers the "Needs Your Confirmation"
+  // panel on the Player Portal.
+  getMyPendingConfirmations: op(() => {
+    const user = currentUser();
+    if (!user || !user.playerId) return [];
+    const playerId = user.playerId;
+    const results = [];
+
+    for (const f of db.fixtures) {
+      const division = db.divisions.find((d) => d.id === f.divisionId);
+      const league = db.leagues.find((l) => l.id === f.leagueId);
+
+      if (f.legs) {
+        const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+        for (const leg of f.legs) {
+          if (leg.status !== 'pending_confirmation' || leg.awayPlayerId !== playerId) continue;
+          const homePlayer = db.players.find((p) => p.id === leg.homePlayerId);
+          results.push({
+            fixtureId: f.id,
+            legNumber: leg.legNumber,
+            leagueName: league?.name,
+            divisionName: division?.name,
+            round: f.round,
+            opponentName: (homePlayer ? homePlayer.name : null) || (homeTeam ? homeTeam.name : 'TBD'),
+            scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+          });
+        }
+        continue;
+      }
+
+      if (f.status !== 'pending_confirmation') continue;
+      const isAway = division?.entryType === 'doubles'
+        ? !!db.pairings.find((p) => p.id === f.awayPlayerId)?.playerIds.includes(playerId)
+        : f.awayPlayerId === playerId;
+      if (!isAway) continue;
+      const isDoubles = division?.entryType === 'doubles';
+      const homeName = isDoubles
+        ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
+        : db.players.find((p) => p.id === f.homePlayerId)?.name;
+      results.push({
+        fixtureId: f.id,
+        legNumber: null,
+        leagueName: league?.name,
+        divisionName: division?.name,
+        round: f.round,
+        opponentName: homeName || 'TBD',
+        scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+        submittedAt: f.resultSubmittedAt || null,
+      });
+    }
+
+    results.sort((a, b) => (a.leagueName || '').localeCompare(b.leagueName || '') || a.round - b.round);
+    return results;
+  }),
+
   // Admin: Game Adjustments - same shape as getMyFixtures but for any
   // playerId, including every status (not just upcoming), since an admin
   // might be specifically looking for a disputed/pending result to resolve.
@@ -761,6 +818,7 @@ export const demoApi = {
             status: leg.status,
             label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
             scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+            disputeReason: leg.disputeReason || null,
           });
         }
         continue;
@@ -782,6 +840,7 @@ export const demoApi = {
         status: f.status,
         label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
         scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+        disputeReason: f.disputeReason || null,
       });
     }
     const STATUS_ORDER = { disputed: 0, pending_confirmation: 1 };
@@ -1153,6 +1212,7 @@ export const demoApi = {
     }
     fixture.status = 'completed';
     fixture.adminOverride = { at: new Date().toISOString(), by: adminLabel() };
+    fixture.disputeReason = null;
     if (fixture.nextFixtureId && newWinnerId && newWinnerId !== oldWinnerId) {
       propagateWinner(division, fixture, newWinnerId);
     }
@@ -1583,7 +1643,7 @@ export const demoApi = {
     return fixture;
   }),
 
-  disputeResult: op((fixtureId) => {
+  disputeResult: op((fixtureId, reason) => {
     const fixture = db.fixtures.find((f) => f.id === fixtureId);
     if (!fixture) throw new ApiError(404, 'Fixture not found');
     const division = db.divisions.find((d) => d.id === fixture.divisionId);
@@ -1593,8 +1653,10 @@ export const demoApi = {
       ? !!db.pairings.find((p) => p.id === fixture.awayPlayerId)?.playerIds.includes(user?.playerId)
       : fixture.awayPlayerId === user?.playerId;
     if (!user?.isAdmin && !isAway) throw new ApiError(403, 'Only the away side (or an admin) can dispute this result');
+    if (!reason || !reason.trim()) throw new ApiError(400, 'A reason is required when disputing a result');
     fixture.status = 'disputed';
     fixture.winnerPlayerId = null;
+    fixture.disputeReason = reason.trim();
     return fixture;
   }),
 
@@ -1606,6 +1668,7 @@ export const demoApi = {
     }
     fixture.status = 'in_progress';
     fixture.winnerPlayerId = null;
+    fixture.disputeReason = null;
     recordAudit(db, {
       actor: adminLabel(), action: 'fixture.reopen', targetType: 'fixture', targetId: fixture.id,
       details: 'Reopened a pending/disputed result for further scoring',
@@ -1743,7 +1806,7 @@ export const demoApi = {
     return fixture;
   }),
 
-  disputeLegResult: op((fixtureId, legNumber) => {
+  disputeLegResult: op((fixtureId, legNumber, reason) => {
     const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
     const division = db.divisions.find((d) => d.id === fixture.divisionId);
     if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
@@ -1751,8 +1814,10 @@ export const demoApi = {
     if (!user?.isAdmin && leg.awayPlayerId !== user?.playerId) {
       throw new ApiError(403, 'Only the away-team nominated player (or an admin) can dispute this leg');
     }
+    if (!reason || !reason.trim()) throw new ApiError(400, 'A reason is required when disputing a result');
     leg.status = 'disputed';
     leg.winnerPlayerId = null;
+    leg.disputeReason = reason.trim();
     recomputeTeamFixture(division, fixture);
     return fixture;
   }),
@@ -1765,6 +1830,7 @@ export const demoApi = {
     }
     leg.status = 'in_progress';
     leg.winnerPlayerId = null;
+    leg.disputeReason = null;
     recomputeTeamFixture(division, fixture);
     recordAudit(db, {
       actor: adminLabel(), action: 'fixture.leg_reopen', targetType: 'fixture', targetId: fixture.id,
