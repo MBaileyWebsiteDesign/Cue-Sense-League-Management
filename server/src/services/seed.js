@@ -15,23 +15,7 @@ import { hashPassword } from '../userAuth.js';
 resetDb();
 const db = readDb();
 
-// Seed a handful of pre-approved venues so registration/profile venue
-// dropdowns aren't empty on a fresh install. Players can request more from
-// the registration or account page; an admin approves them from there.
-const seedVenueNames = [
-  'The Cue Club', "Rack 'Em Sports Bar", 'The Green Baize', 'Corner Pocket Tavern', 'Break & Run Social Club',
-];
 const now = new Date().toISOString();
-db.venues.push(...seedVenueNames.map((name) => ({
-  id: uuid(),
-  name,
-  status: 'approved',
-  requestedBy: null,
-  requestedByName: null,
-  requestedAt: now,
-  approvedBy: 'Admin',
-  approvedAt: now,
-})));
 
 // Seed one admin account - login is unified now (no separate hardcoded admin
 // login), so a real account with isAdmin: true has to exist for anyone to
@@ -47,7 +31,6 @@ db.users.push({
   email: ADMIN_EMAIL,
   passwordHash: hashPassword(ADMIN_PASSWORD),
   phone: '',
-  venue: seedVenueNames[0],
   teamName: 'Admin',
   classification: null,
   isAdmin: true,
@@ -82,16 +65,12 @@ db.leagues.push(league);
 // it, same caveat as the seeded admin account above.
 const SEEDED_PLAYER_PASSWORD = 'Test12!@';
 const seededPlayerPasswordHash = hashPassword(SEEDED_PLAYER_PASSWORD);
-let seededPlayerEmailIndex = 0;
 const usedSeededSlugs = new Map(); // slug -> count seen so far, for the (currently theoretical) case of two same-named players
 
 // Deterministic, collision-safe email/name split for a seeded player's
 // companion account. Splits on the first space only (so "Suraj Singh
 // Rathor" -> firstName "Suraj", lastName "Singh Rathor") - good enough for
-// seed/demo data, not meant to be a general name parser. `venue` cycles
-// through the seeded venues round-robin purely for realistic variety across
-// profiles, since the roster arrays below don't carry a real per-player
-// venue.
+// seed/demo data, not meant to be a general name parser.
 function createSeededPlayerUser(player) {
   const spaceIndex = player.name.indexOf(' ');
   const firstName = spaceIndex === -1 ? player.name : player.name.slice(0, spaceIndex);
@@ -100,9 +79,7 @@ function createSeededPlayerUser(player) {
   const seenCount = usedSeededSlugs.get(baseSlug) || 0;
   usedSeededSlugs.set(baseSlug, seenCount + 1);
   const slug = seenCount === 0 ? baseSlug : `${baseSlug}${seenCount + 1}`;
-  const venue = seedVenueNames[seededPlayerEmailIndex % seedVenueNames.length];
   const email = `${slug}@example.com`;
-  seededPlayerEmailIndex += 1;
   return {
     id: uuid(),
     firstName,
@@ -110,7 +87,6 @@ function createSeededPlayerUser(player) {
     email,
     passwordHash: seededPlayerPasswordHash,
     phone: '',
-    venue,
     teamName: 'Unassigned',
     classification: null,
     isAdmin: false,
@@ -221,7 +197,6 @@ divisions.forEach((d) => {
   const fixtureCount = db.fixtures.filter((f) => f.divisionId === d.id).length;
   console.log(`  - ${d.name} (${d.id}): ${d.playerIds.length} players, ${fixtureCount} fixtures generated (all unplayed)`);
 });
-console.log(`Seeded ${seedVenueNames.length} approved venues: ${seedVenueNames.join(', ')}`);
 console.log(`Seeded admin account: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD} (change this before deploying anywhere real people can reach it)`);
 console.log(
   `Seeded ${db.users.length - 1} player accounts (one per roster name above), password "${SEEDED_PLAYER_PASSWORD}" for all of them - ` +
