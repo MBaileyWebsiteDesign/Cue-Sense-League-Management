@@ -201,4 +201,4 @@ console.log(`Seeded admin account: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD} (change th
 console.log(
   `Seeded ${db.users.length - 1} player accounts (one per roster name above), password "${SEEDED_PLAYER_PASSWORD}" for all of them - ` +
     `email is <firstname.lastname>@example.com (e.g. suraj.singh.rathor@example.com). Change/reset these before deploying anywhere real people can reach it.`
-}
+);
