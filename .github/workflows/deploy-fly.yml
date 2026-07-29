@@ -1,0 +1,30 @@
+name: Deploy to Fly.io
+
+# Auto-deploys the live app on every push to main that touches server/,
+# client/, or the deploy config itself - separate from deploy-demo.yml,
+# which only builds the static GitHub Pages demo build. Requires a
+# FLY_API_TOKEN secret on this repo (Settings -> Secrets and variables ->
+# Actions) generated from a Fly.io deploy token - see fly.toml's header
+# comment and the project README for full one-time setup steps.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - 'server/**'
+      - 'Dockerfile'
+      - 'fly.toml'
+      - '.github/workflows/deploy-fly.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    concurrency: deploy-group # avoid two deploys racing if pushes land close together
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

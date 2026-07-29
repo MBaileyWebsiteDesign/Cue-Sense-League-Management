@@ -1,0 +1,22 @@
+# Dependencies are installed fresh inside each Docker build stage
+node_modules
+client/node_modules
+server/node_modules
+
+# Build output - rebuilt by the client-build stage every deploy
+client/dist
+client/dist-*
+
+# The real database file - must NOT be baked into the image. In production
+# this path is backed by a Fly.io volume (see fly.toml's [[mounts]]) so data
+# survives deploys/restarts; shipping a stale local copy inside the image
+# would silently overwrite live data on first boot if the volume ever
+# mounted over an existing directory unexpectedly.
+server/src/data
+
+# Everything else that has no business being inside the runtime image
+.git
+.github
+.vscode
+*.md
+.DS_Store
