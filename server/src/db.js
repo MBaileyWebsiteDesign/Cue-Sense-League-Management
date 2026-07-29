@@ -39,6 +39,8 @@ const EMPTY_STATE = {
   auditLog: [],
   venues: [],
   passwordResets: [],
+  tours: [],
+  rollOfHonour: [],
 };
 
 function ensureDataFile() {
@@ -67,6 +69,14 @@ export function readDb() {
   if (!state.passwordResets) state.passwordResets = [];
   if (!state.divisions) state.divisions = [];
   if (!state.fixtures) state.fixtures = [];
+  // Tours/series (an admin-curated set of divisions whose standings points
+  // get summed into one aggregate ranking table - see services/tours.js)
+  // and the Roll of Honour (every division's champion, recorded
+  // automatically the moment its last fixture completes - see
+  // recordChampionIfDivisionComplete in index.js) both post-date the
+  // original schema, so backfill them the same way as everything else here.
+  if (!state.tours) state.tours = [];
+  if (!state.rollOfHonour) state.rollOfHonour = [];
   // Round visibility (Manage Fixtures / "Needs Your Confirmation" gating):
   // `visibleRounds` is the list of round numbers a non-admin account is
   // allowed to see or play at all - see the `isRoundVisible` helper and the

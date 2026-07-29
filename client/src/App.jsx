@@ -3,6 +3,9 @@ import { Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-r
 import LeagueList from './pages/LeagueList.jsx';
 import LeagueDetail from './pages/LeagueDetail.jsx';
 import DivisionDetail from './pages/DivisionDetail.jsx';
+import TourList from './pages/TourList.jsx';
+import TourDetail from './pages/TourDetail.jsx';
+import RollOfHonour from './pages/RollOfHonour.jsx';
 import FixtureDetail from './pages/FixtureDetail.jsx';
 import PlayerProfile from './pages/PlayerProfile.jsx';
 import Login from './pages/Login.jsx';
@@ -92,6 +95,12 @@ function HeaderNav() {
           Captain Portal
         </Link>
       )}
+      <Link to="/tours" className="header-link">
+        Tours
+      </Link>
+      <Link to="/roll-of-honour" className="header-link">
+        Roll of Honour
+      </Link>
       <Link to="/account" className="header-link">
         Player Portal
       </Link>
@@ -141,6 +150,9 @@ function AppShell() {
             <Route path="/divisions/:divisionId" element={<RequireLogin><DivisionDetail /></RequireLogin>} />
             <Route path="/fixtures/:fixtureId" element={<RequireLogin><FixtureDetail /></RequireLogin>} />
             <Route path="/players/:playerId" element={<RequireLogin><PlayerProfile /></RequireLogin>} />
+            <Route path="/tours" element={<RequireLogin><TourList /></RequireLogin>} />
+            <Route path="/tours/:tourId" element={<RequireLogin><TourDetail /></RequireLogin>} />
+            <Route path="/roll-of-honour" element={<RequireLogin><RollOfHonour /></RequireLogin>} />
           </Routes>
         </Suspense>
       </main>

@@ -77,6 +77,17 @@ const networkApi = {
   overrideFixture: (fixtureId, homeScore, awayScore) =>
     request(`/fixtures/${fixtureId}/override`, { method: 'POST', body: JSON.stringify({ homeScore, awayScore }) }),
 
+  getRollOfHonour: () => request('/roll-of-honour'),
+
+  getTours: () => request('/tours'),
+  createTour: (data) => request('/tours', { method: 'POST', body: JSON.stringify(data) }),
+  getTour: (id) => request(`/tours/${id}`),
+  deleteTour: (id) => request(`/tours/${id}`, { method: 'DELETE' }),
+  addTourDivision: (tourId, divisionId) =>
+    request(`/tours/${tourId}/divisions`, { method: 'POST', body: JSON.stringify({ divisionId }) }),
+  removeTourDivision: (tourId, divisionId) =>
+    request(`/tours/${tourId}/divisions/${divisionId}`, { method: 'DELETE' }),
+
   getLeagues: () => request('/leagues'),
   createLeague: (data) => request('/leagues', { method: 'POST', body: JSON.stringify(data) }),
   getLeague: (id) => request(`/leagues/${id}`),

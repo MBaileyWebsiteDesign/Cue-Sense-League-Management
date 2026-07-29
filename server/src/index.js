@@ -10,6 +10,7 @@ import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRo
 import { buildBracketRounds, buildDoubleElimBracket } from './services/bracket.js';
 import { computeStandings } from './services/standings.js';
 import { computeTeamStandings } from './services/teamStandings.js';
+import { computeTourStandings } from './services/tours.js';
 import { buildPlayerProfile } from './services/playerProfile.js';
 import { ApiError } from './errors.js';
 import {
@@ -519,15 +520,14 @@ function hydrateDivision(db, division) {
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const leagueName = league ? league.name : null;
 
+  let hydrated;
   if (division.entryType === 'teams') {
     const teams = db.teams
       .filter((t) => division.teamIds.includes(t.id))
       .map((t) => ({ ...t, players: db.players.filter((p) => t.playerIds.includes(p.id)) }));
     const standings = computeTeamStandings(division, fixtures, db.teams);
-    return { ...division, leagueName, teams, fixtures, standings };
-  }
-
-  if (division.entryType === 'doubles') {
+    hydrated = { ...division, leagueName, teams, fixtures, standings };
+  } else if (division.entryType === 'doubles') {
     const pairings = db.pairings
       .filter((p) => division.pairingIds.includes(p.id))
       .map((p) => ({ ...p, players: db.players.filter((pl) => p.playerIds.includes(pl.id)) }));
@@ -536,12 +536,84 @@ function hydrateDivision(db, division) {
     // already has both fields, so this reuses the singles standings
     // calculation unmodified rather than needing its own version.
     const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
-    return { ...division, leagueName, pairings, fixtures, standings };
+    hydrated = { ...division, leagueName, pairings, fixtures, standings };
+  } else {
+    const players = db.players.filter((p) => division.playerIds.includes(p.id));
+    const standings = computeStandings(division, fixtures, db.players);
+    hydrated = { ...division, leagueName, players, fixtures, standings };
   }
 
-  const players = db.players.filter((p) => division.playerIds.includes(p.id));
-  const standings = computeStandings(division, fixtures, db.players);
-  return { ...division, leagueName, players, fixtures, standings };
+  // Roll of Honour: rather than hooking every single fixture-completion code
+  // path (confirm-result, no-show walkovers, admin overrides, team leg
+  // majorities...) to separately check "is the division finished now?",
+  // it's checked once, centrally, right here - hydrateDivision already runs
+  // at the end of every one of those routes (plus every plain GET), so this
+  // reliably catches the transition to "complete" wherever it happens. The
+  // first hydrate after the division's last fixture completes records the
+  // champion (and does one extra writeDb to persist it, since this function
+  // runs after the route's own write); every hydrate after that is a cheap
+  // no-op, short-circuited by the existing-record check below.
+  recordChampionIfDivisionComplete(db, division, hydrated);
+
+  return hydrated;
+}
+
+function recordChampionIfDivisionComplete(db, division, hydrated) {
+  if (!division.fixturesGenerated) return;
+  const fixtures = hydrated.fixtures;
+  if (fixtures.length === 0) return;
+  if (fixtures.some((f) => f.status !== 'completed')) return;
+  if (db.rollOfHonour.some((r) => r.divisionId === division.id)) return; // already recorded
+
+  const idField = division.entryType === 'teams' ? 'teamId' : 'playerId';
+  const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
+  let championId = null;
+
+  if (division.scheduling === 'knockout_double_elim') {
+    // The winners-bracket finalist can win the Grand Final outright, or lose
+    // it and force a bracket-reset decider (see checkGrandFinalReset)
+    // - resetFixtureId is only ever set on a completed grand_final fixture
+    // once that decider exists, so it's the reliable signal for which
+    // fixture actually decided the title.
+    const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
+    if (!grandFinal) return;
+    const finalFixture = grandFinal.resetFixtureId
+      ? fixtures.find((f) => f.id === grandFinal.resetFixtureId)
+      : grandFinal;
+    if (!finalFixture || finalFixture.status !== 'completed') return;
+    championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
+  } else if (division.scheduling === 'knockout_single_elim') {
+    // Every fixture but the final has a nextFixtureId pointing further into
+    // the bracket - the final is the one and only fixture with none.
+    const finalFixture = fixtures.find((f) => !f.nextFixtureId);
+    if (!finalFixture) return;
+    championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
+  } else {
+    // round_robin_single / round_robin_double: champion is top of the final
+    // standings (already sorted points -> frame difference -> frames for).
+    const top = hydrated.standings[0];
+    if (!top) return;
+    championId = top[idField];
+  }
+  if (!championId) return;
+
+  const championRow = hydrated.standings.find((row) => row[idField] === championId);
+  const championName = championRow ? championRow[nameField] : 'Unknown';
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+
+  db.rollOfHonour.push({
+    id: uuid(),
+    leagueId: division.leagueId,
+    leagueName: league ? league.name : 'Unknown league',
+    divisionId: division.id,
+    divisionName: division.name,
+    entryType: division.entryType,
+    scheduling: division.scheduling,
+    championId,
+    championName,
+    recordedAt: new Date().toISOString(),
+  });
+  writeDb(db);
 }
 
 app.get('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
@@ -2781,6 +2853,112 @@ app.post('/api/admin/seasons/:leagueId/generate', requireAdmin, asyncRoute((req,
 
   writeDb(db);
   res.status(201).json({ league: { id: league.id, name: league.name, startDate, endDate }, generated, skipped });
+}));
+
+// ---------- Roll of Honour ----------
+// Every entry is recorded automatically by recordChampionIfDivisionComplete
+// (see hydrateDivision above) the moment a division's last fixture
+// completes - there's no manual "mark as finished" step, and nothing here
+// writes to db.rollOfHonour directly.
+
+app.get('/api/roll-of-honour', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const sorted = [...db.rollOfHonour].sort(
+    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+  );
+  res.json(sorted);
+}));
+
+// ---------- Tours / Series ----------
+// A tour is just an admin-curated list of existing divisions (all sharing
+// one entryType, enforced below) - the group stage/knockout divisions
+// themselves are completely unaware they belong to one. See
+// services/tours.js for how the aggregate ranking table is built from their
+// standings.
+
+app.get('/api/tours', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json(db.tours);
+}));
+
+app.post('/api/tours', requireAdmin, asyncRoute((req, res) => {
+  const { name, entryType = 'singles' } = req.body;
+  if (!name || !name.trim()) throw new ApiError(400, 'Tour name is required');
+  if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+    throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+  }
+  const db = readDb();
+  const tour = {
+    id: uuid(),
+    name: name.trim(),
+    entryType,
+    divisionIds: [],
+    createdAt: new Date().toISOString(),
+  };
+  db.tours.push(tour);
+  writeDb(db);
+  res.status(201).json(tour);
+}));
+
+app.get('/api/tours/:id', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const tour = db.tours.find((t) => t.id === req.params.id);
+  if (!tour) throw new ApiError(404, 'Tour not found');
+
+  const divisions = db.divisions.filter((d) => tour.divisionIds.includes(d.id));
+  const hydratedDivisions = divisions.map((d) => hydrateDivision(db, d));
+  const standings = computeTourStandings(tour, hydratedDivisions);
+
+  res.json({
+    ...tour,
+    divisions: hydratedDivisions.map((d) => ({
+      id: d.id,
+      name: d.name,
+      leagueId: d.leagueId,
+      leagueName: d.leagueName,
+      fixturesGenerated: d.fixturesGenerated,
+    })),
+    standings,
+  });
+}));
+
+app.delete('/api/tours/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const index = db.tours.findIndex((t) => t.id === req.params.id);
+  if (index === -1) throw new ApiError(404, 'Tour not found');
+  db.tours.splice(index, 1);
+  writeDb(db);
+  res.status(204).end();
+}));
+
+app.post('/api/tours/:id/divisions', requireAdmin, asyncRoute((req, res) => {
+  const { divisionId } = req.body;
+  if (!divisionId) throw new ApiError(400, 'divisionId is required');
+  const db = readDb();
+  const tour = db.tours.find((t) => t.id === req.params.id);
+  if (!tour) throw new ApiError(404, 'Tour not found');
+  const division = db.divisions.find((d) => d.id === divisionId);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.entryType !== tour.entryType) {
+    throw new ApiError(
+      400,
+      `This tour only accepts ${tour.entryType} divisions - "${division.name}" is a ${division.entryType} division`
+    );
+  }
+  if (!tour.divisionIds.includes(divisionId)) {
+    tour.divisionIds.push(divisionId);
+  }
+  writeDb(db);
+  res.status(201).json(tour);
+}));
+
+app.delete('/api/tours/:id/divisions/:divisionId', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const tour = db.tours.find((t) => t.id === req.params.id);
+  if (!tour) throw new ApiError(404, 'Tour not found');
+  tour.divisionIds = tour.divisionIds.filter((id) => id !== req.params.divisionId);
+  writeDb(db);
+  res.json(tour);
 }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

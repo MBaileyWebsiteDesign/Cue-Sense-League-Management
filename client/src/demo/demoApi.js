@@ -19,6 +19,7 @@ import { generateRoundRobin, generateRoundRobinDouble } from './logic/roundRobin
 import { buildBracketRounds, buildDoubleElimBracket } from './logic/bracket.js';
 import { computeStandings } from './logic/standings.js';
 import { computeTeamStandings } from './logic/teamStandings.js';
+import { computeTourStandings } from './logic/tours.js';
 import { buildPlayerProfile } from './logic/playerProfile.js';
 import { recordAudit } from './logic/auditLog.js';
 
@@ -51,6 +52,10 @@ function loadInitialDb() {
   if (!base.passwordResets) base.passwordResets = [];
   if (!base.divisions) base.divisions = [];
   if (!base.fixtures) base.fixtures = [];
+  // Tours/series and the Roll of Honour both post-date the original schema
+  // too - mirrors db.js's readDb() migration on the real server.
+  if (!base.tours) base.tours = [];
+  if (!base.rollOfHonour) base.rollOfHonour = [];
   // Round visibility ("Manage Fixtures") - mirrors db.js's readDb() migration:
   // fixtures are hidden from players by default, even for a division saved
   // before this feature existed and already has fixtures generated - an
@@ -221,25 +226,85 @@ function hydrateDivision(division) {
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const leagueName = league ? league.name : null;
 
+  let hydrated;
   if (division.entryType === 'teams') {
     const teams = db.teams
       .filter((t) => division.teamIds.includes(t.id))
       .map((t) => ({ ...t, players: db.players.filter((p) => t.playerIds.includes(p.id)) }));
     const standings = computeTeamStandings(division, fixtures, db.teams);
-    return { ...division, leagueName, teams, fixtures, standings };
-  }
-
-  if (division.entryType === 'doubles') {
+    hydrated = { ...division, leagueName, teams, fixtures, standings };
+  } else if (division.entryType === 'doubles') {
     const pairings = db.pairings
       .filter((p) => division.pairingIds.includes(p.id))
       .map((p) => ({ ...p, players: db.players.filter((pl) => p.playerIds.includes(pl.id)) }));
     const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
-    return { ...division, leagueName, pairings, fixtures, standings };
+    hydrated = { ...division, leagueName, pairings, fixtures, standings };
+  } else {
+    const players = db.players.filter((p) => division.playerIds.includes(p.id));
+    const standings = computeStandings(division, fixtures, db.players);
+    hydrated = { ...division, leagueName, players, fixtures, standings };
   }
 
-  const players = db.players.filter((p) => division.playerIds.includes(p.id));
-  const standings = computeStandings(division, fixtures, db.players);
-  return { ...division, leagueName, players, fixtures, standings };
+  // Roll of Honour - mirrors server/src/index.js's
+  // recordChampionIfDivisionComplete (see that copy for the full note on why
+  // this is checked centrally here instead of at every fixture-completion
+  // call site).
+  recordChampionIfDivisionComplete(division, hydrated);
+
+  return hydrated;
+}
+
+function recordChampionIfDivisionComplete(division, hydrated) {
+  if (!division.fixturesGenerated) return;
+  const fixtures = hydrated.fixtures;
+  if (fixtures.length === 0) return;
+  if (fixtures.some((f) => f.status !== 'completed')) return;
+  if (db.rollOfHonour.some((r) => r.divisionId === division.id)) return;
+
+  const idField = division.entryType === 'teams' ? 'teamId' : 'playerId';
+  const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
+  let championId = null;
+
+  if (division.scheduling === 'knockout_double_elim') {
+    const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
+    if (!grandFinal) return;
+    const finalFixture = grandFinal.resetFixtureId
+      ? fixtures.find((f) => f.id === grandFinal.resetFixtureId)
+      : grandFinal;
+    if (!finalFixture || finalFixture.status !== 'completed') return;
+    championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
+  } else if (division.scheduling === 'knockout_single_elim') {
+    const finalFixture = fixtures.find((f) => !f.nextFixtureId);
+    if (!finalFixture) return;
+    championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
+  } else {
+    const top = hydrated.standings[0];
+    if (!top) return;
+    championId = top[idField];
+  }
+  if (!championId) return;
+
+  const championRow = hydrated.standings.find((row) => row[idField] === championId);
+  const championName = championRow ? championRow[nameField] : 'Unknown';
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+
+  db.rollOfHonour.push({
+    id: uuid(),
+    leagueId: division.leagueId,
+    leagueName: league ? league.name : 'Unknown league',
+    divisionId: division.id,
+    divisionName: division.name,
+    entryType: division.entryType,
+    scheduling: division.scheduling,
+    championId,
+    championName,
+    recordedAt: new Date().toISOString(),
+  });
+  // Not wrapped in persist()/op() - this is a side effect of a read
+  // (hydrateDivision runs on GETs too), so it saves immediately the same way
+  // server/src/db.js's writeDb() does inside recordChampionIfDivisionComplete,
+  // rather than waiting for whatever op() the caller happens to be inside.
+  persist();
 }
 
 function registeredPlayers() {
@@ -1236,6 +1301,75 @@ export const demoApi = {
       details: `Set final score to ${homeScore}-${awayScore}`,
     });
     return fixture;
+  }),
+
+  // ---------- Roll of Honour ----------
+  // Every entry is recorded automatically by recordChampionIfDivisionComplete
+  // (see hydrateDivision above) - nothing here writes to db.rollOfHonour
+  // directly, mirroring the real server's GET /api/roll-of-honour.
+  getRollOfHonour: op(() =>
+    [...db.rollOfHonour].sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime())
+  ),
+
+  // ---------- Tours / Series ----------
+  // Mirrors server/src/index.js's Tours routes - see those for the full
+  // "an admin-curated list of existing divisions" rationale.
+  getTours: op(() => db.tours),
+
+  createTour: op((data) => {
+    const { name, entryType = 'singles' } = data;
+    if (!name || !name.trim()) throw new ApiError(400, 'Tour name is required');
+    if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+      throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+    }
+    const tour = { id: uuid(), name: name.trim(), entryType, divisionIds: [], createdAt: new Date().toISOString() };
+    db.tours.push(tour);
+    return tour;
+  }),
+
+  getTour: op((id) => {
+    const tour = db.tours.find((t) => t.id === id);
+    if (!tour) throw new ApiError(404, 'Tour not found');
+    const divisions = db.divisions.filter((d) => tour.divisionIds.includes(d.id));
+    const hydratedDivisions = divisions.map((d) => hydrateDivision(d));
+    const standings = computeTourStandings(tour, hydratedDivisions);
+    return {
+      ...tour,
+      divisions: hydratedDivisions.map((d) => ({
+        id: d.id, name: d.name, leagueId: d.leagueId, leagueName: d.leagueName, fixturesGenerated: d.fixturesGenerated,
+      })),
+      standings,
+    };
+  }),
+
+  deleteTour: op((id) => {
+    const index = db.tours.findIndex((t) => t.id === id);
+    if (index === -1) throw new ApiError(404, 'Tour not found');
+    db.tours.splice(index, 1);
+    return { ok: true };
+  }),
+
+  addTourDivision: op((tourId, divisionId) => {
+    if (!divisionId) throw new ApiError(400, 'divisionId is required');
+    const tour = db.tours.find((t) => t.id === tourId);
+    if (!tour) throw new ApiError(404, 'Tour not found');
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.entryType !== tour.entryType) {
+      throw new ApiError(
+        400,
+        `This tour only accepts ${tour.entryType} divisions - "${division.name}" is a ${division.entryType} division`
+      );
+    }
+    if (!tour.divisionIds.includes(divisionId)) tour.divisionIds.push(divisionId);
+    return tour;
+  }),
+
+  removeTourDivision: op((tourId, divisionId) => {
+    const tour = db.tours.find((t) => t.id === tourId);
+    if (!tour) throw new ApiError(404, 'Tour not found');
+    tour.divisionIds = tour.divisionIds.filter((id) => id !== divisionId);
+    return tour;
   }),
 
   getLeagues: op(() => db.leagues),
