@@ -1217,6 +1217,78 @@ function assignScheduledDates(db, division, startDate, gapDays) {
   }
 }
 
+// Multi-stage competitions: rather than one Division trying to model "groups
+// then a knockout" internally, a group stage is just ordinary round-robin
+// Divisions and the knockout stage is another ordinary Division - this
+// endpoint is the one new piece, letting an admin auto-populate a
+// not-yet-generated division's roster from the top N finishers of one or
+// more other divisions' standings, instead of adding entrants one at a
+// time. Every other route (generate-fixtures, scoring, standings) works
+// completely unchanged on the resulting division - it's just a division
+// whose roster happens to have been filled by group results instead of by
+// hand.
+app.post('/api/divisions/:id/seed-from-groups', requireAdmin, asyncRoute((req, res) => {
+  const { sources } = req.body || {};
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot seed entrants after fixtures have been generated for this division');
+  }
+  if (!Array.isArray(sources) || sources.length === 0) {
+    throw new ApiError(400, 'sources must be a non-empty array of { divisionId, count }');
+  }
+
+  const entrantList = division.entryType === 'teams'
+    ? division.teamIds
+    : division.entryType === 'doubles'
+      ? division.pairingIds
+      : division.playerIds;
+
+  const seedSummary = [];
+  for (const source of sources) {
+    const { divisionId, count } = source || {};
+    if (!divisionId || !Number.isInteger(Number(count)) || Number(count) < 1) {
+      throw new ApiError(400, 'Each source needs a divisionId and a positive whole-number count');
+    }
+    const sourceDivision = db.divisions.find((d) => d.id === divisionId);
+    if (!sourceDivision) throw new ApiError(404, `Source division ${divisionId} not found`);
+    if (sourceDivision.id === division.id) throw new ApiError(400, 'A division cannot be seeded from itself');
+    if (sourceDivision.entryType !== division.entryType) {
+      throw new ApiError(
+        400,
+        `Source division "${sourceDivision.name}" is a ${sourceDivision.entryType} division - can't seed a ${division.entryType} division from it`
+      );
+    }
+
+    // Reuses the exact same standings computation every division page
+    // already shows, so "top N" here always matches what the admin sees on
+    // the group's own standings table.
+    const hydratedSource = hydrateDivision(db, sourceDivision);
+    const idField = division.entryType === 'teams' ? 'teamId' : 'playerId';
+    const rankedIds = hydratedSource.standings.map((row) => row[idField]);
+    const take = rankedIds.slice(0, Number(count));
+
+    let added = 0;
+    for (const entrantId of take) {
+      if (!entrantList.includes(entrantId)) {
+        entrantList.push(entrantId);
+        added += 1;
+      }
+    }
+    seedSummary.push({
+      divisionId: sourceDivision.id,
+      divisionName: sourceDivision.name,
+      requested: Number(count),
+      available: rankedIds.length,
+      added,
+    });
+  }
+
+  writeDb(db);
+  res.status(201).json({ ...hydrateDivision(db, division), seedSummary });
+}));
+
 app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
   const { startDate, gapDays } = req.body || {};
   const db = readDb();
