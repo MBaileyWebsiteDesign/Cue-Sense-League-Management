@@ -1,19 +1,15 @@
 # Fly.io app config for The Ultimate Pool League.
 #
-# IMPORTANT - before your first deploy:
-# 1. Change `app` below to a globally-unique name (or just run `fly launch`
-#    in this directory - it will detect the Dockerfile, ask you for a name,
-#    and rewrite this file for you; re-add the [[mounts]] block below
-#    afterwards if `fly launch` drops it).
-# 2. Create the persistent volume the [[mounts]] block references, in the
+# One-time setup (if you haven't already):
+# 1. Create the persistent volume the [[mounts]] block references, in the
 #    same region as `primary_region`:
 #      fly volumes create pool_league_data --region iad --size 1
 #    (1 GB is enormous overkill for this JSON file - it's just Fly's
 #    minimum billing unit.)
-# 3. Run `fly deploy` once by hand the first time so the app + volume exist
+# 2. Run `fly deploy` once by hand the first time so the app + volume exist
 #    before GitHub Actions takes over automatic deploys on every push.
 
-app = "the-ultimate-pool-league"
+app = "the-ultimate-pool-league-dr6bnq"
 primary_region = "iad"
 
 [build]
