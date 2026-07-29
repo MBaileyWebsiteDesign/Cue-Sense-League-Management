@@ -6,7 +6,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { readDb, writeDb } from './db.js';
-import { generateRoundRobin } from './services/roundRobin.js';
+import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket } from './services/bracket.js';
 import { computeStandings } from './services/standings.js';
 import { computeTeamStandings } from './services/teamStandings.js';
@@ -42,7 +42,7 @@ const asyncRoute = (fn) => (req, res, next) => {
   }
 };
 
-const SCHEDULING_TYPES = ['round_robin_single', 'knockout_single_elim', 'knockout_double_elim'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim'];
 
 // ---------- Accounts & auth ----------
 // One account model, one login. `db.users` holds everyone; `isAdmin` and
@@ -440,15 +440,17 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
 //   triples fixture is scored exactly like a singles fixture: one continuous
 //   frame race, no legs, `homePlayerId`/`awayPlayerId` just hold a Pairing id
 //   instead of a Player id - see the "Pairings" section below)
-// - scheduling: "round_robin_single" (default - everyone plays everyone once),
-//   "knockout_single_elim" (single-elimination bracket, byes if the entrant
-//   count isn't a power of 2), or "knockout_double_elim" (winners bracket +
-//   losers bracket + Grand Final, with a bracket-reset decider if the
-//   losers-bracket finalist wins the Grand Final - requires an exact
-//   power-of-2 entrant count, see services/bracket.js). This can differ per
-//   division from the league's own default, since a league often runs its
-//   regular season as a round robin but a separate cup division as a
-//   knockout.
+// - scheduling: "round_robin_single" (default - Round Robin - Single, everyone
+//   plays everyone once), "round_robin_double" (Round Robin - Double,
+//   everyone plays everyone twice - a home leg and an away leg with sides
+//   swapped, see services/roundRobin.js), "knockout_single_elim"
+//   (single-elimination bracket, byes if the entrant count isn't a power of
+//   2), or "knockout_double_elim" (winners bracket + losers bracket + Grand
+//   Final, with a bracket-reset decider if the losers-bracket finalist wins
+//   the Grand Final - requires an exact power-of-2 entrant count, see
+//   services/bracket.js). This can differ per division from the league's
+//   own default, since a league often runs its regular season as a round
+//   robin but a separate cup division as a knockout.
 
 app.post('/api/leagues/:leagueId/divisions', requireAdmin, asyncRoute((req, res) => {
   const { name, order = 0, entryType = 'singles', legsPerMatch = 5, pairingSize = 2 } = req.body;
@@ -942,7 +944,9 @@ function makeTeamFixture({ league, division, round }) {
 
 function generateRoundRobinFixtures({ db, league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const rounds = generateRoundRobin(entrantIds);
+  const rounds = division.scheduling === 'round_robin_double'
+    ? generateRoundRobinDouble(entrantIds)
+    : generateRoundRobin(entrantIds);
   rounds.forEach((pairs, roundIndex) => {
     pairs.forEach(([a, b]) => {
       const fixture = makeFixture({ league, division, round: roundIndex + 1 });

@@ -7,7 +7,8 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_single_elim') return 'Generate Fixtures (single-elimination knockout)';
   if (division.scheduling === 'knockout_double_elim') return 'Generate Fixtures (double-elimination knockout)';
-  return 'Generate Fixtures (round robin, play each other once)';
+  if (division.scheduling === 'round_robin_double') return 'Generate Fixtures (Round Robin - Double, home and away)';
+  return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
 
 function SinglesRoster({ division, registeredPlayers, onChange, setError }) {

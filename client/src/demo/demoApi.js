@@ -15,7 +15,7 @@
 // around across a refresh in *their own browser*, but nobody else sees them
 // and there's no way to reset short of clearing site data.
 import demoDataSeed from './demoData.json';
-import { generateRoundRobin } from './logic/roundRobin.js';
+import { generateRoundRobin, generateRoundRobinDouble } from './logic/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket } from './logic/bracket.js';
 import { computeStandings } from './logic/standings.js';
 import { computeTeamStandings } from './logic/teamStandings.js';
@@ -25,7 +25,7 @@ import { recordAudit } from './logic/auditLog.js';
 const uuid = () => crypto.randomUUID();
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 const STATUSES = ['active', 'suspended'];
-const SCHEDULING_TYPES = ['round_robin_single', 'knockout_single_elim', 'knockout_double_elim'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim'];
 const DB_KEY = 'poolLeagueDemoDb';
 const CURRENT_USER_KEY = 'poolLeagueDemoCurrentUserId';
 
@@ -311,7 +311,9 @@ function makeTeamFixture({ league, division, round }) {
 
 function generateRoundRobinFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const rounds = generateRoundRobin(entrantIds);
+  const rounds = division.scheduling === 'round_robin_double'
+    ? generateRoundRobinDouble(entrantIds)
+    : generateRoundRobin(entrantIds);
   rounds.forEach((pairs, roundIndex) => {
     pairs.forEach(([a, b]) => {
       const fixture = makeFixture({ league, division, round: roundIndex + 1 });

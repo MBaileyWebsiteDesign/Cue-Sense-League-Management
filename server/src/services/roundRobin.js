@@ -30,3 +30,14 @@ export function generateRoundRobin(playerIds) {
 
   return rounds;
 }
+
+// Double round-robin: everyone plays each other twice, once at home and
+// once away. The first half of the rounds is a standard single round-robin
+// (leg 1); the second half repeats the exact same pairings with home/away
+// swapped (leg 2, the "return leg"). Round numbers are contiguous across
+// both legs (leg 2 continues numbering where leg 1 left off).
+export function generateRoundRobinDouble(playerIds) {
+  const legOne = generateRoundRobin(playerIds);
+  const legTwo = legOne.map((pairs) => pairs.map(([home, away]) => [away, home]));
+  return [...legOne, ...legTwo];
+}

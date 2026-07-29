@@ -22,10 +22,12 @@ full-featured competition management that Wix has no built-in system for.
   - **Entry type** — `singles` (one player vs. one player), `teams` (team vs. team), or
     `doubles` (a named 2-3 player `Pairing` vs. `Pairing`, alternate-shot - see
     **Doubles / triples format** below).
-  - **Scheduling** — `round_robin_single` (everyone/every team plays everyone/every
-    team else exactly once), `knockout_single_elim` (single-elimination bracket), or
-    `knockout_double_elim` (double-elimination: winners bracket + losers bracket +
-    Grand Final, with a bracket-reset decider if needed - see below).
+  - **Scheduling** — `round_robin_single` (Round Robin - Single: everyone/every team
+    plays everyone/every team else exactly once), `round_robin_double` (Round Robin -
+    Double: everyone/every team plays everyone/every team else twice, a home leg and
+    an away leg with sides swapped), `knockout_single_elim` (single-elimination
+    bracket), or `knockout_double_elim` (double-elimination: winners bracket + losers
+    bracket + Grand Final, with a bracket-reset decider if needed - see below).
   These are independent choices, so e.g. a knockout team cup and a round-robin singles
   division can coexist in the same league.
 - **Season Setup Wizard**: a 5-step guided flow for standing up a brand-new season
@@ -481,7 +483,7 @@ changes with no behavior change:
 
 - `League`: `id, name, sport, format { matchFormat, raceTo, scheduling }`
 - `Division`: `id, leagueId, name, order, entryType ('singles'|'teams'|'doubles'),
-  scheduling ('round_robin_single'|'knockout_single_elim'|'knockout_double_elim'),
+  scheduling ('round_robin_single'|'round_robin_double'|'knockout_single_elim'|'knockout_double_elim'),
   legsPerMatch (teams only), pairingSize (doubles only, 2 or 3), playerIds[] (singles
   only), teamIds[] (teams only), pairingIds[] (doubles only), fixturesGenerated,
   startDate, endDate, gapDays` (the latter three set when fixtures were generated with
@@ -685,9 +687,10 @@ the Express server to serve) rather than Pages.
    player's profile page (see **Password reset links**), but it isn't actually emailed
    anywhere yet - no SMTP provider is wired up, so the link is just shown to the admin
    to relay manually. Email verification at registration is also still outstanding.
-4. Further scheduling methods: home/away double round robin, mini-knockouts, and the
-   ability to mix formats within one competition (double elimination is now
-   implemented - see **Knockout / double-elimination format** above).
+4. Further scheduling methods: mini-knockouts, and the ability to mix formats within
+   one competition (double elimination and home/away double round robin are now
+   implemented - see **Knockout / double-elimination format** above and
+   `round_robin_double` above).
 5. Seeded/ranked knockout brackets (current v1 seeds in registration order, not by
    past performance) and best-of-N handicaps.
 6. Deeper player statistics: form guides, break-and-continue / century-style stats if
