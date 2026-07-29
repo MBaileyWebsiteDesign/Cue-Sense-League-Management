@@ -1846,8 +1846,8 @@ export const demoApi = {
       if (!['scheduled', 'in_progress'].includes(leg.status)) {
         throw new ApiError(400, 'Only a leg with both players nominated, that has not yet been submitted, can be reported as a no-show');
       }
-      const isHome = leg.homePlayerId === user?.playerId;
-      const isAway = leg.awayPlayerId === user?.playerId;
+      const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
+      const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
       if (!user?.isAdmin && !isHome && !isAway) {
         throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can report a no-show');
       }
@@ -2073,8 +2073,8 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
-    const isHome = leg.homePlayerId === user?.playerId;
-    const isAway = leg.awayPlayerId === user?.playerId;
+    const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
+    const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
     if (!user?.isAdmin && !isHome && !isAway) {
       throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can confirm this leg');
     }
@@ -2100,8 +2100,8 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
-    const isHome = leg.homePlayerId === user?.playerId;
-    const isAway = leg.awayPlayerId === user?.playerId;
+    const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
+    const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
     if (!user?.isAdmin && !isHome && !isAway) {
       throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can dispute this leg');
     }
