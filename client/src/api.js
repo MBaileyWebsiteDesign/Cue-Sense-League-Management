@@ -91,6 +91,8 @@ const networkApi = {
     request(`/divisions/${divisionId}/players/${playerId}`, { method: 'DELETE' }),
   generateFixtures: (divisionId, data = {}) =>
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
+  seedFromGroups: (divisionId, sources) =>
+    request(`/divisions/${divisionId}/seed-from-groups`, { method: 'POST', body: JSON.stringify({ sources }) }),
   setRoundVisibility: (divisionId, round, visible) =>
     request(`/divisions/${divisionId}/rounds/${round}/visibility`, { method: 'POST', body: JSON.stringify({ visible }) }),
   hideAllRounds: (divisionId) =>
