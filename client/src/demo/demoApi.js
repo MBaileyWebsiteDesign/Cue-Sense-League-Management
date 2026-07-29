@@ -1407,6 +1407,67 @@ export const demoApi = {
     return hydrateDivision(division);
   }),
 
+  // Mirrors server/src/index.js's POST /api/divisions/:id/seed-from-groups -
+  // see that route for the full "multi-stage competitions are just linked
+  // divisions" rationale. Auto-populates a not-yet-generated division's
+  // roster from the top N finishers of one or more other divisions'
+  // standings.
+  seedFromGroups: op((divisionId, sources) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, 'Cannot seed entrants after fixtures have been generated for this division');
+    }
+    if (!Array.isArray(sources) || sources.length === 0) {
+      throw new ApiError(400, 'sources must be a non-empty array of { divisionId, count }');
+    }
+
+    const entrantList = division.entryType === 'teams'
+      ? division.teamIds
+      : division.entryType === 'doubles'
+        ? division.pairingIds
+        : division.playerIds;
+
+    const seedSummary = [];
+    for (const source of sources) {
+      const { divisionId: sourceDivisionId, count } = source || {};
+      if (!sourceDivisionId || !Number.isInteger(Number(count)) || Number(count) < 1) {
+        throw new ApiError(400, 'Each source needs a divisionId and a positive whole-number count');
+      }
+      const sourceDivision = db.divisions.find((d) => d.id === sourceDivisionId);
+      if (!sourceDivision) throw new ApiError(404, `Source division ${sourceDivisionId} not found`);
+      if (sourceDivision.id === division.id) throw new ApiError(400, 'A division cannot be seeded from itself');
+      if (sourceDivision.entryType !== division.entryType) {
+        throw new ApiError(
+          400,
+          `Source division "${sourceDivision.name}" is a ${sourceDivision.entryType} division - can't seed a ${division.entryType} division from it`
+        );
+      }
+
+      const hydratedSource = hydrateDivision(sourceDivision);
+      const idField = division.entryType === 'teams' ? 'teamId' : 'playerId';
+      const rankedIds = hydratedSource.standings.map((row) => row[idField]);
+      const take = rankedIds.slice(0, Number(count));
+
+      let added = 0;
+      for (const entrantId of take) {
+        if (!entrantList.includes(entrantId)) {
+          entrantList.push(entrantId);
+          added += 1;
+        }
+      }
+      seedSummary.push({
+        divisionId: sourceDivision.id,
+        divisionName: sourceDivision.name,
+        requested: Number(count),
+        available: rankedIds.length,
+        added,
+      });
+    }
+
+    return { ...hydrateDivision(division), seedSummary };
+  }),
+
   generateFixtures: op((divisionId, data = {}) => {
     const { startDate, gapDays } = data;
     const division = db.divisions.find((d) => d.id === divisionId);
@@ -1785,8 +1846,8 @@ export const demoApi = {
       if (!['scheduled', 'in_progress'].includes(leg.status)) {
         throw new ApiError(400, 'Only a leg with both players nominated, that has not yet been submitted, can be reported as a no-show');
       }
-      const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
-      const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
+      const isHome = leg.homePlayerId === user?.playerId;
+      const isAway = leg.awayPlayerId === user?.playerId;
       if (!user?.isAdmin && !isHome && !isAway) {
         throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can report a no-show');
       }
@@ -2012,8 +2073,8 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
-    const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
-    const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
+    const isHome = leg.homePlayerId === user?.playerId;
+    const isAway = leg.awayPlayerId === user?.playerId;
     if (!user?.isAdmin && !isHome && !isAway) {
       throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can confirm this leg');
     }
@@ -2039,8 +2100,8 @@ export const demoApi = {
       throw new ApiError(403, "This round hasn't been released to players yet");
     }
     if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
-    const isHome = !!user?.playerId && leg.homePlayerId === user.playerId;
-    const isAway = !!user?.playerId && leg.awayPlayerId === user.playerId;
+    const isHome = leg.homePlayerId === user?.playerId;
+    const isAway = leg.awayPlayerId === user?.playerId;
     if (!user?.isAdmin && !isHome && !isAway) {
       throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can dispute this leg');
     }
