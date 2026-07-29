@@ -474,6 +474,112 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
   );
 }
 
+// Multi-stage competitions: rather than a whole new "groups then knockout"
+// division type, this panel lets an admin auto-populate this division's
+// (empty, not-yet-generated) roster from the top N finishers of one or more
+// *other* divisions in the same league, pulled straight from their live
+// standings - e.g. take the top 2 from each of several round-robin groups
+// into this knockout. Groups stay ordinary round-robin divisions; nothing
+// about generate-fixtures, scoring, or standings changes for the resulting
+// division - it's just a division whose roster happened to be filled by
+// group results instead of by hand. Hidden entirely once there's no other
+// division of the same entry type in the league to seed from.
+function SeedFromGroupsPanel({ division, onChange, setError }) {
+  const [siblingDivisions, setSiblingDivisions] = useState([]);
+  const [rows, setRows] = useState([{ divisionId: '', count: 2 }]);
+  const [submitting, setSubmitting] = useState(false);
+  const [summary, setSummary] = useState(null);
+
+  useEffect(() => {
+    api.getLeague(division.leagueId)
+      .then((league) => {
+        setSiblingDivisions(
+          league.divisions.filter((d) => d.id !== division.id && d.entryType === division.entryType)
+        );
+      })
+      .catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [division.leagueId, division.id]);
+
+  if (siblingDivisions.length === 0) return null;
+
+  const updateRow = (index, field, value) => {
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  };
+
+  const addRow = () => setRows((prev) => [...prev, { divisionId: '', count: 2 }]);
+  const removeRow = (index) => setRows((prev) => prev.filter((_, i) => i !== index));
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    const sources = rows
+      .filter((r) => r.divisionId && Number(r.count) > 0)
+      .map((r) => ({ divisionId: r.divisionId, count: Number(r.count) }));
+    if (sources.length === 0) return;
+    setError('');
+    setSummary(null);
+    setSubmitting(true);
+    try {
+      const result = await api.seedFromGroups(division.id, sources);
+      setSummary(result.seedSummary);
+      setRows([{ divisionId: '', count: 2 }]);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2>Seed from Group Stage</h2>
+      <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
+        For multi-stage competitions: pull the top finishers straight from another division's
+        standings instead of adding entrants one at a time.
+      </p>
+      <form onSubmit={onSubmit}>
+        {rows.map((row, i) => (
+          <div key={i} className="inline-form" style={{ marginBottom: 8 }}>
+            <select value={row.divisionId} onChange={(e) => updateRow(i, 'divisionId', e.target.value)}>
+              <option value="">Select a group…</option>
+              {siblingDivisions.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min="1"
+              value={row.count}
+              onChange={(e) => updateRow(i, 'count', e.target.value)}
+              style={{ width: 70 }}
+            />
+            <span className="muted">advance</span>
+            {rows.length > 1 && (
+              <button type="button" className="btn-link" onClick={() => removeRow(i)}>remove</button>
+            )}
+          </div>
+        ))}
+        <button type="button" className="btn-link" onClick={addRow}>+ Add another group</button>
+        <div style={{ marginTop: 12 }}>
+          <button className="btn btn-primary" type="submit" disabled={submitting}>
+            {submitting ? 'Seeding…' : 'Seed Entrants'}
+          </button>
+        </div>
+      </form>
+      {summary && (
+        <div className="banner banner-success" style={{ marginTop: 12 }}>
+          {summary.map((s) => (
+            <p key={s.divisionId} style={{ margin: 0 }}>
+              {s.divisionName}: added {s.added} of top {s.requested} ({s.available} available)
+            </p>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function DivisionDetail() {
   const { divisionId } = useParams();
   const { isAdmin } = useAuth();
@@ -568,6 +674,10 @@ export default function DivisionDetail() {
         <PairingRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       ) : (
         <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
+      )}
+
+      {isAdmin && !division.fixturesGenerated && (
+        <SeedFromGroupsPanel division={division} onChange={load} setError={setError} />
       )}
 
       {isAdmin && !isTeams && !isDoubles && division.fixturesGenerated && (
