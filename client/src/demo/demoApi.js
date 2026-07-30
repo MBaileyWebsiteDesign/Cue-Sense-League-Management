@@ -56,6 +56,16 @@ function loadInitialDb() {
   // too - mirrors db.js's readDb() migration on the real server.
   if (!base.tours) base.tours = [];
   if (!base.rollOfHonour) base.rollOfHonour = [];
+  if (!base.apiKeys) base.apiKeys = [];
+  for (const league of base.leagues) {
+    if (!league.tables) league.tables = [];
+  }
+  for (const fixture of base.fixtures) {
+    if (fixture.tableId === undefined) fixture.tableId = null;
+    if (fixture.scheduledTime === undefined) fixture.scheduledTime = null;
+    if (!fixture.timer) fixture.timer = { startedAt: null, elapsedSeconds: 0, running: false };
+    if (!fixture.shotClock) fixture.shotClock = { durationSeconds: 60, startedAt: null, running: false };
+  }
   // Round visibility ("Manage Fixtures") - mirrors db.js's readDb() migration:
   // fixtures are hidden from players by default, even for a division saved
   // before this feature existed and already has fixtures generated - an
@@ -307,6 +317,78 @@ function recordChampionIfDivisionComplete(division, hydrated) {
   persist();
 }
 
+// Ported from server/src/index.js's buildOverlayFixture - normalizes
+// singles/teams/doubles fixtures into one { home, away } shape for the OBS
+// overlay and Arena display pages. Shared by both getOverlayFixture and
+// getArena below so there's exactly one place that does this normalization.
+function buildOverlayFixture(fixture) {
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  const isTeams = division.entryType === 'teams';
+  const isDoubles = division.entryType === 'doubles';
+  const BRACKET_ROLE_LABEL = {
+    winners: 'Winners Bracket',
+    losers: 'Losers Bracket',
+    grand_final: 'Grand Final',
+    grand_final_reset: 'Grand Final - Bracket Reset',
+  };
+  const roundLabel = fixture.bracketRole && fixture.bracketRole !== 'single'
+    ? (BRACKET_ROLE_LABEL[fixture.bracketRole] || `Round ${fixture.round}`)
+    : `Round ${fixture.round}`;
+
+  let home, away, raceTo = null, legsTotal = null, winner = null, bothEntrantsKnown;
+
+  if (isTeams) {
+    const homeTeam = fixture.homeTeamId ? db.teams.find((t) => t.id === fixture.homeTeamId) : null;
+    const awayTeam = fixture.awayTeamId ? db.teams.find((t) => t.id === fixture.awayTeamId) : null;
+    home = { name: homeTeam ? homeTeam.name : 'TBD', subLabel: null, score: fixture.homeLegsWon };
+    away = { name: awayTeam ? awayTeam.name : 'TBD', subLabel: null, score: fixture.awayLegsWon };
+    legsTotal = fixture.legs.length;
+    bothEntrantsKnown = !!(fixture.homeTeamId && fixture.awayTeamId);
+    if (fixture.status === 'completed') {
+      winner = fixture.winnerTeamId === null ? 'draw' : (fixture.winnerTeamId === fixture.homeTeamId ? 'home' : 'away');
+    }
+  } else if (isDoubles) {
+    const nameOfPairing = (pairing) => (pairing
+      ? { name: pairing.name, subLabel: db.players.filter((p) => pairing.playerIds.includes(p.id)).map((p) => p.name).join(' & ') }
+      : { name: 'TBD', subLabel: null });
+    const homePairing = fixture.homePlayerId ? db.pairings.find((p) => p.id === fixture.homePlayerId) : null;
+    const awayPairing = fixture.awayPlayerId ? db.pairings.find((p) => p.id === fixture.awayPlayerId) : null;
+    home = { ...nameOfPairing(homePairing), score: fixture.homeFrameScore };
+    away = { ...nameOfPairing(awayPairing), score: fixture.awayFrameScore };
+    raceTo = fixture.raceTo;
+    bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
+    if (fixture.status === 'completed') {
+      winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
+    }
+  } else {
+    const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
+    const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
+    home = { name: homePlayer ? homePlayer.name : 'TBD', subLabel: null, score: fixture.homeFrameScore };
+    away = { name: awayPlayer ? awayPlayer.name : 'TBD', subLabel: null, score: fixture.awayFrameScore };
+    raceTo = fixture.raceTo;
+    bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
+    if (fixture.status === 'completed') {
+      winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
+    }
+  }
+
+  return {
+    fixtureId: fixture.id,
+    leagueName: league ? league.name : null,
+    divisionName: division ? division.name : null,
+    roundLabel,
+    entryType: division.entryType,
+    status: fixture.status,
+    bothEntrantsKnown,
+    home,
+    away,
+    raceTo,
+    legsTotal,
+    winner,
+  };
+}
+
 function registeredPlayers() {
   const linkedPlayerIds = new Set(
     db.users.filter((u) => u.status === 'active' && u.playerId).map((u) => u.playerId)
@@ -323,6 +405,10 @@ function makeSinglesFixture({ league, division, round }) {
     divisionId: division.id,
     round,
     scheduledDate: null,
+    tableId: null,
+    scheduledTime: null,
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
     homePlayerId: null,
     awayPlayerId: null,
     raceTo: league.format.raceTo,
@@ -358,6 +444,10 @@ function makeTeamFixture({ league, division, round }) {
     divisionId: division.id,
     round,
     scheduledDate: null,
+    tableId: null,
+    scheduledTime: null,
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
     homeTeamId: null,
     awayTeamId: null,
     legs,
@@ -1372,6 +1462,127 @@ export const demoApi = {
     return tour;
   }),
 
+  // ---------- Table scheduling ----------
+  addTable: op((leagueId, name) => {
+    if (!name || !name.trim()) throw new ApiError(400, 'Table name is required');
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    league.tables.push({ id: uuid(), name: name.trim() });
+    return league;
+  }),
+
+  removeTable: op((leagueId, tableId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    league.tables = league.tables.filter((t) => t.id !== tableId);
+    for (const fixture of db.fixtures) {
+      if (fixture.leagueId === league.id && fixture.tableId === tableId) {
+        fixture.tableId = null;
+      }
+    }
+    return league;
+  }),
+
+  scheduleFixture: op((fixtureId, { tableId, scheduledDate, scheduledTime } = {}) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const league = db.leagues.find((l) => l.id === fixture.leagueId);
+
+    if (tableId !== undefined && tableId !== null) {
+      const table = league.tables.find((t) => t.id === tableId);
+      if (!table) throw new ApiError(400, "That table does not exist in this fixture's league");
+    }
+
+    const nextTableId = tableId === undefined ? fixture.tableId : tableId;
+    const nextDate = scheduledDate === undefined ? fixture.scheduledDate : scheduledDate;
+    const nextTime = scheduledTime === undefined ? fixture.scheduledTime : scheduledTime;
+
+    if (nextTableId && nextDate && nextTime) {
+      const clash = db.fixtures.find(
+        (f) => f.id !== fixture.id && f.tableId === nextTableId && f.scheduledDate === nextDate && f.scheduledTime === nextTime
+      );
+      if (clash) throw new ApiError(409, 'That table is already booked for another fixture at that date and time');
+    }
+
+    fixture.tableId = nextTableId;
+    fixture.scheduledDate = nextDate;
+    fixture.scheduledTime = nextTime;
+    return fixture;
+  }),
+
+  // ---------- Match timer & shot clock ----------
+  startTimer: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    if (!fixture.timer.running) {
+      fixture.timer.running = true;
+      fixture.timer.startedAt = new Date().toISOString();
+    }
+    return fixture;
+  }),
+
+  pauseTimer: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    if (fixture.timer.running && fixture.timer.startedAt) {
+      const elapsed = (Date.now() - new Date(fixture.timer.startedAt).getTime()) / 1000;
+      fixture.timer.elapsedSeconds += Math.max(0, elapsed);
+    }
+    fixture.timer.running = false;
+    fixture.timer.startedAt = null;
+    return fixture;
+  }),
+
+  resetTimer: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    fixture.timer = { startedAt: null, elapsedSeconds: 0, running: false };
+    return fixture;
+  }),
+
+  startShotClock: op((fixtureId, durationSeconds) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    if (durationSeconds !== undefined && durationSeconds !== null) {
+      if (!Number.isInteger(Number(durationSeconds)) || Number(durationSeconds) < 5) {
+        throw new ApiError(400, 'durationSeconds must be a whole number of at least 5 seconds');
+      }
+      fixture.shotClock.durationSeconds = Number(durationSeconds);
+    }
+    fixture.shotClock.startedAt = new Date().toISOString();
+    fixture.shotClock.running = true;
+    return fixture;
+  }),
+
+  stopShotClock: op((fixtureId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    fixture.shotClock.running = false;
+    fixture.shotClock.startedAt = null;
+    return fixture;
+  }),
+
+  // ---------- API Keys ----------
+  // Demo mode has no real StreamDeck to call these, but mirrors the shape
+  // so the Admin Portal's API Keys page works identically either way.
+  getApiKeys: op(() => db.apiKeys.map(({ hash, ...rest }) => rest)),
+
+  createApiKey: op((label) => {
+    if (!label || !label.trim()) throw new ApiError(400, 'A label is required, e.g. "StreamDeck - Table 1"');
+    const rawKey = `sdk_demo_${uuid().replace(/-/g, '')}`;
+    const apiKey = { id: uuid(), label: label.trim(), hash: rawKey, createdAt: new Date().toISOString(), lastUsedAt: null };
+    db.apiKeys.push(apiKey);
+    const { hash, ...publicKey } = apiKey;
+    return { ...publicKey, key: rawKey };
+  }),
+
+  deleteApiKey: op((id) => {
+    const index = db.apiKeys.findIndex((k) => k.id === id);
+    if (index === -1) throw new ApiError(404, 'API key not found');
+    db.apiKeys.splice(index, 1);
+    return { ok: true };
+  }),
+
   getLeagues: op(() => db.leagues),
 
   createLeague: op((data) => {
@@ -1380,6 +1591,7 @@ export const demoApi = {
     const league = {
       id: uuid(), name: name.trim(), sport, format: { matchFormat, raceTo, scheduling },
       startDate: null, endDate: null, createdAt: new Date().toISOString(),
+      tables: [],
     };
     db.leagues.push(league);
     return league;
@@ -1743,70 +1955,55 @@ export const demoApi = {
   getOverlayFixture: op((id) => {
     const fixture = db.fixtures.find((f) => f.id === id);
     if (!fixture) throw new ApiError(404, 'Fixture not found');
-    const division = db.divisions.find((d) => d.id === fixture.divisionId);
-    const league = db.leagues.find((l) => l.id === fixture.leagueId);
-    const isTeams = division.entryType === 'teams';
-    const isDoubles = division.entryType === 'doubles';
-    const BRACKET_ROLE_LABEL = {
-      winners: 'Winners Bracket',
-      losers: 'Losers Bracket',
-      grand_final: 'Grand Final',
-      grand_final_reset: 'Grand Final - Bracket Reset',
+    return buildOverlayFixture(fixture);
+  }),
+
+  // Ported from server/src/index.js's GET /api/overlay/leagues/:id/arena -
+  // a public read-only board of today's table schedule plus recent results,
+  // reusing buildOverlayFixture for each fixture so the shapes stay
+  // consistent with the OBS overlay above.
+  getArena: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const today = new Date().toISOString().slice(0, 10);
+    const leagueFixtures = db.fixtures.filter((f) => f.leagueId === league.id);
+
+    const withOverlay = (fixture) => {
+      const division = db.divisions.find((d) => d.id === fixture.divisionId);
+      if (!division) return null;
+      return {
+        ...buildOverlayFixture(fixture),
+        tableId: fixture.tableId,
+        scheduledDate: fixture.scheduledDate,
+        scheduledTime: fixture.scheduledTime,
+      };
     };
-    const roundLabel = fixture.bracketRole && fixture.bracketRole !== 'single'
-      ? (BRACKET_ROLE_LABEL[fixture.bracketRole] || `Round ${fixture.round}`)
-      : `Round ${fixture.round}`;
 
-    let home, away, raceTo = null, legsTotal = null, winner = null, bothEntrantsKnown;
+    const todaysFixtures = leagueFixtures
+      .filter((f) => f.status !== 'completed' && (f.scheduledDate === today || f.status === 'in_progress'))
+      .map(withOverlay)
+      .filter(Boolean);
 
-    if (isTeams) {
-      const homeTeam = fixture.homeTeamId ? db.teams.find((t) => t.id === fixture.homeTeamId) : null;
-      const awayTeam = fixture.awayTeamId ? db.teams.find((t) => t.id === fixture.awayTeamId) : null;
-      home = { name: homeTeam ? homeTeam.name : 'TBD', subLabel: null, score: fixture.homeLegsWon };
-      away = { name: awayTeam ? awayTeam.name : 'TBD', subLabel: null, score: fixture.awayLegsWon };
-      legsTotal = fixture.legs.length;
-      bothEntrantsKnown = !!(fixture.homeTeamId && fixture.awayTeamId);
-      if (fixture.status === 'completed') {
-        winner = fixture.winnerTeamId === null ? 'draw' : (fixture.winnerTeamId === fixture.homeTeamId ? 'home' : 'away');
-      }
-    } else if (isDoubles) {
-      const nameOfPairing = (pairing) => (pairing
-        ? { name: pairing.name, subLabel: db.players.filter((p) => pairing.playerIds.includes(p.id)).map((p) => p.name).join(' & ') }
-        : { name: 'TBD', subLabel: null });
-      const homePairing = fixture.homePlayerId ? db.pairings.find((p) => p.id === fixture.homePlayerId) : null;
-      const awayPairing = fixture.awayPlayerId ? db.pairings.find((p) => p.id === fixture.awayPlayerId) : null;
-      home = { ...nameOfPairing(homePairing), score: fixture.homeFrameScore };
-      away = { ...nameOfPairing(awayPairing), score: fixture.awayFrameScore };
-      raceTo = fixture.raceTo;
-      bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
-      if (fixture.status === 'completed') {
-        winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
-      }
-    } else {
-      const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
-      const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
-      home = { name: homePlayer ? homePlayer.name : 'TBD', subLabel: null, score: fixture.homeFrameScore };
-      away = { name: awayPlayer ? awayPlayer.name : 'TBD', subLabel: null, score: fixture.awayFrameScore };
-      raceTo = fixture.raceTo;
-      bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
-      if (fixture.status === 'completed') {
-        winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
-      }
-    }
+    const recentResults = leagueFixtures
+      .filter((f) => f.status === 'completed')
+      .sort((a, b) => new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0))
+      .slice(0, 8)
+      .map(withOverlay)
+      .filter(Boolean);
+
+    const tables = league.tables.map((table) => ({
+      ...table,
+      fixture: todaysFixtures.find((f) => f.tableId === table.id) || null,
+    }));
+    const unscheduled = todaysFixtures.filter((f) => !f.tableId);
 
     return {
-      fixtureId: fixture.id,
-      leagueName: league ? league.name : null,
-      divisionName: division ? division.name : null,
-      roundLabel,
-      entryType: division.entryType,
-      status: fixture.status,
-      bothEntrantsKnown,
-      home,
-      away,
-      raceTo,
-      legsTotal,
-      winner,
+      leagueId: league.id,
+      leagueName: league.name,
+      generatedAt: new Date().toISOString(),
+      tables,
+      unscheduled,
+      recentResults,
     };
   }),
 
