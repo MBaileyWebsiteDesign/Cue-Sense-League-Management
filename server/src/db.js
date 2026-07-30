@@ -12,7 +12,12 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
+// On a host with a persistent volume mounted (e.g. Fly.io at /data), set
+// DATA_DIR to that mount point so db.json survives redeploys - the container
+// filesystem is rebuilt from the image on every deploy, so anything written
+// to the default in-repo `data/` folder would otherwise be wiped every time.
+// Falls back to the local `server/src/data` folder for `npm run dev`/`npm start`.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'db.json');
 
 // In-memory cache of the last-parsed (and migrated) state, keyed to the data
