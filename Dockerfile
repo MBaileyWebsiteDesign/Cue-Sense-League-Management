@@ -17,7 +17,7 @@ COPY server/ ./
 COPY --from=client-build /app/client/dist /app/client/dist
 
 ENV NODE_ENV=production
-# Fly.io routes traffic to this port (see fly.toml's internal_port) -
+# Your host sets PORT and routes traffic to it -
 # server/src/index.js reads process.env.PORT, defaulting to 4000 locally.
 ENV PORT=4000
 EXPOSE 4000

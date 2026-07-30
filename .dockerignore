@@ -8,9 +8,9 @@ client/dist
 client/dist-*
 
 # The real database file - must NOT be baked into the image. In production
-# this path is backed by a Fly.io volume (see fly.toml's [[mounts]]) so data
-# survives deploys/restarts; shipping a stale local copy inside the image
-# would silently overwrite live data on first boot if the volume ever
+# this path should be backed by a persistent volume/disk from your host so
+# data survives deploys/restarts; shipping a stale local copy inside the
+# image would silently overwrite live data on first boot if a volume ever
 # mounted over an existing directory unexpectedly.
 server/src/data
 
