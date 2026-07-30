@@ -23,6 +23,8 @@ import {
   publicUser,
   requireAuth,
   requireAdmin,
+  generateApiKeyValue,
+  hashApiKey,
 } from './userAuth.js';
 import { recordAudit } from './services/auditLog.js';
 
@@ -415,10 +417,47 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
     startDate: null,
     endDate: null,
     createdAt: new Date().toISOString(),
+    // Named physical tables for scheduling fixtures onto - see
+    // POST /api/leagues/:id/tables and POST /api/fixtures/:id/schedule.
+    tables: [],
   };
   db.leagues.push(league);
   writeDb(db);
   res.status(201).json(league);
+}));
+
+// ---------- Table scheduling ----------
+// Named physical tables belong to a league (not a division - the same
+// tables serve every division in it), and a fixture can be assigned to one
+// plus a date/time via POST /api/fixtures/:id/schedule below. See also the
+// Arena display (GET /api/overlay/leagues/:id/arena) for a public read-only
+// board of what's on which table.
+
+app.post('/api/leagues/:id/tables', requireAdmin, asyncRoute((req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) throw new ApiError(400, 'Table name is required');
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  league.tables.push({ id: uuid(), name: name.trim() });
+  writeDb(db);
+  res.status(201).json(league);
+}));
+
+app.delete('/api/leagues/:id/tables/:tableId', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  league.tables = league.tables.filter((t) => t.id !== req.params.tableId);
+  // Unassign the table from any fixture that had it, rather than leaving a
+  // dangling reference to a table that no longer exists.
+  for (const fixture of db.fixtures) {
+    if (fixture.leagueId === league.id && fixture.tableId === req.params.tableId) {
+      fixture.tableId = null;
+    }
+  }
+  writeDb(db);
+  res.json(league);
 }));
 
 app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
@@ -961,6 +1000,15 @@ function makeSinglesFixture({ league, division, round }) {
     divisionId: division.id,
     round,
     scheduledDate: null,
+    // Table scheduling (see POST /api/fixtures/:id/schedule) - tableId
+    // refers to an entry in the league's own `tables` list.
+    tableId: null,
+    scheduledTime: null,
+    // Match timer (elapsed running clock, see /timer/start|pause|reset) and
+    // shot clock (per-shot countdown, see /shot-clock/start|stop) - both
+    // idle until a captain/admin starts them during live play.
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
     homePlayerId: null,
     awayPlayerId: null,
     raceTo: league.format.raceTo,
@@ -998,6 +1046,10 @@ function makeTeamFixture({ league, division, round }) {
     divisionId: division.id,
     round,
     scheduledDate: null,
+    tableId: null,
+    scheduledTime: null,
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
     homeTeamId: null,
     awayTeamId: null,
     legs,
@@ -1515,6 +1567,117 @@ app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
   const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
   const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
   res.json({ ...fixture, divisionName, homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
+}));
+
+app.post('/api/fixtures/:id/schedule', requireAdmin, asyncRoute((req, res) => {
+  const { tableId, scheduledDate, scheduledTime } = req.body || {};
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+
+  // tableId is nullable (explicitly passing null/omitting clears it); if
+  // provided and non-null, it must belong to this fixture's own league.
+  if (tableId !== undefined && tableId !== null) {
+    const table = league.tables.find((t) => t.id === tableId);
+    if (!table) throw new ApiError(400, 'That table does not exist in this fixture\'s league');
+  }
+
+  const nextTableId = tableId === undefined ? fixture.tableId : tableId;
+  const nextDate = scheduledDate === undefined ? fixture.scheduledDate : scheduledDate;
+  const nextTime = scheduledTime === undefined ? fixture.scheduledTime : scheduledTime;
+
+  // Double-booking check: another fixture can't already be on the same
+  // table at the same date+time. Only meaningful once all three are set.
+  if (nextTableId && nextDate && nextTime) {
+    const clash = db.fixtures.find(
+      (f) =>
+        f.id !== fixture.id &&
+        f.tableId === nextTableId &&
+        f.scheduledDate === nextDate &&
+        f.scheduledTime === nextTime
+    );
+    if (clash) {
+      throw new ApiError(409, 'That table is already booked for another fixture at that date and time');
+    }
+  }
+
+  fixture.tableId = nextTableId;
+  fixture.scheduledDate = nextDate;
+  fixture.scheduledTime = nextTime;
+  writeDb(db);
+  res.json(fixture);
+}));
+
+// ---------- Match timer & shot clock ----------
+// A match timer (elapsed running clock for the whole fixture) and a shot
+// clock (a per-shot countdown a captain/admin restarts before each shot) -
+// both live directly on the fixture so they're visible to anyone viewing it
+// (including the public overlay/arena display) without any extra state.
+// Open to any logged-in account (same as frame scoring) rather than
+// restricted to the two entrants, since whoever's refereeing the table is
+// often not one of the players themselves.
+
+app.post('/api/fixtures/:id/timer/start', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  if (!fixture.timer.running) {
+    fixture.timer.running = true;
+    fixture.timer.startedAt = new Date().toISOString();
+  }
+  writeDb(db);
+  res.json(fixture);
+}));
+
+app.post('/api/fixtures/:id/timer/pause', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  if (fixture.timer.running && fixture.timer.startedAt) {
+    const elapsed = (Date.now() - new Date(fixture.timer.startedAt).getTime()) / 1000;
+    fixture.timer.elapsedSeconds += Math.max(0, elapsed);
+  }
+  fixture.timer.running = false;
+  fixture.timer.startedAt = null;
+  writeDb(db);
+  res.json(fixture);
+}));
+
+app.post('/api/fixtures/:id/timer/reset', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  fixture.timer = { startedAt: null, elapsedSeconds: 0, running: false };
+  writeDb(db);
+  res.json(fixture);
+}));
+
+app.post('/api/fixtures/:id/shot-clock/start', requireAuth, asyncRoute((req, res) => {
+  const { durationSeconds } = req.body || {};
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  if (durationSeconds !== undefined) {
+    if (!Number.isInteger(Number(durationSeconds)) || Number(durationSeconds) < 5) {
+      throw new ApiError(400, 'durationSeconds must be a whole number of at least 5 seconds');
+    }
+    fixture.shotClock.durationSeconds = Number(durationSeconds);
+  }
+  fixture.shotClock.startedAt = new Date().toISOString();
+  fixture.shotClock.running = true;
+  writeDb(db);
+  res.json(fixture);
+}));
+
+app.post('/api/fixtures/:id/shot-clock/stop', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  fixture.shotClock.running = false;
+  fixture.shotClock.startedAt = null;
+  writeDb(db);
+  res.json(fixture);
 }));
 
 app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
@@ -2182,6 +2345,61 @@ app.get('/api/overlay/fixtures/:id', asyncRoute((req, res) => {
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   const league = db.leagues.find((l) => l.id === fixture.leagueId);
   res.json(buildOverlayFixture(db, division, league, fixture));
+}));
+
+// ---------- Public: Arena big-display view ----------
+// A read-only, unauthenticated board meant for a TV/monitor at the venue -
+// same "no login token available" reasoning as the OBS overlay above, just
+// showing the whole league's table schedule for today instead of one
+// fixture. Groups today's fixtures by table (using buildOverlayFixture for
+// each one, so the shapes stay consistent with the OBS overlay), plus a
+// short list of the most recently completed results.
+app.get('/api/overlay/leagues/:id/arena', asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const leagueFixtures = db.fixtures.filter((f) => f.leagueId === league.id);
+  const divisionsById = new Map(db.divisions.map((d) => [d.id, d]));
+
+  const withOverlay = (fixture) => {
+    const division = divisionsById.get(fixture.divisionId);
+    if (!division) return null;
+    return {
+      ...buildOverlayFixture(db, division, league, fixture),
+      tableId: fixture.tableId,
+      scheduledDate: fixture.scheduledDate,
+      scheduledTime: fixture.scheduledTime,
+    };
+  };
+
+  const todaysFixtures = leagueFixtures
+    .filter((f) => f.status !== 'completed' && (f.scheduledDate === today || f.status === 'in_progress'))
+    .map(withOverlay)
+    .filter(Boolean);
+
+  const recentResults = leagueFixtures
+    .filter((f) => f.status === 'completed')
+    .sort((a, b) => new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0))
+    .slice(0, 8)
+    .map(withOverlay)
+    .filter(Boolean);
+
+  const tables = league.tables.map((table) => ({
+    ...table,
+    fixture: todaysFixtures.find((f) => f.tableId === table.id) || null,
+  }));
+  const unscheduled = todaysFixtures.filter((f) => !f.tableId);
+
+  res.json({
+    leagueId: league.id,
+    leagueName: league.name,
+    generatedAt: new Date().toISOString(),
+    tables,
+    unscheduled,
+    recentResults,
+  });
 }));
 
 // ---------- Admin score/game override ----------
@@ -2959,6 +3177,60 @@ app.delete('/api/tours/:id/divisions/:divisionId', requireAdmin, asyncRoute((req
   tour.divisionIds = tour.divisionIds.filter((id) => id !== req.params.divisionId);
   writeDb(db);
   res.json(tour);
+}));
+
+// ---------- API Keys (StreamDeck / integrations) ----------
+// See userAuth.js's generateApiKeyValue/hashApiKey/loadApiKeyUser for how a
+// key authenticates - once generated, a key behaves exactly like an admin
+// session on every existing route (frame scoring, timer/shot-clock,
+// overrides, and so on), so a StreamDeck button can be wired straight to
+// any of those endpoints with the key as its bearer token. The raw key is
+// only ever shown once, in the response to the POST below.
+
+app.get('/api/api-keys', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json(db.apiKeys.map(({ hash, ...rest }) => rest));
+}));
+
+app.post('/api/api-keys', requireAdmin, asyncRoute((req, res) => {
+  const { label } = req.body;
+  if (!label || !label.trim()) throw new ApiError(400, 'A label is required, e.g. "StreamDeck - Table 1"');
+  const db = readDb();
+  const rawKey = generateApiKeyValue();
+  const apiKey = {
+    id: uuid(),
+    label: label.trim(),
+    hash: hashApiKey(rawKey),
+    createdAt: new Date().toISOString(),
+    lastUsedAt: null,
+  };
+  db.apiKeys.push(apiKey);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'apiKey.create',
+    targetType: 'apiKey',
+    targetId: apiKey.id,
+    details: `Created API key "${apiKey.label}"`,
+  });
+  writeDb(db);
+  const { hash, ...publicKey } = apiKey;
+  res.status(201).json({ ...publicKey, key: rawKey });
+}));
+
+app.delete('/api/api-keys/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const index = db.apiKeys.findIndex((k) => k.id === req.params.id);
+  if (index === -1) throw new ApiError(404, 'API key not found');
+  const [removed] = db.apiKeys.splice(index, 1);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'apiKey.revoke',
+    targetType: 'apiKey',
+    targetId: removed.id,
+    details: `Revoked API key "${removed.label}"`,
+  });
+  writeDb(db);
+  res.status(204).end();
 }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
