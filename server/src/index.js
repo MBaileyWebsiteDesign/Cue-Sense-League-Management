@@ -532,6 +532,14 @@ app.post('/api/leagues/:leagueId/divisions', requireAdmin, asyncRoute((req, res)
     // /api/divisions/:id/rounds/:round/visibility below. Admins always see
     // every round regardless of this list.
     visibleRounds: [],
+    // 'active' | 'completed' - see POST /api/divisions/:id/close-early
+    // below (or its league-wide equivalent, POST /api/leagues/:id/close-early).
+    // A division also ends up functionally "complete" the moment its last
+    // fixture finishes naturally (see recordChampionIfDivisionComplete), but
+    // this field is only ever set by that explicit admin action.
+    status: 'active',
+    completedAt: null,
+    completedBy: null,
   };
   db.divisions.push(division);
   writeDb(db);
@@ -630,8 +638,12 @@ function recordChampionIfDivisionComplete(db, division, hydrated) {
   } else {
     // round_robin_single / round_robin_double: champion is top of the final
     // standings (already sorted points -> frame difference -> frames for).
+    // A top standing with 0 points means nobody actually won a match - the
+    // whole division was closed early (closeOutstandingFixtures) before a
+    // single result was played out - so there's no real champion to crown,
+    // just whoever happened to sort first among an all-0 table.
     const top = hydrated.standings[0];
-    if (!top) return;
+    if (!top || top.points === 0) return;
     championId = top[idField];
   }
   if (!championId) return;
@@ -668,6 +680,121 @@ app.get('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
     hydrated.fixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
   }
   res.json(hydrated);
+}));
+
+// ---------- Close a division early ----------
+// Lets an admin force-finish a division without waiting on the normal
+// submit -> confirm handshake: every fixture that isn't already completed
+// is force-completed at 0-0 (0 legs each for a team fixture), with no
+// winner, exactly as if it had been abandoned - no player action or
+// confirmation is needed or possible. A 0-0/no-winner result is a genuinely
+// new outcome for a singles/doubles fixture (normal race-to-N play can never
+// end level - see the override route above), so it's treated as a void: it
+// counts as "played" for both sides in standings/career stats, but isn't a
+// win or a loss for either one and awards no points - see the matching
+// changes in services/standings.js and services/playerProfile.js. A team
+// fixture closed this way is simply a 0-0 draw, which the standings/legs
+// model already supported before this feature existed. Available at both
+// the division level (this route) and the league level (POST
+// /api/leagues/:id/close-early below, which applies this to every division
+// in the league in one call).
+function closeOutstandingFixtures(db, division, actorLabel) {
+  const outstanding = db.fixtures.filter((f) => f.divisionId === division.id && f.status !== 'completed');
+  const closedAt = new Date().toISOString();
+
+  for (const fixture of outstanding) {
+    if (division.entryType === 'teams') {
+      fixture.homeLegsWon = 0;
+      fixture.awayLegsWon = 0;
+      fixture.winnerTeamId = null; // drawn - computeTeamStandings already awards 1 point each for this
+      fixture.legs = fixture.legs.map((leg) => (leg.status === 'completed' ? leg : {
+        ...leg,
+        homePlayerId: leg.homePlayerId,
+        awayPlayerId: leg.awayPlayerId,
+        frames: [],
+        homeFrameScore: 0,
+        awayFrameScore: 0,
+        status: 'completed',
+        winnerPlayerId: null,
+      }));
+    } else {
+      fixture.homeFrameScore = 0;
+      fixture.awayFrameScore = 0;
+      fixture.frames = [];
+      fixture.winnerPlayerId = null; // void - see services/standings.js
+    }
+    fixture.status = 'completed';
+    fixture.disputeReason = null;
+    fixture.closedEarly = { at: closedAt, by: actorLabel };
+  }
+
+  if (outstanding.length > 0 || division.status !== 'completed') {
+    division.status = 'completed';
+    division.completedAt = closedAt;
+    division.completedBy = actorLabel;
+  }
+
+  return outstanding.length;
+}
+
+app.post('/api/divisions/:id/close-early', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+
+  const closedCount = closeOutstandingFixtures(db, division, req.adminSession.label);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.closeEarly',
+    targetType: 'division',
+    targetId: division.id,
+    details: closedCount > 0
+      ? `Closed the division early - force-completed ${closedCount} outstanding fixture(s) 0-0`
+      : 'Marked the division as complete (no outstanding fixtures)',
+  });
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// League-level equivalent of the route above: applies the exact same
+// force-complete-at-0-0 treatment to every division in the league in one
+// call, for "close the whole league's season early" rather than one
+// division at a time. Surfaced from the league management page.
+app.post('/api/leagues/:id/close-early', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+
+  const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+  let totalClosed = 0;
+  let divisionsAffected = 0;
+  for (const division of divisions) {
+    const closedCount = closeOutstandingFixtures(db, division, req.adminSession.label);
+    if (closedCount > 0) {
+      divisionsAffected += 1;
+      totalClosed += closedCount;
+    }
+  }
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.closeEarly',
+    targetType: 'league',
+    targetId: league.id,
+    details: totalClosed > 0
+      ? `Closed the league early - force-completed ${totalClosed} outstanding fixture(s) 0-0 across ${divisionsAffected} division(s)`
+      : 'Marked every division in the league as complete (no outstanding fixtures)',
+  });
+
+  writeDb(db);
+  res.json({
+    leagueId: league.id,
+    divisionsAffected,
+    fixturesClosed: totalClosed,
+    divisions: divisions.map((d) => hydrateDivision(db, d)),
+  });
 }));
 
 // ---- Singles players ----
@@ -2346,7 +2473,10 @@ function buildOverlayFixture(db, division, league, fixture) {
     raceTo = fixture.raceTo;
     bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
     if (fixture.status === 'completed') {
-      winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
+      // null means the fixture was force-completed 0-0 by an admin closing
+      // the division/league early (closeOutstandingFixtures) rather than
+      // actually decided.
+      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
     }
   } else {
     const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
@@ -2356,7 +2486,7 @@ function buildOverlayFixture(db, division, league, fixture) {
     raceTo = fixture.raceTo;
     bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
     if (fixture.status === 'completed') {
-      winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
+      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
     }
   }
 
@@ -2437,6 +2567,93 @@ app.get('/api/overlay/leagues/:id/arena', asyncRoute((req, res) => {
     tables,
     unscheduled,
     recentResults,
+  });
+}));
+
+// ---------- Public: League Table & League Fixtures (embeddable pages) ----------
+// Two more read-only, unauthenticated endpoints, same reasoning as the OBS
+// overlay and Arena board above (no login available to the visitor), but
+// aimed at being embedded (e.g. an <iframe>) on another site rather than an
+// OBS scene or a venue TV - a running "League Table" and "League Fixtures"
+// view of a whole league. Standings reuse hydrateDivision unmodified (same
+// numbers a logged-in player would see - standings aren't gated by round
+// visibility, see the comment on GET /api/divisions/:id above), but the
+// fixture list *is* filtered by isRoundVisible, same as a non-admin account
+// gets on the division page - a public embed must never show a round before
+// an admin has released it, or "Manage Fixtures" round-release stops
+// meaning anything.
+
+app.get('/api/public/leagues/:id/table', asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+
+  const divisions = db.divisions
+    .filter((d) => d.leagueId === league.id)
+    .sort((a, b) => a.order - b.order)
+    .map((division) => {
+      const hydrated = hydrateDivision(db, division);
+      return {
+        divisionId: division.id,
+        divisionName: division.name,
+        entryType: division.entryType,
+        scheduling: division.scheduling,
+        status: division.status || 'active',
+        standings: hydrated.standings,
+      };
+    });
+
+  res.json({
+    leagueId: league.id,
+    leagueName: league.name,
+    generatedAt: new Date().toISOString(),
+    divisions,
+  });
+}));
+
+function buildPublicFixture(db, division, league, fixture) {
+  if (!division) return null;
+  return {
+    ...buildOverlayFixture(db, division, league, fixture),
+    divisionId: division.id,
+    round: fixture.round,
+    scheduledDate: fixture.scheduledDate,
+    scheduledTime: fixture.scheduledTime,
+  };
+}
+
+app.get('/api/public/leagues/:id/fixtures', asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+
+  const divisionsById = new Map(db.divisions.filter((d) => d.leagueId === league.id).map((d) => [d.id, d]));
+
+  const fixtures = db.fixtures
+    .filter((f) => f.leagueId === league.id)
+    .filter((f) => isRoundVisible(divisionsById.get(f.divisionId), f.round))
+    .map((f) => buildPublicFixture(db, divisionsById.get(f.divisionId), league, f))
+    .filter(Boolean)
+    .sort((a, b) => {
+      // Anything still to be decided sorts first (soonest scheduled date
+      // first, unscheduled fixtures last within that group); completed
+      // fixtures (including ones force-completed 0-0 by close-early - see
+      // fixture.closedEarly) sort after, most recent first.
+      const aDone = a.status === 'completed';
+      const bDone = b.status === 'completed';
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
+      if (!a.scheduledDate && !b.scheduledDate) return 0;
+      if (!a.scheduledDate) return 1;
+      if (!b.scheduledDate) return -1;
+      return new Date(a.scheduledDate) - new Date(b.scheduledDate);
+    });
+
+  res.json({
+    leagueId: league.id,
+    leagueName: league.name,
+    generatedAt: new Date().toISOString(),
+    fixtures,
   });
 }));
 

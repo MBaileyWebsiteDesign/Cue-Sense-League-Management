@@ -35,6 +35,8 @@ const AdminSeasonWizard = lazy(() => import('./pages/AdminSeasonWizard.jsx'));
 const ManageFixtures = lazy(() => import('./pages/ManageFixtures.jsx'));
 const StreamOverlay = lazy(() => import('./pages/StreamOverlay.jsx'));
 const Arena = lazy(() => import('./pages/Arena.jsx'));
+const PublicLeagueTable = lazy(() => import('./pages/PublicLeagueTable.jsx'));
+const PublicLeagueFixtures = lazy(() => import('./pages/PublicLeagueFixtures.jsx'));
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
@@ -187,6 +189,28 @@ export default function App() {
         element={
           <Suspense fallback={null}>
             <Arena />
+          </Suspense>
+        }
+      />
+      {/* Standalone, unauthenticated routes for the two embeddable public
+          pages (League Table, League Fixtures) - same reasoning as the two
+          routes above, but meant to be dropped into an <iframe> on another
+          site rather than shown on a venue TV or OBS canvas, so they sit
+          outside AuthProvider/AppShell too. See LeagueDetail.jsx for where
+          these links are surfaced to admins. */}
+      <Route
+        path="/public/leagues/:leagueId/table"
+        element={
+          <Suspense fallback={null}>
+            <PublicLeagueTable />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/public/leagues/:leagueId/fixtures"
+        element={
+          <Suspense fallback={null}>
+            <PublicLeagueFixtures />
           </Suspense>
         }
       />

@@ -436,6 +436,7 @@ function TeamFixtureView({ fixture, onChange, setError }) {
           {drawn
             ? `Team match drawn ${fixture.homeLegsWon}-${fixture.awayLegsWon}`
             : `Match complete: ${fixture.winnerTeamId === fixture.homeTeamId ? fixture.homeTeam.name : fixture.awayTeam.name} win ${Math.max(fixture.homeLegsWon, fixture.awayLegsWon)}-${Math.min(fixture.homeLegsWon, fixture.awayLegsWon)}`}
+          {fixture.closedEarly && ' - closed early, not played out'}
         </p>
       )}
 
@@ -584,6 +585,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
       {complete && (
         <p className="banner banner-success">
           Match complete: {homeEntrant.name} {fixture.homeFrameScore} - {fixture.awayFrameScore} {awayEntrant.name}
+          {fixture.closedEarly && ' - closed early, not played out'}
         </p>
       )}
 
