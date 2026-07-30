@@ -1748,6 +1748,35 @@ export const demoApi = {
     };
   }),
 
+  // Mirrors server/src/index.js's DELETE /api/leagues/:id - permanently
+  // removes a league and everything scoped to it (divisions, fixtures,
+  // teams, pairings, roll-of-honour entries), and strips it out of any
+  // tour's divisionIds. No undo.
+  deleteLeague: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+    const divisionIds = new Set(divisions.map((d) => d.id));
+
+    const fixturesRemoved = db.fixtures.filter((f) => f.leagueId === league.id).length;
+    db.fixtures = db.fixtures.filter((f) => f.leagueId !== league.id);
+    db.teams = db.teams.filter((t) => !divisionIds.has(t.divisionId));
+    db.pairings = db.pairings.filter((p) => !divisionIds.has(p.divisionId));
+    db.rollOfHonour = db.rollOfHonour.filter((r) => r.leagueId !== league.id);
+    db.tours.forEach((tour) => {
+      tour.divisionIds = tour.divisionIds.filter((id) => !divisionIds.has(id));
+    });
+    db.divisions = db.divisions.filter((d) => d.leagueId !== league.id);
+    db.leagues = db.leagues.filter((l) => l.id !== league.id);
+
+    recordAudit(db, {
+      actor: adminLabel(), action: 'league.delete', targetType: 'league', targetId: league.id,
+      details: `Deleted league "${league.name}" - ${divisions.length} division(s), ${fixturesRemoved} fixture(s)`,
+    });
+
+    return { deleted: true, leagueId: league.id, divisionsRemoved: divisions.length, fixturesRemoved };
+  }),
+
   // Powers the admin "Manage Fixtures" page - mirrors server/src/index.js's
   // POST /api/divisions/:id/rounds/:round/visibility.
   setRoundVisibility: op((divisionId, round, visible) => {

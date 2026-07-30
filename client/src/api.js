@@ -101,6 +101,10 @@ const networkApi = {
   // closeOutstandingFixtures for the full behaviour.
   closeDivisionEarly: (divisionId) => request(`/divisions/${divisionId}/close-early`, { method: 'POST' }),
   closeLeagueEarly: (leagueId) => request(`/leagues/${leagueId}/close-early`, { method: 'POST' }),
+  // Admin-only, irreversible: permanently deletes a league and every
+  // division/fixture/team/pairing scoped to it. See server/src/index.js's
+  // DELETE /api/leagues/:id.
+  deleteLeague: (leagueId) => request(`/leagues/${leagueId}`, { method: 'DELETE' }),
   getRegisteredPlayers: () => request('/registered-players'),
   addPlayer: (divisionId, playerId) =>
     request(`/divisions/${divisionId}/players`, { method: 'POST', body: JSON.stringify({ playerId }) }),

@@ -208,6 +208,14 @@ h2 { margin-top: 0; }
 
 .btn-primary:hover:not(:disabled) { background: var(--cta-dark); }
 
+.btn-danger {
+  background: #fee2e2;
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.btn-danger:hover:not(:disabled) { background: #fecaca; }
+
 .btn-link {
   background: none;
   border: none;

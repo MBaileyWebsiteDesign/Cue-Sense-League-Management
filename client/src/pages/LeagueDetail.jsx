@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
@@ -63,49 +63,95 @@ function TablesPanel({ league, onChange, setError }) {
   );
 }
 
-// Admin-only, collapsed-by-default panel that force-completes every
-// outstanding fixture in *every* division of this league at 0-0 with no
-// winner, no player confirmation needed - the league-wide equivalent of the
-// "Close Division Early" panel on a division's own page. Same two-step
-// "Show" then confirm pattern, since this is irreversible and affects the
-// whole league at once.
-function CloseLeagueEarlyPanel({ league, onChange, setError }) {
+// Admin-only, collapsed-by-default panel of league-wide destructive admin
+// actions - closing the season early (force-completes outstanding fixtures,
+// but the league and its history stick around) and, below that, permanently
+// deleting the league altogether (removes the league and everything scoped
+// to it: divisions, fixtures, teams, pairings, roll-of-honour entries). Same
+// two-step "Show" then confirm pattern as the rest of the app's irreversible
+// actions, with an extra type-the-league-name confirmation before delete
+// specifically, since that one can't be recovered from at all.
+function ManageLeaguePanel({ league, canCloseEarly, onChange, setError }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
-  const onConfirm = async () => {
-    setSubmitting(true);
+  const onCloseEarly = async () => {
+    setClosing(true);
     setError('');
     try {
       await api.closeLeagueEarly(league.id);
-      setOpen(false);
       onChange();
     } catch (err) {
       setError(err.message);
     } finally {
-      setSubmitting(false);
+      setClosing(false);
+    }
+  };
+
+  const onDelete = async () => {
+    setDeleting(true);
+    setError('');
+    try {
+      await api.deleteLeague(league.id);
+      navigate('/');
+    } catch (err) {
+      setError(err.message);
+      setDeleting(false);
     }
   };
 
   return (
     <section className="card">
       <div className="page-header">
-        <h2 style={{ margin: 0 }}>Admin: Close League Early</h2>
+        <h2 style={{ margin: 0 }}>Admin: Manage this League</h2>
         <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide' : 'Show'}
         </button>
       </div>
       {open && (
         <>
-          <p className="muted">
-            Force-completes every outstanding fixture across <strong>every division</strong> in this
-            league at 0-0, with no winner - no confirmation from either side is needed. Use this to end
-            the whole league's season early rather than closing each division one at a time. This can't
-            be undone.
-          </p>
-          <button className="btn btn-primary" type="button" disabled={submitting} onClick={onConfirm}>
-            {submitting ? 'Closing…' : 'Close the whole league now'}
-          </button>
+          {canCloseEarly && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.25rem' }}>Close League Early</h3>
+              <p className="muted">
+                Force-completes every outstanding fixture across <strong>every division</strong> in this
+                league at 0-0, with no winner - no confirmation from either side is needed. Use this to end
+                the whole league's season early rather than closing each division one at a time. This can't
+                be undone.
+              </p>
+              <button className="btn btn-primary" type="button" disabled={closing} onClick={onCloseEarly}>
+                {closing ? 'Closing…' : 'Close the whole league now'}
+              </button>
+            </div>
+          )}
+
+          <div>
+            <h3 style={{ marginBottom: '0.25rem' }}>Delete League</h3>
+            <p className="muted">
+              Permanently deletes <strong>{league.name}</strong> and everything in it - every division,
+              fixture, team and pairing, plus its roll-of-honour history. This cannot be undone. To
+              confirm, type the league's name below.
+            </p>
+            <label>
+              League name
+              <input
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                placeholder={league.name}
+              />
+            </label>
+            <button
+              className="btn btn-danger"
+              type="button"
+              disabled={deleting || confirmName.trim() !== league.name}
+              onClick={onDelete}
+            >
+              {deleting ? 'Deleting…' : 'Delete this league permanently'}
+            </button>
+          </div>
         </>
       )}
     </section>
@@ -248,8 +294,13 @@ export default function LeagueDetail() {
 
       {isAdmin && <TablesPanel league={league} onChange={load} setError={setError} />}
 
-      {isAdmin && league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed') && (
-        <CloseLeagueEarlyPanel league={league} onChange={load} setError={setError} />
+      {isAdmin && (
+        <ManageLeaguePanel
+          league={league}
+          canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
+          onChange={load}
+          setError={setError}
+        />
       )}
 
       <div className="card-grid">

@@ -827,6 +827,44 @@ app.post('/api/leagues/:id/close-early', requireAdmin, asyncRoute((req, res) => 
   });
 }));
 
+// Permanently deletes a league and everything that belongs to it - every
+// division, fixture, team and pairing scoped to it, plus its roll-of-honour
+// entries, and it's stripped out of any tour's divisionIds. This is the
+// destructive counterpart to close-early above (which just force-completes
+// outstanding fixtures but leaves the league and its history in place) -
+// use this to actually remove a league that was created by mistake or is no
+// longer wanted, not just to end its season. There's no undo.
+app.delete('/api/leagues/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+
+  const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+  const divisionIds = new Set(divisions.map((d) => d.id));
+
+  const fixturesRemoved = db.fixtures.filter((f) => f.leagueId === league.id).length;
+  db.fixtures = db.fixtures.filter((f) => f.leagueId !== league.id);
+  db.teams = db.teams.filter((t) => !divisionIds.has(t.divisionId));
+  db.pairings = db.pairings.filter((p) => !divisionIds.has(p.divisionId));
+  db.rollOfHonour = db.rollOfHonour.filter((r) => r.leagueId !== league.id);
+  db.tours.forEach((tour) => {
+    tour.divisionIds = tour.divisionIds.filter((id) => !divisionIds.has(id));
+  });
+  db.divisions = db.divisions.filter((d) => d.leagueId !== league.id);
+  db.leagues = db.leagues.filter((l) => l.id !== league.id);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.delete',
+    targetType: 'league',
+    targetId: league.id,
+    details: `Deleted league "${league.name}" - ${divisions.length} division(s), ${fixturesRemoved} fixture(s)`,
+  });
+
+  writeDb(db);
+  res.json({ deleted: true, leagueId: league.id, divisionsRemoved: divisions.length, fixturesRemoved });
+}));
+
 // ---- Singles players ----
 // Players are only ever registered `Users` now (see registeredPlayers()
 // below) - a captain picks a name from the list of people who've actually
