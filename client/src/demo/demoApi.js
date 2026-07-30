@@ -480,6 +480,8 @@ function makeSinglesFixture({ league, division, round }) {
     winnerPlayerId: null,
     nextFixtureId: null,
     nextFixtureSlot: null,
+    // Knockout only - see server/src/index.js's byeSlot comment.
+    byeSlot: null,
     bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -518,6 +520,7 @@ function makeTeamFixture({ league, division, round }) {
     winnerTeamId: null,
     nextFixtureId: null,
     nextFixtureSlot: null,
+    byeSlot: null,
     bracketRole: 'single',
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -575,6 +578,10 @@ function propagateWinner(division, fixture, winnerId) {
   } else {
     next.awayPlayerId = winnerId;
   }
+  // See server/src/index.js's propagateWinner comment - `next` might
+  // structurally never receive a second entrant (byeSlot set), in which
+  // case resolve it immediately and keep the chain going.
+  if (next.byeSlot) resolveByeIfNeeded(division, next);
 }
 
 function generateKnockoutFixtures({ league, division, entrantIds }) {
@@ -585,16 +592,26 @@ function generateKnockoutFixtures({ league, division, entrantIds }) {
     pairs.map(() => makeFixture({ league, division, round: roundIndex + 1 }))
   );
 
+  // See server/src/index.js's generateKnockoutFixtures comment - a round
+  // with an odd box count leaves its last next-round box's 'away' slot
+  // permanently unlinked; mark it byeSlot so propagateWinner knows to
+  // auto-resolve it the moment its lone real feeder concludes.
   for (let round = 0; round < fixturesByRound.length - 1; round++) {
-    fixturesByRound[round].forEach((fixture, i) => {
-      const next = fixturesByRound[round + 1][Math.floor(i / 2)];
+    const thisRound = fixturesByRound[round];
+    const nextRound = fixturesByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
       fixture.nextFixtureId = next.id;
       fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
     });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
   }
 
   bracketRounds[0].forEach(([a, b], i) => {
     const fixture = fixturesByRound[0][i];
+    if (b === null) fixture.byeSlot = 'away';
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
       fixture.awayTeamId = b;
