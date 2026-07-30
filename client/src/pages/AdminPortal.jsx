@@ -67,6 +67,14 @@ export default function AdminPortal() {
             did it, and when.
           </p>
         </Link>
+
+        <Link to="/admin/api-keys" className="card card-link">
+          <h2>API Keys</h2>
+          <p className="muted">
+            Generate or revoke API keys for StreamDeck or other unattended integrations -
+            each one acts as a permanent, admin-equivalent login.
+          </p>
+        </Link>
       </div>
     </div>
   );

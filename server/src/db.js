@@ -41,6 +41,7 @@ const EMPTY_STATE = {
   passwordResets: [],
   tours: [],
   rollOfHonour: [],
+  apiKeys: [],
 };
 
 function ensureDataFile() {
@@ -77,6 +78,23 @@ export function readDb() {
   // original schema, so backfill them the same way as everything else here.
   if (!state.tours) state.tours = [];
   if (!state.rollOfHonour) state.rollOfHonour = [];
+  // StreamDeck / integration API keys - see userAuth.js's loadApiKeyUser.
+  if (!state.apiKeys) state.apiKeys = [];
+  // Table scheduling: named tables belong to a league, and a fixture can be
+  // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
+  // that route and the Arena display (GET /api/overlay/leagues/:id/arena).
+  for (const league of state.leagues) {
+    if (!league.tables) league.tables = [];
+  }
+  for (const fixture of state.fixtures) {
+    if (fixture.tableId === undefined) fixture.tableId = null;
+    if (fixture.scheduledTime === undefined) fixture.scheduledTime = null;
+    // Match timer (elapsed running clock) and shot clock (per-shot
+    // countdown) - both start out idle/zeroed for fixtures saved before
+    // this feature existed, exactly like a fresh fixture would.
+    if (!fixture.timer) fixture.timer = { startedAt: null, elapsedSeconds: 0, running: false };
+    if (!fixture.shotClock) fixture.shotClock = { durationSeconds: 60, startedAt: null, running: false };
+  }
   // Round visibility (Manage Fixtures / "Needs Your Confirmation" gating):
   // `visibleRounds` is the list of round numbers a non-admin account is
   // allowed to see or play at all - see the `isRoundVisible` helper and the

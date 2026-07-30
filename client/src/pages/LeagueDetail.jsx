@@ -4,6 +4,65 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
+// Named physical tables for this league - see server/src/index.js's
+// POST /api/leagues/:id/tables and the Arena display, which shows what's
+// currently assigned to each one.
+function TablesPanel({ league, onChange, setError }) {
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const onAdd = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setError('');
+    setSubmitting(true);
+    try {
+      await api.addTable(league.id, name.trim());
+      setName('');
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onRemove = async (tableId) => {
+    setError('');
+    try {
+      await api.removeTable(league.id, tableId);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2>Tables</h2>
+      <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
+        Named physical tables fixtures can be scheduled onto (see a fixture's own page) -
+        shown live on the <Link to={`/arena/${league.id}`}>Arena display</Link> for a venue TV.
+      </p>
+      <ul className="player-list">
+        {league.tables.map((t) => (
+          <li key={t.id}>
+            {t.name}
+            <button className="btn-link" onClick={() => onRemove(t.id)}>remove</button>
+          </li>
+        ))}
+        {league.tables.length === 0 && <li className="muted">No tables added yet</li>}
+      </ul>
+      <form className="inline-form" onSubmit={onAdd} style={{ marginTop: 8 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Table 1" />
+        <button className="btn btn-primary" type="submit" disabled={!name.trim() || submitting}>
+          Add Table
+        </button>
+      </form>
+    </section>
+  );
+}
+
 export default function LeagueDetail() {
   const { isAdmin } = useAuth();
   const { leagueId } = useParams();
@@ -123,6 +182,10 @@ export default function LeagueDetail() {
       )}
 
       {error && <p className="error">{error}</p>}
+
+      <p><Link to={`/arena/${league.id}`}>View Arena display &rarr;</Link></p>
+
+      {isAdmin && <TablesPanel league={league} onChange={load} setError={setError} />}
 
       <div className="card-grid">
         {league.divisions.map((division) => (

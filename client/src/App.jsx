@@ -34,6 +34,8 @@ const AdminAuditLog = lazy(() => import('./pages/AdminAuditLog.jsx'));
 const AdminSeasonWizard = lazy(() => import('./pages/AdminSeasonWizard.jsx'));
 const ManageFixtures = lazy(() => import('./pages/ManageFixtures.jsx'));
 const StreamOverlay = lazy(() => import('./pages/StreamOverlay.jsx'));
+const Arena = lazy(() => import('./pages/Arena.jsx'));
+const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
 // combination of admin/captain/plain-player flags it has) can browse. There
@@ -142,6 +144,7 @@ function AppShell() {
             <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
             <Route path="/admin/users/:userId" element={<RequireAdmin><AdminUserEdit /></RequireAdmin>} />
             <Route path="/admin/audit-log" element={<RequireAdmin><AdminAuditLog /></RequireAdmin>} />
+            <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAdmin><GameAdjustments /></RequireAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
             <Route path="/admin/manage-fixtures" element={<RequireAdmin><ManageFixtures /></RequireAdmin>} />
@@ -172,6 +175,17 @@ export default function App() {
         element={
           <Suspense fallback={null}>
             <StreamOverlay />
+          </Suspense>
+        }
+      />
+      {/* Standalone, unauthenticated route for the Arena big-display board -
+          same reasoning as the OBS overlay above: a venue TV has no way to
+          log in either, so this sits outside AuthProvider/AppShell too. */}
+      <Route
+        path="/arena/:leagueId"
+        element={
+          <Suspense fallback={null}>
+            <Arena />
           </Suspense>
         }
       />

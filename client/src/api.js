@@ -119,6 +119,25 @@ const networkApi = {
   // Authorization header required (and none sent, even if one happens to be
   // in localStorage), since OBS Browser Source loads this URL cold.
   getOverlayFixture: (id) => request(`/overlay/fixtures/${id}`),
+  // Public, unauthenticated Arena big-display board for a league - same
+  // reasoning as the overlay above, but for a venue TV rather than OBS.
+  getArena: (leagueId) => request(`/overlay/leagues/${leagueId}/arena`),
+
+  addTable: (leagueId, name) => request(`/leagues/${leagueId}/tables`, { method: 'POST', body: JSON.stringify({ name }) }),
+  removeTable: (leagueId, tableId) => request(`/leagues/${leagueId}/tables/${tableId}`, { method: 'DELETE' }),
+  scheduleFixture: (fixtureId, data) =>
+    request(`/fixtures/${fixtureId}/schedule`, { method: 'POST', body: JSON.stringify(data) }),
+
+  startTimer: (fixtureId) => request(`/fixtures/${fixtureId}/timer/start`, { method: 'POST' }),
+  pauseTimer: (fixtureId) => request(`/fixtures/${fixtureId}/timer/pause`, { method: 'POST' }),
+  resetTimer: (fixtureId) => request(`/fixtures/${fixtureId}/timer/reset`, { method: 'POST' }),
+  startShotClock: (fixtureId, durationSeconds) =>
+    request(`/fixtures/${fixtureId}/shot-clock/start`, { method: 'POST', body: JSON.stringify({ durationSeconds }) }),
+  stopShotClock: (fixtureId) => request(`/fixtures/${fixtureId}/shot-clock/stop`, { method: 'POST' }),
+
+  getApiKeys: () => request('/api-keys'),
+  createApiKey: (label) => request('/api-keys', { method: 'POST', body: JSON.stringify({ label }) }),
+  deleteApiKey: (id) => request(`/api-keys/${id}`, { method: 'DELETE' }),
   recordFrame: (fixtureId, winnerPlayerId) =>
     request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId }) }),
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),

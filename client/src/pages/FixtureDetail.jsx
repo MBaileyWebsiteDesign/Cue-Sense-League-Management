@@ -607,6 +607,133 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   );
 }
 
+// Live match timer (elapsed running clock) and shot clock (per-shot
+// countdown) - see server/src/index.js's /timer/* and /shot-clock/* routes.
+// Open to any logged-in account, same as frame scoring, since whoever's
+// refereeing the table is often not one of the two players. Ticks its own
+// display every second locally (rather than polling the server) using the
+// startedAt timestamp the server already returns, so the display stays
+// smooth between the occasional onChange() refresh.
+function LiveMatchControls({ fixture, onChange, setError }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!fixture.timer.running && !fixture.shotClock.running) return undefined;
+    const tick = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(tick);
+  }, [fixture.timer.running, fixture.shotClock.running]);
+
+  const run = async (fn) => {
+    setError('');
+    try {
+      await fn();
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const timerElapsed = fixture.timer.elapsedSeconds
+    + (fixture.timer.running && fixture.timer.startedAt ? (now - new Date(fixture.timer.startedAt).getTime()) / 1000 : 0);
+  const formatClock = (totalSeconds) => {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+
+  const shotRemaining = fixture.shotClock.running && fixture.shotClock.startedAt
+    ? fixture.shotClock.durationSeconds - (now - new Date(fixture.shotClock.startedAt).getTime()) / 1000
+    : fixture.shotClock.durationSeconds;
+
+  return (
+    <section className="card">
+      <h2>Live Match Controls</h2>
+      <div className="inline-form" style={{ alignItems: 'center' }}>
+        <div>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Match Timer</div>
+          <div style={{ fontSize: '1.8rem', fontVariantNumeric: 'tabular-nums' }}>{formatClock(timerElapsed)}</div>
+        </div>
+        {fixture.timer.running ? (
+          <button className="btn" onClick={() => run(() => api.pauseTimer(fixture.id))}>Pause</button>
+        ) : (
+          <button className="btn btn-primary" onClick={() => run(() => api.startTimer(fixture.id))}>Start</button>
+        )}
+        <button className="btn" onClick={() => run(() => api.resetTimer(fixture.id))}>Reset</button>
+      </div>
+      <div className="inline-form" style={{ alignItems: 'center', marginTop: 16 }}>
+        <div>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Shot Clock</div>
+          <div
+            style={{
+              fontSize: '1.8rem',
+              fontVariantNumeric: 'tabular-nums',
+              color: fixture.shotClock.running && shotRemaining <= 10 ? '#dc2626' : undefined,
+            }}
+          >
+            {formatClock(shotRemaining)}
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={() => run(() => api.startShotClock(fixture.id, fixture.shotClock.durationSeconds))}>
+          {fixture.shotClock.running ? 'Restart' : `Start (${fixture.shotClock.durationSeconds}s)`}
+        </button>
+        <button className="btn" onClick={() => run(() => api.stopShotClock(fixture.id))}>Stop</button>
+      </div>
+    </section>
+  );
+}
+
+// Admin-only: assign this fixture to a table plus a date/time - see
+// server/src/index.js's POST /api/fixtures/:id/schedule (rejects a
+// double-booking on the same table at the same date+time).
+function ScheduleFixturePanel({ fixture, onChange, setError }) {
+  const [tables, setTables] = useState([]);
+  const [tableId, setTableId] = useState(fixture.tableId || '');
+  const [scheduledDate, setScheduledDate] = useState(fixture.scheduledDate || '');
+  const [scheduledTime, setScheduledTime] = useState(fixture.scheduledTime || '');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    api.getLeague(fixture.leagueId).then((league) => setTables(league.tables)).catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixture.leagueId]);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      await api.scheduleFixture(fixture.id, {
+        tableId: tableId || null,
+        scheduledDate: scheduledDate || null,
+        scheduledTime: scheduledTime || null,
+      });
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2>Schedule</h2>
+      <form className="inline-form" onSubmit={onSubmit}>
+        <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
+          <option value="">No table assigned</option>
+          {tables.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
+        <input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
+        <button className="btn btn-primary" type="submit" disabled={submitting}>
+          {submitting ? 'Saving…' : 'Save'}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 export default function FixtureDetail() {
   const { fixtureId } = useParams();
   const [fixture, setFixture] = useState(null);
@@ -658,6 +785,9 @@ export default function FixtureDetail() {
       <h1>{roundLabel(fixture)}{isTeams ? ` · Best of ${fixture.legs.length} legs` : ` · Race to ${fixture.raceTo}`}</h1>
       {isAdminSession && <StreamOverlayLink fixtureId={fixture.id} />}
       {error && <p className="error">{error}</p>}
+
+      {isAdminSession && <ScheduleFixturePanel fixture={fixture} onChange={load} setError={setError} />}
+      {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} onChange={load} setError={setError} />}
 
       {isTeams ? (
         <TeamFixtureView fixture={fixture} onChange={load} setError={setError} />

@@ -15,7 +15,7 @@
 // README roadmap.
 import crypto from 'crypto';
 import { ApiError } from './errors.js';
-import { readDb } from './db.js';
+import { readDb, writeDb } from './db.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-secret-change-me';
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -93,17 +93,58 @@ function tokenFromHeader(req) {
   return header.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
 }
 
+// API keys (StreamDeck / other unattended integrations): a permanent,
+// admin-equivalent credential rather than a 24h session, meant to sit in a
+// StreamDeck plugin's HTTP request config - see the Admin Portal's "API
+// Keys" page (generate, label, revoke). Only the SHA-256 hash is ever
+// persisted; the raw value is shown to the admin exactly once, at creation.
+export function generateApiKeyValue() {
+  return `sdk_${crypto.randomBytes(36).toString('base64url')}`;
+}
+
+export function hashApiKey(key) {
+  return crypto.createHash('sha256').update(key).digest('hex');
+}
+
+// A valid key is synthesized into the same shape loadActiveUser() would
+// return for a real account, so requireAuth/requireAdmin below need no
+// changes at all - every existing authenticated/admin route already works
+// for a StreamDeck key with zero further wiring.
+function loadApiKeyUser(token) {
+  if (!token || !token.startsWith('sdk_')) return null;
+  const db = readDb();
+  const hash = hashApiKey(token);
+  const apiKey = db.apiKeys.find((k) => k.hash === hash);
+  if (!apiKey) return null;
+  apiKey.lastUsedAt = new Date().toISOString();
+  writeDb(db);
+  return {
+    id: `apikey:${apiKey.id}`,
+    firstName: 'API Key',
+    lastName: apiKey.label,
+    email: null,
+    isAdmin: true,
+    isCaptain: false,
+    status: 'active',
+    playerId: null,
+  };
+}
+
 // Looks up the live user record behind a verified token - flags and
 // suspension status can change after a token was issued (an admin can
 // change them mid-session), so both are always read fresh from the db
-// rather than trusted from the token payload.
+// rather than trusted from the token payload. Falls back to API key auth
+// (see loadApiKeyUser above) for anything that isn't a valid session token -
+// a raw API key (no embedded '.') fails verifySessionToken's format check
+// immediately, so there's no ambiguity between the two credential kinds.
 function loadActiveUser(token) {
   const session = verifySessionToken(token);
-  if (!session) return null;
-  const db = readDb();
-  const user = db.users.find((u) => u.id === session.userId);
-  if (!user) return null;
-  return user;
+  if (session) {
+    const db = readDb();
+    const user = db.users.find((u) => u.id === session.userId);
+    if (user) return user;
+  }
+  return loadApiKeyUser(token);
 }
 
 // Standard "you must be logged in" gate - used both for the self-service
