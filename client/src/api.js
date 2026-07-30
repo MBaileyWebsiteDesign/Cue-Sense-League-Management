@@ -104,6 +104,8 @@ const networkApi = {
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
   seedFromGroups: (divisionId, sources) =>
     request(`/divisions/${divisionId}/seed-from-groups`, { method: 'POST', body: JSON.stringify({ sources }) }),
+  reorderEntrants: (divisionId, order) =>
+    request(`/divisions/${divisionId}/reorder-entrants`, { method: 'POST', body: JSON.stringify({ order }) }),
   setRoundVisibility: (divisionId, round, visible) =>
     request(`/divisions/${divisionId}/rounds/${round}/visibility`, { method: 'POST', body: JSON.stringify({ visible }) }),
   hideAllRounds: (divisionId) =>

@@ -991,6 +991,44 @@ app.delete('/api/pairings/:pairingId/players/:playerId', asyncRoute((req, res) =
   res.json(hydrateDivision(db, division));
 }));
 
+// Manual seed ordering: buildBracketRounds/buildDoubleElimBracket pair
+// entrants in whatever order division.playerIds/teamIds/pairingIds happens
+// to be in (see services/bracket.js - "no real seeding... sort entrantIds
+// before calling this"), so reordering that array *is* how a knockout
+// bracket's seeding is actually controlled. Seed-from-groups (above)
+// already produces a sensible order automatically (top finishers per
+// feeder group, group by group); this lets an admin fine-tune that order,
+// or set entirely manual seeding for a standalone knockout built by adding
+// entrants directly - before fixtures are generated. Works for any entry
+// type (singles/teams/doubles), since it's just reordering whichever ID
+// array the division uses.
+app.post('/api/divisions/:id/reorder-entrants', requireAdmin, asyncRoute((req, res) => {
+  const { order } = req.body || {};
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot reorder entrants after fixtures have been generated for this division');
+  }
+  if (!Array.isArray(order) || order.length === 0) {
+    throw new ApiError(400, 'order must be a non-empty array of entrant IDs');
+  }
+
+  const field = division.entryType === 'teams' ? 'teamIds' : division.entryType === 'doubles' ? 'pairingIds' : 'playerIds';
+  const current = division[field];
+  const sameMembers =
+    order.length === current.length &&
+    new Set(order).size === current.length &&
+    order.every((id) => current.includes(id));
+  if (!sameMembers) {
+    throw new ApiError(400, 'order must contain exactly the same entrants the division currently has, each exactly once');
+  }
+
+  division[field] = order;
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
 // ---- Fixture generation (branches on entryType x scheduling) ----
 
 function makeSinglesFixture({ league, division, round }) {

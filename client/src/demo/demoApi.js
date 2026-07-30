@@ -1814,6 +1814,35 @@ export const demoApi = {
     return { ...hydrateDivision(division), seedSummary };
   }),
 
+  // Mirrors server/src/index.js's POST /api/divisions/:id/reorder-entrants -
+  // lets an admin fine-tune (or fully set) a not-yet-generated division's
+  // entrant order, which is what actually controls knockout bracket seeding
+  // (buildBracketRounds/buildDoubleElimBracket just pair entrants in
+  // whatever array order they're given).
+  reorderEntrants: op((divisionId, order) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, 'Cannot reorder entrants after fixtures have been generated for this division');
+    }
+    if (!Array.isArray(order) || order.length === 0) {
+      throw new ApiError(400, 'order must be a non-empty array of entrant IDs');
+    }
+
+    const field = division.entryType === 'teams' ? 'teamIds' : division.entryType === 'doubles' ? 'pairingIds' : 'playerIds';
+    const current = division[field];
+    const sameMembers =
+      order.length === current.length &&
+      new Set(order).size === current.length &&
+      order.every((id) => current.includes(id));
+    if (!sameMembers) {
+      throw new ApiError(400, 'order must contain exactly the same entrants the division currently has, each exactly once');
+    }
+
+    division[field] = order;
+    return hydrateDivision(division);
+  }),
+
   generateFixtures: op((divisionId, data = {}) => {
     const { startDate, gapDays } = data;
     const division = db.divisions.find((d) => d.id === divisionId);

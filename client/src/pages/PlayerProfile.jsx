@@ -6,6 +6,15 @@ import { useIsAdminSession } from '../useAdminSession.js';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
+// Same labels used on the Roll of Honour page, duplicated locally rather
+// than importing across pages for one small constant.
+const SCHEDULING_LABEL = {
+  round_robin_single: 'Round Robin - Single',
+  round_robin_double: 'Round Robin - Double',
+  knockout_single_elim: 'Knockout (single elim)',
+  knockout_double_elim: 'Knockout (double elim)',
+};
+
 // Admin-only panel shown above Career - lets an admin edit the account
 // linked to this player (name/email/phone/team/classification, reusing
 // the same PATCH /api/admin/users/:id route as the Manage Users edit screen)
@@ -188,7 +197,41 @@ export default function PlayerProfile() {
           <div><strong>{career.framesFor}-{career.framesAgainst}</strong><div className="muted">Frames for/against</div></div>
           <div><strong>{career.frameDifference > 0 ? '+' : ''}{career.frameDifference}</strong><div className="muted">Frame diff</div></div>
         </div>
+        {profile.formGuide && profile.formGuide.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div className="muted" style={{ marginBottom: 4 }}>Form (most recent first)</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {profile.formGuide.map((g, i) => (
+                <span key={i} className={`status ${g === 'W' ? 'status-completed' : ''}`} style={{ fontWeight: 700 }}>{g}</span>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
+
+      {profile.trophies && profile.trophies.length > 0 && (
+        <section className="card">
+          <h2>Trophy Cabinet</h2>
+          <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
+            Every division title this player has won, across every season - see Roll of Honour for the full league-wide list.
+          </p>
+          <ul className="fixture-list">
+            {profile.trophies.map((t) => (
+              <li key={t.id}>
+                <span>
+                  <strong>{t.divisionName}</strong>
+                  <span className="muted"> ({SCHEDULING_LABEL[t.scheduling] || t.scheduling})</span>
+                </span>
+                <span className="muted">
+                  <Link to={`/leagues/${t.leagueId}`}>{t.leagueName}</Link>
+                  {' · '}
+                  {new Date(t.recordedAt).toLocaleDateString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="card">
         <h2>Head-to-head</h2>

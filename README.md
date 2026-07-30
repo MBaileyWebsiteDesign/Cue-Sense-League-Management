@@ -72,6 +72,18 @@ full-featured competition management that Wix has no built-in system for.
   a clear error asking you to add/remove an entrant or use single elimination instead.
   See `server/src/services/bracket.js` (`buildDoubleElimBracket`) for the full seeding
   design notes.
+- **Multi-stage competitions (group stage → knockout) & manual bracket seeding**: a
+  knockout division's roster doesn't have to be filled by hand - `POST
+  /api/divisions/:id/seed-from-groups` auto-populates it from the top N finishers of one
+  or more other divisions' live standings (e.g. top 2 from each of 4 round-robin groups
+  advancing into an 8-player knockout), seeding the resulting bracket by group finish
+  rather than registration order. An admin can also freely reorder any not-yet-generated
+  division's entrant list by hand (singles, teams, and pairings alike) via `POST
+  /api/divisions/:id/reorder-entrants` before generating fixtures - the two combine to
+  give full control over knockout seeding, whether entrants came from a group stage or
+  were added directly for a standalone mini-knockout. See `server/src/services/bracket.js`
+  for why entrant order *is* seed order, and both routes in `server/src/index.js` for the
+  full mechanics.
 - **Doubles / triples format**: a `Pairing` is 2 (doubles) or 3 (triples) named
   registered players (`pairingSize`, set per division) who register together and play
   alternate-shot as one side. Structurally a Pairing is just a named group of players
@@ -106,8 +118,11 @@ full-featured competition management that Wix has no built-in system for.
   for/against/difference — all computed automatically from completed results.
 - **Player stats & profiles**: every player has a profile page showing career record
   (played/won/lost, frames for/against, frame difference) aggregated across both singles
-  fixtures and legs played inside team fixtures, plus a head-to-head breakdown per
-  opponent and a full match history linking back to each fixture.
+  fixtures and legs played inside team fixtures, a **form guide** (last 5 completed
+  results, most recent first), a **trophy cabinet** (every division title won - directly,
+  or as part of a winning team/pairing - across every season, sourced from Roll of
+  Honour), a head-to-head breakdown per opponent, and a full match history (most recent
+  first) linking back to each fixture.
 - **Breadcrumb navigation**: every page below the home list shows a trail back to the
   home page (League › Division › Round N, etc.), rendered as a bar under the header.
 - **Player Management Portal** ("My Account"): every logged-in account's home base —
@@ -165,15 +180,17 @@ full-featured competition management that Wix has no built-in system for.
 
 ## What's deliberately out of scope for v1
 
-Handicaps, online entry/payment, tablet-specific UI, shot/match timers, table booking,
-and mini-knockout/mixed formats (double elimination and doubles/triples are now
-implemented - see **Knockout / double-elimination format** and **Doubles / triples
-format** above; a stream overlay is also now implemented - see **Stream overlay**
-below). Team-specific captain tools (roster management, leg nominations from the
-Captain Portal) are also deferred until team leagues are actively in use — the
-`isCaptain` flag exists now so accounts are ready ahead of that. Mid-season player
-substitution (see **Player substitution** below) is singles-only for now - swapping a
-player out of a doubles/triples pairing, or a team roster, isn't covered yet.
+Handicaps (best-of-N or otherwise), online entry/payment, tablet-specific UI, and
+table booking are still out of scope for v1 (shot/match timers, mini-knockouts, and
+mixed group-stage/knockout formats were originally listed here too, but are now
+implemented - see **Knockout / double-elimination format**, **Multi-stage competitions
+(group stage → knockout) & manual bracket seeding**, and the Match timer & shot clock
+routes in `server/src/index.js` above). Team-specific captain tools (roster management,
+leg nominations from the Captain Portal) are also deferred until team leagues are
+actively in use — the `isCaptain` flag exists now so accounts are ready ahead of that.
+Mid-season player substitution (see **Player substitution** below) is singles-only for
+now - swapping a player out of a doubles/triples pairing, or a team roster, isn't
+covered yet.
 
 ## Accounts & login
 
@@ -658,6 +675,8 @@ the Express server to serve) rather than Pages.
 | POST/DELETE | `/api/divisions/:id/pairings` | Add / remove a pairing (doubles/triples, pre-fixtures only) |
 | POST/DELETE | `/api/pairings/:pairingId/players` | Add / remove a player by `playerId` on a pairing (same registered-user requirement; capped at the division's `pairingSize`) |
 | POST | `/api/divisions/:id/generate-fixtures` | Generate the fixture list (round robin, single-elimination, or double-elimination bracket, per the division's `scheduling`; double elimination requires a power-of-two entrant count; doubles/triples requires every pairing to have exactly `pairingSize` players); optionally accepts `{ startDate, gapDays }` to also set `scheduledDate` on every fixture |
+| POST | `/api/divisions/:id/seed-from-groups` | Auto-populate a not-yet-generated division's roster from the top N finishers of one or more other divisions' live standings (requires admin) - see **Multi-stage competitions (group stage → knockout) & manual bracket seeding** |
+| POST | `/api/divisions/:id/reorder-entrants` | Set a not-yet-generated division's entrant order by hand (requires admin) - controls knockout bracket seeding, since entrant order *is* seed order - see **Multi-stage competitions (group stage → knockout) & manual bracket seeding** |
 | POST | `/api/divisions/:id/substitute-player` | Swap a player out for a replacement (singles only) - reassigns not-yet-started fixtures, leaves completed/in-progress ones alone; `reason: 'substitution'` (default) keeps the outgoing player on the League Table, `reason: 'retirement'` removes them from it (requires admin; logged) |
 | GET | `/api/fixtures/:id` | Fixture detail (requires login; singles, team, or doubles/triples - the latter includes `homePairing`/`awayPairing` instead of `homePlayer`/`awayPlayer`; includes `bothEntrantsKnown` for knockout TBD slots) |
 | GET | `/api/overlay/fixtures/:id` | Public (no login required), trimmed scoreboard summary of one fixture - powers the `/overlay/:fixtureId` OBS stream overlay page (singles, team, and doubles/triples fixtures all normalized into the same `{ home, away }` shape) |
@@ -674,7 +693,7 @@ the Express server to serve) rather than Pages.
 | POST | `/api/fixtures/:id/legs/:legNumber/confirm-result` | Confirm a pending leg result -> `completed` (away-nominated player or admin only) |
 | POST | `/api/fixtures/:id/legs/:legNumber/dispute-result` | Dispute a pending leg result -> `disputed` (away-nominated player or admin only) |
 | POST | `/api/fixtures/:id/legs/:legNumber/reopen` | Reopen a pending/disputed leg back to `in_progress` (requires admin) |
-| GET | `/api/players/:id` | Player profile: career record, head-to-head, match history (requires login) |
+| GET | `/api/players/:id` | Player profile: career record, form guide, trophy cabinet, head-to-head, match history (requires login) |
 
 ## Roadmap
 
@@ -687,17 +706,26 @@ the Express server to serve) rather than Pages.
    player's profile page (see **Password reset links**), but it isn't actually emailed
    anywhere yet - no SMTP provider is wired up, so the link is just shown to the admin
    to relay manually. Email verification at registration is also still outstanding.
-4. Further scheduling methods: mini-knockouts, and the ability to mix formats within
-   one competition (double elimination and home/away double round robin are now
-   implemented - see **Knockout / double-elimination format** above and
-   `round_robin_double` above).
-5. Seeded/ranked knockout brackets (current v1 seeds in registration order, not by
-   past performance) and best-of-N handicaps.
-6. Deeper player statistics: form guides, break-and-continue / century-style stats if
-   relevant to 8-ball, a "trophy cabinet" across seasons.
-7. Live-scoring niceties: tablet-optimized scoring UI and shot/match timers — valuable
-   but explicitly deferred until the core league engine above is solid (a stream
-   overlay endpoint/page is now implemented - see **Stream overlay** above).
+4. Best-of-N handicaps: adjusting the race target (or giving a frame head-start) per
+   player/classification so mismatched skill levels can compete fairly. Mini-knockouts
+   and mixing formats within one competition (a round-robin group stage feeding a
+   knockout) are done - see **Multi-stage competitions (group stage → knockout) &
+   manual bracket seeding** above - as is seeded/ranked bracket generation: knockout
+   entrants seed by group standings automatically via `seed-from-groups`, and an admin
+   can freely reorder any not-yet-generated division's entrants by hand via
+   `reorder-entrants` for full manual seeding control (v1 seeded strictly by
+   registration order with no way to change it; that's the piece that's now resolved).
+5. Deeper player statistics: form guides and a cross-season trophy cabinet are now
+   implemented (see **Player stats & profiles** above). Break-and-continue /
+   century-style stats remain unaddressed - it's genuinely unclear how relevant these
+   even are to English 8-Ball, which doesn't traditionally track breaks the way snooker
+   does, and there's no score-entry field capturing break data today, so this would mean
+   new data collection at the point of scoring, not just new reporting on data that
+   already exists.
+6. Live-scoring niceties: tablet-optimized scoring UI - valuable but not yet built (a
+   stream overlay endpoint/page and match/shot timers are now implemented - see
+   **Stream overlay** above and the Match timer & shot clock routes in
+   `server/src/index.js`).
 
 ## Seeded demo data
 

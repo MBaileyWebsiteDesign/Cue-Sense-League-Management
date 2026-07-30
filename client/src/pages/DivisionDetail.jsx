@@ -39,6 +39,23 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError }) {
     }
   };
 
+  // Manual seeding: division.playerIds order is exactly what a knockout
+  // bracket seeds off (see server's reorder-entrants route) - swapping two
+  // adjacent entrants here is the whole UI for it, no drag-and-drop needed.
+  const onMovePlayer = async (index, delta) => {
+    const ids = division.players.map((p) => p.id);
+    const target = index + delta;
+    if (target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    setError('');
+    try {
+      await api.reorderEntrants(division.id, ids);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
     <section className="card">
       <h2>Players</h2>
@@ -59,9 +76,15 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError }) {
         Only people with a registered player account can be added - see "My Account" to register.
       </p>
       <ul className="player-list">
-        {division.players.map((p) => (
+        {division.players.map((p, i) => (
           <li key={p.id}>
             <Link to={`/players/${p.id}`}>{p.name}</Link>
+            {!division.fixturesGenerated && division.players.length > 1 && (
+              <span>
+                <button className="btn-link" disabled={i === 0} onClick={() => onMovePlayer(i, -1)} title="Move up (earlier seed)">&uarr;</button>
+                <button className="btn-link" disabled={i === division.players.length - 1} onClick={() => onMovePlayer(i, 1)} title="Move down (later seed)">&darr;</button>
+              </span>
+            )}
             {!division.fixturesGenerated && (
               <button className="btn-link" onClick={() => onRemovePlayer(p.id)}>remove</button>
             )}
@@ -252,6 +275,23 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
     }
   };
 
+  // Manual seeding: division.teamIds order is what a knockout bracket seeds
+  // off (see server's reorder-entrants route) - moving a team card here
+  // changes its seed position.
+  const onMoveTeam = async (index, delta) => {
+    const ids = division.teams.map((t) => t.id);
+    const target = index + delta;
+    if (target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    setError('');
+    try {
+      await api.reorderEntrants(division.id, ids);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const enoughPlayers = division.teams.every((t) => t.players.length >= 1);
   const canGenerate = division.teams.length >= 2 && enoughPlayers;
 
@@ -274,12 +314,20 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
       )}
 
       <div className="card-grid">
-        {division.teams.map((team) => (
+        {division.teams.map((team, i) => (
           <div key={team.id} className="card">
             <div className="page-header">
               <h3 style={{ margin: 0 }}>{team.name}</h3>
               {!division.fixturesGenerated && (
-                <button className="btn-link" onClick={() => onRemoveTeam(team.id)}>remove team</button>
+                <span>
+                  {division.teams.length > 1 && (
+                    <>
+                      <button className="btn-link" disabled={i === 0} onClick={() => onMoveTeam(i, -1)} title="Move up (earlier seed)">&uarr;</button>
+                      <button className="btn-link" disabled={i === division.teams.length - 1} onClick={() => onMoveTeam(i, 1)} title="Move down (later seed)">&darr;</button>
+                    </>
+                  )}
+                  <button className="btn-link" onClick={() => onRemoveTeam(team.id)}>remove team</button>
+                </span>
               )}
             </div>
             <ul className="player-list">
@@ -392,6 +440,23 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
     }
   };
 
+  // Manual seeding: division.pairingIds order is what a knockout bracket
+  // seeds off (see server's reorder-entrants route) - moving a pairing card
+  // here changes its seed position.
+  const onMovePairing = async (index, delta) => {
+    const ids = division.pairings.map((p) => p.id);
+    const target = index + delta;
+    if (target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    setError('');
+    try {
+      await api.reorderEntrants(division.id, ids);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const canGenerate = division.pairings.length >= 2 && division.pairings.every((p) => p.players.length === division.pairingSize);
   const noun = division.pairingSize === 3 ? 'Triples' : 'Doubles';
 
@@ -414,12 +479,20 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
       )}
 
       <div className="card-grid">
-        {division.pairings.map((pairing) => (
+        {division.pairings.map((pairing, i) => (
           <div key={pairing.id} className="card">
             <div className="page-header">
               <h3 style={{ margin: 0 }}>{pairing.name}</h3>
               {!division.fixturesGenerated && (
-                <button className="btn-link" onClick={() => onRemovePairing(pairing.id)}>remove pairing</button>
+                <span>
+                  {division.pairings.length > 1 && (
+                    <>
+                      <button className="btn-link" disabled={i === 0} onClick={() => onMovePairing(i, -1)} title="Move up (earlier seed)">&uarr;</button>
+                      <button className="btn-link" disabled={i === division.pairings.length - 1} onClick={() => onMovePairing(i, 1)} title="Move down (later seed)">&darr;</button>
+                    </>
+                  )}
+                  <button className="btn-link" onClick={() => onRemovePairing(pairing.id)}>remove pairing</button>
+                </span>
               )}
             </div>
             <ul className="player-list">

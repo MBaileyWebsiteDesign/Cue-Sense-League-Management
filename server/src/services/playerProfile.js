@@ -10,7 +10,7 @@ export function buildPlayerProfile(db, playerId) {
   const headToHeadMap = new Map();
   const results = [];
 
-  function recordResult({ opponentId, forScore, againstScore, won, leagueName, divisionName, fixtureId, context }) {
+  function recordResult({ opponentId, forScore, againstScore, won, leagueName, divisionName, fixtureId, context, scheduledDate, round }) {
     career.played += 1;
     career.framesFor += forScore;
     career.framesAgainst += againstScore;
@@ -44,6 +44,8 @@ export function buildPlayerProfile(db, playerId) {
       againstScore,
       result: won ? 'win' : 'loss',
       context,
+      scheduledDate: scheduledDate || null,
+      round: round ?? null,
     });
   }
 
@@ -63,6 +65,8 @@ export function buildPlayerProfile(db, playerId) {
       divisionName: division?.name,
       fixtureId: fixture.id,
       context: 'singles',
+      scheduledDate: fixture.scheduledDate,
+      round: fixture.round,
     });
   }
 
@@ -85,11 +89,24 @@ export function buildPlayerProfile(db, playerId) {
         divisionName: division?.name,
         fixtureId: fixture.id,
         context: `Leg ${leg.legNumber}`,
+        scheduledDate: fixture.scheduledDate,
+        round: fixture.round,
       });
     }
   }
 
+  // Most-recent-first: scheduledDate is a "YYYY-MM-DD" string (or null for
+  // fixtures that were never given a date), so a plain string compare sorts
+  // correctly; round number breaks ties within/without a date. Undated
+  // results sort last, since there's no way to know when they actually
+  // happened relative to dated ones.
+  results.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || (b.round ?? 0) - (a.round ?? 0));
+
   const headToHead = [...headToHeadMap.values()].sort((a, b) => b.played - a.played);
+
+  // Form guide: last 5 completed results, most recent first, as a simple
+  // 'W'/'L' sequence - results is already sorted most-recent-first above.
+  const formGuide = results.slice(0, 5).map((r) => (r.result === 'win' ? 'W' : 'L'));
 
   // Every league/division this player currently shows up in - directly
   // (singles), via a team roster, or via a doubles/triples pairing. Powers
@@ -99,6 +116,32 @@ export function buildPlayerProfile(db, playerId) {
   // this is read-only for now.
   const memberTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
   const memberPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+
+  // Trophy cabinet: every Roll of Honour entry (see recordChampionIfDivisionComplete
+  // in index.js) where this player was the champion directly (a singles
+  // division), or was on the roster of the winning team/pairing (a teams or
+  // doubles division) - cross-season, since Roll of Honour entries are never
+  // deleted. Most recent first, same convention as everything else here.
+  const trophies = db.rollOfHonour
+    .filter((entry) => {
+      if (entry.entryType === 'singles') return entry.championId === playerId;
+      if (entry.entryType === 'teams') return memberTeamIds.includes(entry.championId);
+      if (entry.entryType === 'doubles') return memberPairingIds.includes(entry.championId);
+      return false;
+    })
+    .map((entry) => ({
+      id: entry.id,
+      leagueId: entry.leagueId,
+      leagueName: entry.leagueName,
+      divisionId: entry.divisionId,
+      divisionName: entry.divisionName,
+      entryType: entry.entryType,
+      scheduling: entry.scheduling,
+      championName: entry.championName,
+      recordedAt: entry.recordedAt,
+    }))
+    .sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime());
+
   const divisions = db.divisions
     .filter((d) =>
       d.playerIds?.includes(playerId) ||
@@ -117,5 +160,7 @@ export function buildPlayerProfile(db, playerId) {
     career: { ...career, frameDifference: career.framesFor - career.framesAgainst },
     headToHead,
     results,
+    formGuide,
+    trophies,
   };
 }
