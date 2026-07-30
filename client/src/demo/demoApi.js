@@ -236,24 +236,41 @@ function hydrateDivision(division) {
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const leagueName = league ? league.name : null;
 
+  // See server/src/index.js's hydrateDivision for the full note - mirrors
+  // `bothEntrantsKnown` here too so the demo build's fixture-list views can
+  // tell "genuinely scheduled" apart from "still waiting on an earlier
+  // knockout round's winner" the same way the live server does.
+  const isTeamsDivision = division.entryType === 'teams';
+  const displayFixtures = fixtures.map((f) => ({
+    ...f,
+    bothEntrantsKnown: isTeamsDivision
+      ? !!(f.homeTeamId && f.awayTeamId)
+      : !!(f.homePlayerId && f.awayPlayerId),
+  }));
+  // See server/src/index.js's hydrateDivision for the full note.
+  const totalRounds = division.scheduling === 'knockout_single_elim' && fixtures.length > 0
+    ? Math.max(...fixtures.map((f) => f.round))
+    : null;
+
   let hydrated;
   if (division.entryType === 'teams') {
     const teams = db.teams
       .filter((t) => division.teamIds.includes(t.id))
       .map((t) => ({ ...t, players: db.players.filter((p) => t.playerIds.includes(p.id)) }));
     const standings = computeTeamStandings(division, fixtures, db.teams);
-    hydrated = { ...division, leagueName, teams, fixtures, standings };
+    hydrated = { ...division, leagueName, teams, fixtures: displayFixtures, standings };
   } else if (division.entryType === 'doubles') {
     const pairings = db.pairings
       .filter((p) => division.pairingIds.includes(p.id))
       .map((p) => ({ ...p, players: db.players.filter((pl) => p.playerIds.includes(pl.id)) }));
     const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
-    hydrated = { ...division, leagueName, pairings, fixtures, standings };
+    hydrated = { ...division, leagueName, pairings, fixtures: displayFixtures, standings };
   } else {
     const players = db.players.filter((p) => division.playerIds.includes(p.id));
     const standings = computeStandings(division, fixtures, db.players);
-    hydrated = { ...division, leagueName, players, fixtures, standings };
+    hydrated = { ...division, leagueName, players, fixtures: displayFixtures, standings };
   }
+  hydrated.totalRounds = totalRounds;
 
   // Roll of Honour - mirrors server/src/index.js's
   // recordChampionIfDivisionComplete (see that copy for the full note on why
@@ -2189,6 +2206,48 @@ export const demoApi = {
       leagueName: league.name,
       generatedAt: new Date().toISOString(),
       fixtures,
+    };
+  }),
+
+  // Public Division Bracket (embeddable page) - mirrors server/src/index.js's
+  // GET /api/public/divisions/:id/bracket.
+  getPublicDivisionBracket: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.scheduling !== 'knockout_single_elim') {
+      throw new ApiError(400, 'This endpoint only supports single-elimination knockout divisions');
+    }
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    const hydrated = hydrateDivision(division);
+
+    const buildPublicBracketMatch = (fixture) => {
+      const overlay = buildOverlayFixture(fixture);
+      return {
+        id: fixture.id,
+        round: fixture.round,
+        home: overlay.home,
+        away: overlay.away,
+        status: overlay.status,
+        bothEntrantsKnown: overlay.bothEntrantsKnown,
+        winnerSide: overlay.winner === 'home' || overlay.winner === 'away' ? overlay.winner : null,
+        closedEarly: !!fixture.closedEarly,
+      };
+    };
+
+    const matches = hydrated.fixtures
+      .filter((f) => isRoundVisible(division, f.round))
+      .map(buildPublicBracketMatch);
+
+    return {
+      divisionId: division.id,
+      divisionName: division.name,
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : null,
+      entryType: division.entryType,
+      status: division.status || 'active',
+      totalRounds: hydrated.totalRounds,
+      generatedAt: new Date().toISOString(),
+      matches,
     };
   }),
 

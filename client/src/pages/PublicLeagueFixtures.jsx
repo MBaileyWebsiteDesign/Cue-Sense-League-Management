@@ -79,8 +79,12 @@ export default function PublicLeagueFixtures() {
               <div className="public-division-meta">{f.divisionName} · {f.roundLabel}</div>
             </div>
             <div className="public-fixture-meta">
-              <span className={`public-status-pill${f.status === 'in_progress' ? ' public-status-live' : ''}${f.status === 'completed' ? ' public-status-completed' : ''}`}>
-                {f.status === 'in_progress' ? 'Live' : f.status.replace('_', ' ')}
+              <span className={`public-status-pill${f.status === 'in_progress' ? ' public-status-live' : ''}${f.status === 'completed' ? ' public-status-completed' : ''}${f.status !== 'completed' && !f.bothEntrantsKnown ? ' public-status-awaiting' : ''}`}>
+                {f.status === 'in_progress'
+                  ? 'Live'
+                  : f.status !== 'completed' && !f.bothEntrantsKnown
+                    ? 'awaiting result'
+                    : f.status.replace('_', ' ')}
               </span>
               <span>{f.scheduledDate ? `${f.scheduledDate}${f.scheduledTime ? ` ${f.scheduledTime}` : ''}` : 'Date TBD'}</span>
             </div>

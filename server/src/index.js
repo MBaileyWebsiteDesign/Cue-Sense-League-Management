@@ -567,13 +567,42 @@ function hydrateDivision(db, division) {
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const leagueName = league ? league.name : null;
 
+  // `bothEntrantsKnown` mirrors the same field the single-fixture endpoint
+  // (GET /api/fixtures/:id) and the public/overlay endpoints already expose
+  // (see buildOverlayFixture) - added here too so every fixture-list view
+  // fed by hydrateDivision (division page, "Manage Fixtures", etc.) can tell
+  // "genuinely scheduled and ready to play" apart from "this knockout slot
+  // is still waiting on an earlier round's winner" without re-deriving that
+  // check in every consuming component. Built as a fresh array (not a
+  // mutation of the db.fixtures objects themselves) so the extra field never
+  // gets persisted to db.json.
+  const isTeamsDivision = division.entryType === 'teams';
+  const displayFixtures = fixtures.map((f) => ({
+    ...f,
+    bothEntrantsKnown: isTeamsDivision
+      ? !!(f.homeTeamId && f.awayTeamId)
+      : !!(f.homePlayerId && f.awayPlayerId),
+  }));
+  // Single-elimination round count, computed from the *full* (pre round-
+  // visibility-filter) fixture list so it's accurate even for a non-admin
+  // viewer who's only been released a later round - see the "Manage
+  // Fixtures round visibility" filtering GET /api/divisions/:id does after
+  // calling this. Lets the client label rounds by their real distance from
+  // the Final (Quarter-final, Semi-final...) instead of a raw round number,
+  // without needing to see every earlier round to work out where it sits.
+  // null for anything that isn't single-elimination knockout - the client
+  // falls back to plain "Round N" labels for those.
+  const totalRounds = division.scheduling === 'knockout_single_elim' && fixtures.length > 0
+    ? Math.max(...fixtures.map((f) => f.round))
+    : null;
+
   let hydrated;
   if (division.entryType === 'teams') {
     const teams = db.teams
       .filter((t) => division.teamIds.includes(t.id))
       .map((t) => ({ ...t, players: db.players.filter((p) => t.playerIds.includes(p.id)) }));
     const standings = computeTeamStandings(division, fixtures, db.teams);
-    hydrated = { ...division, leagueName, teams, fixtures, standings };
+    hydrated = { ...division, leagueName, teams, fixtures: displayFixtures, standings };
   } else if (division.entryType === 'doubles') {
     const pairings = db.pairings
       .filter((p) => division.pairingIds.includes(p.id))
@@ -583,12 +612,13 @@ function hydrateDivision(db, division) {
     // already has both fields, so this reuses the singles standings
     // calculation unmodified rather than needing its own version.
     const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
-    hydrated = { ...division, leagueName, pairings, fixtures, standings };
+    hydrated = { ...division, leagueName, pairings, fixtures: displayFixtures, standings };
   } else {
     const players = db.players.filter((p) => division.playerIds.includes(p.id));
     const standings = computeStandings(division, fixtures, db.players);
-    hydrated = { ...division, leagueName, players, fixtures, standings };
+    hydrated = { ...division, leagueName, players, fixtures: displayFixtures, standings };
   }
+  hydrated.totalRounds = totalRounds;
 
   // Roll of Honour: rather than hooking every single fixture-completion code
   // path (confirm-result, no-show walkovers, admin overrides, team leg
@@ -2654,6 +2684,60 @@ app.get('/api/public/leagues/:id/fixtures', asyncRoute((req, res) => {
     leagueName: league.name,
     generatedAt: new Date().toISOString(),
     fixtures,
+  });
+}));
+
+// ---------- Public: Division Bracket (embeddable page) ----------
+// A read-only, unauthenticated view of one single-elimination knockout
+// division's bracket - same "no login available to an embedded page"
+// reasoning as the League Table/Fixtures endpoints above, and built the
+// same way: reuse buildOverlayFixture (already computes entrant names,
+// scores, bothEntrantsKnown and who won) rather than re-deriving any of
+// that, and respect isRoundVisible so an embed can never show a round
+// before an admin has released it. Only meaningful for a single-elimination
+// knockout division (a flat standings table/fixture list, or a
+// double-elimination division's two-bracket-plus-decider shape, don't fit
+// the "two sides converging on a Final" chart this is built for) - any
+// other scheduling type gets a 400 rather than a best-effort guess at
+// rendering something.
+function buildPublicBracketMatch(db, division, league, fixture) {
+  const overlay = buildOverlayFixture(db, division, league, fixture);
+  return {
+    id: fixture.id,
+    round: fixture.round,
+    home: overlay.home,
+    away: overlay.away,
+    status: overlay.status,
+    bothEntrantsKnown: overlay.bothEntrantsKnown,
+    winnerSide: overlay.winner === 'home' || overlay.winner === 'away' ? overlay.winner : null,
+    closedEarly: !!fixture.closedEarly,
+  };
+}
+
+app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.scheduling !== 'knockout_single_elim') {
+    throw new ApiError(400, 'This endpoint only supports single-elimination knockout divisions');
+  }
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  const hydrated = hydrateDivision(db, division);
+
+  const matches = hydrated.fixtures
+    .filter((f) => isRoundVisible(division, f.round))
+    .map((f) => buildPublicBracketMatch(db, division, league, f));
+
+  res.json({
+    divisionId: division.id,
+    divisionName: division.name,
+    leagueId: division.leagueId,
+    leagueName: league ? league.name : null,
+    entryType: division.entryType,
+    status: division.status || 'active',
+    totalRounds: hydrated.totalRounds,
+    generatedAt: new Date().toISOString(),
+    matches,
   });
 }));
 
