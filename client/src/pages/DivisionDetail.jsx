@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import BracketChart from '../components/BracketChart.jsx';
 
 function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_single_elim') return 'Generate Fixtures (single-elimination knockout)';
@@ -702,20 +703,41 @@ function CloseDivisionEarlyPanel({ division, onChange, setError }) {
   );
 }
 
+const KNOCKOUT_BRACKET_POLL_MS = 15000;
+
 export default function DivisionDetail() {
   const { divisionId } = useParams();
   const { isAdmin } = useAuth();
   const [division, setDivision] = useState(null);
   const [registeredPlayers, setRegisteredPlayers] = useState([]);
   const [error, setError] = useState('');
+  const mountedRef = useRef(true);
 
   const load = () => api.getDivision(divisionId).then(setDivision).catch((e) => setError(e.message));
 
   useEffect(() => {
+    mountedRef.current = true;
     load();
     api.getRegisteredPlayers().then(setRegisteredPlayers).catch((e) => setError(e.message));
+    return () => { mountedRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [divisionId]);
+
+  // Auto-refresh while a single-elimination knockout is live, so the
+  // bracket chart below updates as results come in without a manual
+  // reload - same "poll on an interval" approach as the Arena/public pages
+  // rather than a websocket. Scoped to knockout divisions only (rather than
+  // every division page) so round-robin admin workflows - editing a roster,
+  // reordering entrants - don't get silently refreshed out from under
+  // whoever's mid-edit.
+  useEffect(() => {
+    if (division?.scheduling !== 'knockout_single_elim') return undefined;
+    const timer = setInterval(() => {
+      if (mountedRef.current) load();
+    }, KNOCKOUT_BRACKET_POLL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [division?.scheduling, divisionId]);
 
   useSetBreadcrumbs(
     division
@@ -769,7 +791,26 @@ export default function DivisionDetail() {
       .map((round, i) => ({ label: `Round ${useRawRoundNumber ? round : i + 1}`, fixtures: byRound[round] }));
   }
 
-  const fixturesByRound = groupByRound(division.fixtures, true).map((g) => [g.label, g.fixtures]);
+  // Single-elimination knockout: label rounds by their real distance from
+  // the Final (Final, Semi-final, Quarter-final, Round of 16...) instead of
+  // a raw round number - matches how a knockout bracket is normally talked
+  // about (World Cup, FA Cup, etc). `division.totalRounds` (from
+  // hydrateDivision) is the true round count even if an earlier round isn't
+  // visible to this viewer yet, so this stays correct for non-admins too.
+  // Anything beyond Round of 64 falls back to "Round N" rather than
+  // guessing further names.
+  const KNOCKOUT_ROUND_NAMES_FROM_FINAL = ['Final', 'Semi-final', 'Quarter-final', 'Round of 16', 'Round of 32', 'Round of 64'];
+  const isSingleElimKnockout = division.scheduling === 'knockout_single_elim';
+  function knockoutRoundLabel(round) {
+    if (!division.totalRounds) return `Round ${round}`;
+    const fromFinal = division.totalRounds - round;
+    return KNOCKOUT_ROUND_NAMES_FROM_FINAL[fromFinal] || `Round ${round}`;
+  }
+
+  const fixturesByRound = groupByRound(division.fixtures, true).map((g) => [
+    isSingleElimKnockout ? knockoutRoundLabel(g.fixtures[0].round) : g.label,
+    g.fixtures,
+  ]);
 
   const bracketSections = isDoubleElim
     ? ['winners', 'losers', 'grand_final', 'grand_final_reset']
@@ -870,6 +911,27 @@ export default function DivisionDetail() {
         </table>
       </section>
 
+      {isSingleElimKnockout && division.fixturesGenerated && division.fixtures.length > 0 && (
+        <section className="card">
+          <h2>Bracket</h2>
+          <BracketChart
+            matches={buildBracketMatches(division.fixtures, isTeams, nameOf)}
+            totalRounds={division.totalRounds}
+            fixtureHref={(id) => `/fixtures/${id}`}
+          />
+          <p style={{ marginTop: 8 }}>
+            <Link to={`/public/divisions/${division.id}/bracket`}>View public Bracket &rarr;</Link>
+          </p>
+          {isAdmin && (
+            <p className="muted" style={{ fontSize: '0.8rem' }}>
+              That link is a live, unauthenticated page meant to be embedded elsewhere (e.g. an
+              &lt;iframe&gt; on another site) - copy the URL from your browser's address bar once you're on
+              the page.
+            </p>
+          )}
+        </section>
+      )}
+
       <section className="card">
         <div className="page-header">
           <h2>Fixtures</h2>
@@ -912,6 +974,48 @@ export default function DivisionDetail() {
   );
 }
 
+// Normalizes a knockout division's raw fixtures into the shape
+// BracketChart expects - same entrant-name/score lookups FixtureList uses
+// below, just reshaped into { home, away } pairs plus a winnerSide so the
+// chart can bold whoever won without re-deriving that from the raw IDs
+// itself.
+function buildBracketMatches(fixtures, isTeams, nameOf) {
+  return fixtures.map((f) => {
+    const homeId = isTeams ? f.homeTeamId : f.homePlayerId;
+    const awayId = isTeams ? f.awayTeamId : f.awayPlayerId;
+    const winnerId = isTeams ? f.winnerTeamId : f.winnerPlayerId;
+    const homeScore = isTeams ? f.homeLegsWon : f.homeFrameScore;
+    const awayScore = isTeams ? f.awayLegsWon : f.awayFrameScore;
+    return {
+      id: f.id,
+      round: f.round,
+      home: { name: homeId ? nameOf(homeId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? homeScore : undefined },
+      away: { name: awayId ? nameOf(awayId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? awayScore : undefined },
+      status: f.status,
+      bothEntrantsKnown: f.bothEntrantsKnown,
+      winnerSide: f.status === 'completed' && winnerId ? (winnerId === homeId ? 'home' : 'away') : null,
+      closedEarly: !!f.closedEarly,
+    };
+  });
+}
+
+// A knockout fixture is created up front with `status: 'scheduled'` even
+// before its two entrants are known (it's just waiting on an earlier
+// round's winner to be filled in via propagateWinner - see
+// server/src/index.js) - showing "scheduled" on it looks identical to a
+// fixture that's genuinely ready to play right now, which is misleading.
+// `bothEntrantsKnown` (added in hydrateDivision) distinguishes the two: a
+// still-waiting fixture gets its own "awaiting result" badge instead.
+function fixtureStatusLabel(f) {
+  if (f.closedEarly) return 'closed early';
+  if (f.status !== 'completed' && f.bothEntrantsKnown === false) return 'awaiting result';
+  return f.status.replace('_', ' ');
+}
+function fixtureStatusClass(f) {
+  if (!f.closedEarly && f.status !== 'completed' && f.bothEntrantsKnown === false) return 'status-awaiting';
+  return `status-${f.status}`;
+}
+
 function FixtureList({ fixtures, isTeams, nameOf }) {
   return (
     <ul className="fixture-list">
@@ -925,8 +1029,8 @@ function FixtureList({ fixtures, isTeams, nameOf }) {
             <Link to={`/fixtures/${f.id}`}>
               {nameOf(homeId)} <strong>{homeScore} - {awayScore}</strong> {nameOf(awayId)}
             </Link>
-            <span className={`status status-${f.status}`}>
-              {f.closedEarly ? 'closed early' : f.status.replace('_', ' ')}
+            <span className={`status ${fixtureStatusClass(f)}`}>
+              {fixtureStatusLabel(f)}
             </span>
           </li>
         );

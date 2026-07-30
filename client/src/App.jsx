@@ -37,6 +37,7 @@ const StreamOverlay = lazy(() => import('./pages/StreamOverlay.jsx'));
 const Arena = lazy(() => import('./pages/Arena.jsx'));
 const PublicLeagueTable = lazy(() => import('./pages/PublicLeagueTable.jsx'));
 const PublicLeagueFixtures = lazy(() => import('./pages/PublicLeagueFixtures.jsx'));
+const PublicDivisionBracket = lazy(() => import('./pages/PublicDivisionBracket.jsx'));
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
@@ -236,6 +237,18 @@ export default function App() {
         element={
           <Suspense fallback={null}>
             <PublicLeagueFixtures />
+          </Suspense>
+        }
+      />
+      {/* Standalone, unauthenticated route for the embeddable Bracket page -
+          one single-elimination knockout division's bracket chart, same
+          reasoning/pattern as the two routes above. See DivisionDetail.jsx
+          for where this link is surfaced to admins. */}
+      <Route
+        path="/public/divisions/:divisionId/bracket"
+        element={
+          <Suspense fallback={null}>
+            <PublicDivisionBracket />
           </Suspense>
         }
       />

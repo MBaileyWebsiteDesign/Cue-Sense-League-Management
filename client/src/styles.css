@@ -282,6 +282,10 @@ h2 { margin-top: 0; }
 .status-in_progress { background: #fef3c7; color: #92400e; }
 .status-pending_confirmation { background: #dceafb; color: var(--secondary-dark); }
 .status-disputed { background: #fee2e2; color: #991b1b; }
+/* A knockout fixture waiting on an earlier round's winner - not yet
+   "scheduled" in any real sense, so it gets its own dashed, muted look
+   rather than looking identical to a match that's actually ready to play. */
+.status-awaiting { background: #f3f4f6; color: #6b7280; border: 1px dashed #9ca3af; }
 
 .scoreboard {
   display: flex;
@@ -439,3 +443,31 @@ h2 { margin-top: 0; }
     row-gap: 4px;
   }
 }
+
+/* ---- Knockout bracket chart (BracketChart.jsx) ---- */
+.bracket-chart-scroll {
+  overflow-x: auto;
+  padding: 24px 4px 8px;
+}
+.bracket-chart-single {
+  display: flex;
+  justify-content: center;
+  padding: 24px 4px;
+}
+.bracket-box { fill: #fff; stroke: var(--border); stroke-width: 1; }
+.bracket-box-final { stroke: var(--primary); stroke-width: 2; }
+.bracket-box-divider { stroke: var(--border); stroke-width: 1; }
+.bracket-round-label {
+  font-size: 10px;
+  fill: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bracket-entrant-name { font-size: 13px; fill: var(--ink); }
+.bracket-entrant-name.bracket-entrant-tbd { fill: var(--muted); font-style: italic; }
+.bracket-entrant-winner { font-weight: 700; }
+.bracket-entrant-score { font-size: 13px; fill: var(--ink); font-weight: 600; }
+.bracket-connector { stroke: var(--border); stroke-width: 1.5; }
+.bracket-closed-early { font-size: 9px; fill: var(--muted); }
+.bracket-box-link { cursor: pointer; }
+.bracket-box-link:hover .bracket-box { stroke: var(--secondary); }

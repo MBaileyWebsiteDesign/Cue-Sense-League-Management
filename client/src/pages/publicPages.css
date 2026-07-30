@@ -173,6 +173,15 @@
   color: #ffffff;
 }
 
+/* A knockout fixture still waiting on an earlier round's winner - distinct
+   from a genuinely scheduled/upcoming match (see the "awaiting result"
+   label logic in PublicLeagueFixtures.jsx). */
+.public-status-pill.public-status-awaiting {
+  background: transparent;
+  border: 1px dashed var(--border, #9ca3af);
+  color: var(--muted, #6b7280);
+}
+
 .public-footer {
   text-align: center;
   font-size: 0.7rem;
