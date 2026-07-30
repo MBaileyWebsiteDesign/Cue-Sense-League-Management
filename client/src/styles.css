@@ -1,10 +1,19 @@
 :root {
-  --green: #0b6e4f;
-  --green-dark: #084d38;
+  /* Brand palette. --green/--green-dark are kept as aliases to --primary/
+     --primary-dark so any old CSS/inline reference to the previous variable
+     names keeps working unchanged. */
+  --primary: #0b6e4f;
+  --primary-dark: #084d38;
+  --secondary: #3e8ede;
+  --secondary-dark: #2e6db4;
+  --cta: #c89b3c;
+  --cta-dark: #a67d2e;
+  --green: var(--primary);
+  --green-dark: var(--primary-dark);
   --ink: #1a1a1a;
   --muted: #6b7280;
   --border: #e2e5e9;
-  --bg: #f6f7f9;
+  --bg: #f7f5f0;
 }
 
 * { box-sizing: border-box; }
@@ -17,7 +26,7 @@ body {
 }
 
 .app-header {
-  background: var(--green);
+  background: var(--primary);
   padding: 16px 24px;
   display: flex;
   align-items: center;
@@ -29,6 +38,16 @@ body {
   font-size: 1.25rem;
   font-weight: 700;
   text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  height: 40px;
+  width: 40px;
+  object-fit: contain;
+  display: block;
 }
 
 .header-link {
@@ -78,11 +97,11 @@ body {
 }
 
 .breadcrumb-item a {
-  color: var(--green);
+  color: var(--primary);
   text-decoration: none;
 }
 
-.breadcrumb-item a:hover { text-decoration: underline; }
+.breadcrumb-item a:hover { color: var(--secondary-dark); text-decoration: underline; }
 
 .breadcrumb-sep {
   color: var(--muted);
@@ -163,6 +182,12 @@ h2 { margin-top: 0; }
 
 .inline-form input { margin: 0; width: auto; flex: 1; }
 
+.form input:focus, .inline-form input:focus {
+  outline: 2px solid var(--secondary);
+  outline-offset: 1px;
+  border-color: var(--secondary);
+}
+
 .btn {
   padding: 8px 16px;
   border-radius: 6px;
@@ -176,12 +201,12 @@ h2 { margin-top: 0; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-primary {
-  background: var(--green);
-  border-color: var(--green);
-  color: white;
+  background: var(--cta);
+  border-color: var(--cta);
+  color: var(--ink);
 }
 
-.btn-primary:hover:not(:disabled) { background: var(--green-dark); }
+.btn-primary:hover:not(:disabled) { background: var(--cta-dark); }
 
 .btn-link {
   background: none;
@@ -255,7 +280,7 @@ h2 { margin-top: 0; }
 
 .status-completed { background: #d1fae5; color: #065f46; }
 .status-in_progress { background: #fef3c7; color: #92400e; }
-.status-pending_confirmation { background: #dbeafe; color: #1e40af; }
+.status-pending_confirmation { background: #dceafb; color: var(--secondary-dark); }
 .status-disputed { background: #fee2e2; color: #991b1b; }
 
 .scoreboard {
@@ -269,7 +294,7 @@ h2 { margin-top: 0; }
 .scoreboard-player .score {
   font-size: 3rem;
   font-weight: 800;
-  color: var(--green);
+  color: var(--primary);
   margin: 8px 0;
 }
 

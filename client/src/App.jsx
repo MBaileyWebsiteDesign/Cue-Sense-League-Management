@@ -126,7 +126,8 @@ function AppShell() {
     <div className="app-shell">
       <header className="app-header">
         <Link to="/" className="brand">
-          🎱 The Ultimate Pool League
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
+          The Ultimate Pool League
         </Link>
         <HeaderNav />
       </header>
