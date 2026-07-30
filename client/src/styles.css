@@ -326,3 +326,116 @@ h2 { margin-top: 0; }
   padding-left: 20px;
   margin: 0;
 }
+
+/* ---------- Mobile hamburger nav (see App.jsx's HeaderNav) ---------- */
+/* Hidden by default (desktop/tablet); shown only inside the mobile media
+   query below. Three plain bars rather than an icon font/SVG, since this
+   app has no icon library loaded anywhere else. */
+.hamburger-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hamburger-btn span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: white;
+  border-radius: 1px;
+}
+
+/* ---------- Mobile phone layout ---------- */
+/* One breakpoint covering phone widths (largest current phones are ~430px
+   wide in portrait; 640px leaves headroom without also kicking in for
+   tablets, where the existing flex/grid layouts already reflow fine on
+   their own). Everything below is either a tighter version of an existing
+   rule (padding, font-size) or a targeted fix for a layout that doesn't
+   hold up at phone width (the header nav, wide tables, the fixture
+   scoreboard) - nothing here changes desktop/tablet rendering. */
+@media (max-width: 640px) {
+  .app-header {
+    padding: 12px 16px;
+    position: relative;
+  }
+
+  .brand { font-size: 1.05rem; gap: 8px; }
+  .brand-logo { height: 32px; width: 32px; }
+
+  .hamburger-btn { display: flex; }
+
+  /* Collapses into a dropdown panel anchored under the header, toggled by
+     HeaderNav's menuOpen state (App.jsx) rather than always showing inline
+     the way it does on desktop/tablet. */
+  .header-accounts {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--primary-dark);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+    z-index: 20;
+  }
+
+  .header-accounts.header-accounts-open { display: flex; }
+
+  .header-accounts .header-link,
+  .header-accounts .header-admin {
+    width: 100%;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .header-accounts .header-admin { margin: 0; }
+
+  .breadcrumb-bar { padding: 8px 16px; font-size: 0.8rem; }
+
+  .app-main { padding: 16px; }
+
+  .card { padding: 16px; }
+
+  .page-header { flex-wrap: wrap; }
+
+  .inline-form { flex-wrap: wrap; }
+
+  /* Responsive table without touching any page's markup: making the
+     <table> itself a block-level scroll container keeps its internal
+     thead/tbody/tr/td layout intact (they stay table-* display values)
+     while letting a wide table (standings, the admin user list, the
+     public League Table) scroll horizontally instead of squashing every
+     column unreadably thin. */
+  .standings-table,
+  .public-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  /* The fixture scoreboard (FixtureDetail) puts two entrants and a "vs" on
+     one row at up to 3rem font-size for the score - stack it instead of
+     letting long names/scores get cramped. */
+  .scoreboard {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .scoreboard-player .score { font-size: 2.25rem; margin: 4px 0; }
+
+  .fixture-list li {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+}
