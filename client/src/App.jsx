@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import LeagueList from './pages/LeagueList.jsx';
 import LeagueDetail from './pages/LeagueDetail.jsx';
@@ -75,9 +75,18 @@ function RequireCaptain({ children }) {
   return children;
 }
 
+// On a narrow (phone-width) screen there isn't room for every link in one
+// row (Admin Portal, Captain Portal, Tours, Roll of Honour, Player Portal,
+// Log out), so below the 640px breakpoint (see styles.css) the link list
+// collapses behind a hamburger toggle instead - the links themselves are
+// unchanged, just hidden/shown as a dropdown panel via the
+// "header-accounts-open" class rather than always inline. Above 640px the
+// hamburger button is display:none and .header-accounts just renders as
+// the same inline row it always did - nothing changes for desktop/tablet.
 function HeaderNav() {
   const { isLoggedIn, isAdmin, isCaptain, logout } = useAuth();
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   if (!isLoggedIn) {
     return (
@@ -87,39 +96,55 @@ function HeaderNav() {
     );
   }
 
+  const closeMenu = () => setMenuOpen(false);
+
   return (
-    <span className="header-accounts">
-      {isAdmin && (
-        <Link to="/admin" className="header-link">
-          Admin Portal
+    <>
+      <button
+        type="button"
+        className="hamburger-btn"
+        aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+      <span className={`header-accounts${menuOpen ? ' header-accounts-open' : ''}`}>
+        {isAdmin && (
+          <Link to="/admin" className="header-link" onClick={closeMenu}>
+            Admin Portal
+          </Link>
+        )}
+        {(isAdmin || isCaptain) && (
+          <Link to="/captain" className="header-link" onClick={closeMenu}>
+            Captain Portal
+          </Link>
+        )}
+        <Link to="/tours" className="header-link" onClick={closeMenu}>
+          Tours
         </Link>
-      )}
-      {(isAdmin || isCaptain) && (
-        <Link to="/captain" className="header-link">
-          Captain Portal
+        <Link to="/roll-of-honour" className="header-link" onClick={closeMenu}>
+          Roll of Honour
         </Link>
-      )}
-      <Link to="/tours" className="header-link">
-        Tours
-      </Link>
-      <Link to="/roll-of-honour" className="header-link">
-        Roll of Honour
-      </Link>
-      <Link to="/account" className="header-link">
-        Player Portal
-      </Link>
-      <span className="header-admin">
-        <button
-          className="header-link header-link-button"
-          onClick={() => {
-            logout();
-            navigate('/login');
-          }}
-        >
-          Log out
-        </button>
+        <Link to="/account" className="header-link" onClick={closeMenu}>
+          Player Portal
+        </Link>
+        <span className="header-admin">
+          <button
+            className="header-link header-link-button"
+            onClick={() => {
+              closeMenu();
+              logout();
+              navigate('/login');
+            }}
+          >
+            Log out
+          </button>
+        </span>
       </span>
-    </span>
+    </>
   );
 }
 
