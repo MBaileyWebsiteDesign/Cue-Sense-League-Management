@@ -112,6 +112,19 @@ export function readDb() {
     if (division.visibleRounds === undefined) {
       division.visibleRounds = [];
     }
+    // Closing a division early (POST /api/divisions/:id/close-early, or in
+    // bulk via POST /api/leagues/:id/close-early) post-dates the original
+    // schema too - every division created before it existed defaults to
+    // 'active', exactly like a freshly-created one would.
+    if (division.status === undefined) division.status = 'active';
+    if (division.completedAt === undefined) division.completedAt = null;
+    if (division.completedBy === undefined) division.completedBy = null;
+  }
+  for (const fixture of state.fixtures) {
+    // Set only on a fixture that was force-completed 0-0 by close-early
+    // above, rather than actually played out - see closeOutstandingFixtures
+    // in index.js.
+    if (fixture.closedEarly === undefined) fixture.closedEarly = null;
   }
   for (const user of state.users) {
     // Migrate the old single-value `role: 'player'|'admin'` field (from when

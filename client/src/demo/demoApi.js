@@ -288,8 +288,11 @@ function recordChampionIfDivisionComplete(division, hydrated) {
     if (!finalFixture) return;
     championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
   } else {
+    // A top standing with 0 points means nobody actually won a match (the
+    // division was closed early before any result was played out) - see
+    // the matching check in server/src/index.js.
     const top = hydrated.standings[0];
-    if (!top) return;
+    if (!top || top.points === 0) return;
     championId = top[idField];
   }
   if (!championId) return;
@@ -315,6 +318,47 @@ function recordChampionIfDivisionComplete(division, hydrated) {
   // server/src/db.js's writeDb() does inside recordChampionIfDivisionComplete,
   // rather than waiting for whatever op() the caller happens to be inside.
   persist();
+}
+
+// Force-completes every not-yet-completed fixture in a division at 0-0 (0
+// legs for a team fixture), no winner - mirrors server/src/index.js's
+// closeOutstandingFixtures. Used by both closeDivisionEarly (one division)
+// and closeLeagueEarly (every division in a league) below.
+function closeOutstandingFixtures(division, actorLabel) {
+  const outstanding = db.fixtures.filter((f) => f.divisionId === division.id && f.status !== 'completed');
+  const closedAt = new Date().toISOString();
+
+  for (const fixture of outstanding) {
+    if (division.entryType === 'teams') {
+      fixture.homeLegsWon = 0;
+      fixture.awayLegsWon = 0;
+      fixture.winnerTeamId = null;
+      fixture.legs = fixture.legs.map((leg) => (leg.status === 'completed' ? leg : {
+        ...leg,
+        frames: [],
+        homeFrameScore: 0,
+        awayFrameScore: 0,
+        status: 'completed',
+        winnerPlayerId: null,
+      }));
+    } else {
+      fixture.homeFrameScore = 0;
+      fixture.awayFrameScore = 0;
+      fixture.frames = [];
+      fixture.winnerPlayerId = null;
+    }
+    fixture.status = 'completed';
+    fixture.disputeReason = null;
+    fixture.closedEarly = { at: closedAt, by: actorLabel };
+  }
+
+  if (outstanding.length > 0 || division.status !== 'completed') {
+    division.status = 'completed';
+    division.completedAt = closedAt;
+    division.completedBy = actorLabel;
+  }
+
+  return outstanding.length;
 }
 
 // Ported from server/src/index.js's buildOverlayFixture - normalizes
@@ -359,7 +403,7 @@ function buildOverlayFixture(fixture) {
     raceTo = fixture.raceTo;
     bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
     if (fixture.status === 'completed') {
-      winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
+      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
     }
   } else {
     const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
@@ -369,7 +413,7 @@ function buildOverlayFixture(fixture) {
     raceTo = fixture.raceTo;
     bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
     if (fixture.status === 'completed') {
-      winner = fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away';
+      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
     }
   }
 
@@ -1628,6 +1672,11 @@ export const demoApi = {
       gapDays: null, fixturesGenerated: false,
       // No round is visible to players until released - see isRoundVisible.
       visibleRounds: [],
+      // 'active' | 'completed' - see closeDivisionEarly/closeLeagueEarly below
+      // (mirrors server/src/index.js's close-early routes).
+      status: 'active',
+      completedAt: null,
+      completedBy: null,
     };
     db.divisions.push(division);
     return division;
@@ -1642,6 +1691,44 @@ export const demoApi = {
       hydrated.fixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
     }
     return hydrated;
+  }),
+
+  // Force-completes every outstanding fixture in a division at 0-0 (0 legs
+  // for a team fixture), no winner, no confirmation needed - mirrors
+  // server/src/index.js's closeOutstandingFixtures / POST
+  // /api/divisions/:id/close-early. A null winner is a genuinely new
+  // outcome for a singles/doubles fixture (normal race-to-N play can't end
+  // level) - see the 'void' handling in demo/logic/standings.js and
+  // demo/logic/playerProfile.js.
+  closeDivisionEarly: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    closeOutstandingFixtures(division, adminLabel());
+    recordAudit(db, {
+      actor: adminLabel(), action: 'division.closeEarly', targetType: 'division', targetId: division.id,
+      details: 'Closed the division early',
+    });
+    return hydrateDivision(division);
+  }),
+
+  // League-wide equivalent - applies the same treatment to every division
+  // in the league. Mirrors server/src/index.js's POST
+  // /api/leagues/:id/close-early.
+  closeLeagueEarly: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+    for (const division of divisions) {
+      closeOutstandingFixtures(division, adminLabel());
+    }
+    recordAudit(db, {
+      actor: adminLabel(), action: 'league.closeEarly', targetType: 'league', targetId: league.id,
+      details: `Closed the league early across ${divisions.length} division(s)`,
+    });
+    return {
+      leagueId: league.id,
+      divisions: divisions.map((d) => hydrateDivision(d)),
+    };
   }),
 
   // Powers the admin "Manage Fixtures" page - mirrors server/src/index.js's
@@ -2033,6 +2120,75 @@ export const demoApi = {
       tables,
       unscheduled,
       recentResults,
+    };
+  }),
+
+  // Public League Table / League Fixtures (embeddable pages) - mirrors
+  // server/src/index.js's GET /api/public/leagues/:id/table and
+  // GET /api/public/leagues/:id/fixtures.
+  getPublicLeagueTable: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const divisions = db.divisions
+      .filter((d) => d.leagueId === league.id)
+      .sort((a, b) => a.order - b.order)
+      .map((division) => {
+        const hydrated = hydrateDivision(division);
+        return {
+          divisionId: division.id,
+          divisionName: division.name,
+          entryType: division.entryType,
+          scheduling: division.scheduling,
+          status: division.status || 'active',
+          standings: hydrated.standings,
+        };
+      });
+    return {
+      leagueId: league.id,
+      leagueName: league.name,
+      generatedAt: new Date().toISOString(),
+      divisions,
+    };
+  }),
+
+  getPublicLeagueFixtures: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const divisionsById = new Map(db.divisions.filter((d) => d.leagueId === league.id).map((d) => [d.id, d]));
+
+    const buildPublicFixture = (fixture) => {
+      const division = divisionsById.get(fixture.divisionId);
+      if (!division) return null;
+      return {
+        ...buildOverlayFixture(fixture),
+        divisionId: division.id,
+        round: fixture.round,
+        scheduledDate: fixture.scheduledDate,
+        scheduledTime: fixture.scheduledTime,
+      };
+    };
+
+    const fixtures = db.fixtures
+      .filter((f) => f.leagueId === league.id)
+      .filter((f) => isRoundVisible(divisionsById.get(f.divisionId), f.round))
+      .map(buildPublicFixture)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aDone = a.status === 'completed';
+        const bDone = b.status === 'completed';
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
+        if (!a.scheduledDate && !b.scheduledDate) return 0;
+        if (!a.scheduledDate) return 1;
+        if (!b.scheduledDate) return -1;
+        return new Date(a.scheduledDate) - new Date(b.scheduledDate);
+      });
+
+    return {
+      leagueId: league.id,
+      leagueName: league.name,
+      generatedAt: new Date().toISOString(),
+      fixtures,
     };
   }),
 

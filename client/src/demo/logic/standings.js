@@ -39,7 +39,11 @@ export function computeStandings(division, fixtures, players) {
     away.framesFor += fixture.awayFrameScore;
     away.framesAgainst += fixture.homeFrameScore;
 
-    if (fixture.winnerPlayerId === fixture.homePlayerId) {
+    if (fixture.winnerPlayerId === null) {
+      // Force-completed 0-0 by an admin closing the division/league early -
+      // mirrors server/src/services/standings.js. Counts as played, no
+      // win/loss/points either way.
+    } else if (fixture.winnerPlayerId === fixture.homePlayerId) {
       home.won += 1;
       home.points += 2;
       away.lost += 1;

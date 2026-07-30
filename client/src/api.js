@@ -95,6 +95,12 @@ const networkApi = {
   createDivision: (leagueId, data) =>
     request(`/leagues/${leagueId}/divisions`, { method: 'POST', body: JSON.stringify(data) }),
   getDivision: (id) => request(`/divisions/${id}`),
+  // Admin-only: force-completes every outstanding fixture in a division (or,
+  // for the league version, every division in the league) at 0-0 with no
+  // winner - no player confirmation needed. See server/src/index.js's
+  // closeOutstandingFixtures for the full behaviour.
+  closeDivisionEarly: (divisionId) => request(`/divisions/${divisionId}/close-early`, { method: 'POST' }),
+  closeLeagueEarly: (leagueId) => request(`/leagues/${leagueId}/close-early`, { method: 'POST' }),
   getRegisteredPlayers: () => request('/registered-players'),
   addPlayer: (divisionId, playerId) =>
     request(`/divisions/${divisionId}/players`, { method: 'POST', body: JSON.stringify({ playerId }) }),
@@ -124,6 +130,11 @@ const networkApi = {
   // Public, unauthenticated Arena big-display board for a league - same
   // reasoning as the overlay above, but for a venue TV rather than OBS.
   getArena: (leagueId) => request(`/overlay/leagues/${leagueId}/arena`),
+  // Public, unauthenticated League Table / League Fixtures - meant to be
+  // embedded (e.g. an <iframe>) on another site. Same "no login available"
+  // reasoning as overlay/arena above.
+  getPublicLeagueTable: (leagueId) => request(`/public/leagues/${leagueId}/table`),
+  getPublicLeagueFixtures: (leagueId) => request(`/public/leagues/${leagueId}/fixtures`),
 
   addTable: (leagueId, name) => request(`/leagues/${leagueId}/tables`, { method: 'POST', body: JSON.stringify({ name }) }),
   removeTable: (leagueId, tableId) => request(`/leagues/${leagueId}/tables/${tableId}`, { method: 'DELETE' }),

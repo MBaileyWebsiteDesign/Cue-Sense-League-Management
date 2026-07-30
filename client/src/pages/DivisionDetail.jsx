@@ -653,6 +653,55 @@ function SeedFromGroupsPanel({ division, onChange, setError }) {
   );
 }
 
+// Admin-only, collapsed-by-default panel (same "Show/Hide" convention as
+// the Admin Override panel on the fixture page) that force-completes every
+// outstanding fixture in the division at 0-0 with no winner - no player
+// confirmation needed or possible. Irreversible, so it's a two-step action:
+// "Show" reveals the warning and the actual confirm button, rather than
+// firing straight off the first click.
+function CloseDivisionEarlyPanel({ division, onChange, setError }) {
+  const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const onConfirm = async () => {
+    setSubmitting(true);
+    setError('');
+    try {
+      await api.closeDivisionEarly(division.id);
+      setOpen(false);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Admin: Close Division Early</h2>
+        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="muted">
+            Force-completes every fixture in this division that isn't already finished at 0-0, with no
+            winner - no confirmation from either side is needed. Use this to end a season early (a round
+            robin that won't finish, a player pool that fell apart, running out of time). This can't be
+            undone.
+          </p>
+          <button className="btn btn-primary" type="button" disabled={submitting} onClick={onConfirm}>
+            {submitting ? 'Closing…' : 'Close this division now'}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function DivisionDetail() {
   const { divisionId } = useParams();
   const { isAdmin } = useAuth();
@@ -741,6 +790,12 @@ export default function DivisionDetail() {
       </p>
       {error && <p className="error">{error}</p>}
 
+      {division.status === 'completed' && (
+        <p className="banner banner-success">
+          This division's season is complete{division.completedBy ? ` (closed by ${division.completedBy}${division.completedAt ? ` on ${new Date(division.completedAt).toLocaleDateString()}` : ''})` : ''}.
+        </p>
+      )}
+
       {isTeams ? (
         <TeamRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       ) : isDoubles ? (
@@ -751,6 +806,10 @@ export default function DivisionDetail() {
 
       {isAdmin && !division.fixturesGenerated && (
         <SeedFromGroupsPanel division={division} onChange={load} setError={setError} />
+      )}
+
+      {isAdmin && division.fixturesGenerated && division.status !== 'completed' && (
+        <CloseDivisionEarlyPanel division={division} onChange={load} setError={setError} />
       )}
 
       {isAdmin && !isTeams && !isDoubles && division.fixturesGenerated && (
@@ -866,7 +925,9 @@ function FixtureList({ fixtures, isTeams, nameOf }) {
             <Link to={`/fixtures/${f.id}`}>
               {nameOf(homeId)} <strong>{homeScore} - {awayScore}</strong> {nameOf(awayId)}
             </Link>
-            <span className={`status status-${f.status}`}>{f.status.replace('_', ' ')}</span>
+            <span className={`status status-${f.status}`}>
+              {f.closedEarly ? 'closed early' : f.status.replace('_', ' ')}
+            </span>
           </li>
         );
       })}

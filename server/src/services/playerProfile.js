@@ -10,12 +10,17 @@ export function buildPlayerProfile(db, playerId) {
   const headToHeadMap = new Map();
   const results = [];
 
-  function recordResult({ opponentId, forScore, againstScore, won, leagueName, divisionName, fixtureId, context, scheduledDate, round }) {
+  // `outcome` is 'win', 'loss', or 'void' - void is a fixture/leg an admin
+  // force-completed 0-0 with no winner by closing its division/league early
+  // (see closeOutstandingFixtures in server/src/index.js) rather than one
+  // that was actually played out. It counts toward `played` like any other
+  // result, but isn't a win or a loss for either side.
+  function recordResult({ opponentId, forScore, againstScore, outcome, leagueName, divisionName, fixtureId, context, scheduledDate, round }) {
     career.played += 1;
     career.framesFor += forScore;
     career.framesAgainst += againstScore;
-    if (won) career.won += 1;
-    else career.lost += 1;
+    if (outcome === 'win') career.won += 1;
+    else if (outcome === 'loss') career.lost += 1;
 
     // Looked up once and reused below - this used to call db.players.find()
     // a second time for the same id just a few lines later.
@@ -32,8 +37,8 @@ export function buildPlayerProfile(db, playerId) {
     }
     const h2h = headToHeadMap.get(opponentId);
     h2h.played += 1;
-    if (won) h2h.won += 1;
-    else h2h.lost += 1;
+    if (outcome === 'win') h2h.won += 1;
+    else if (outcome === 'loss') h2h.lost += 1;
 
     results.push({
       fixtureId,
@@ -42,7 +47,7 @@ export function buildPlayerProfile(db, playerId) {
       opponentName: opponent ? opponent.name : 'Unknown player',
       forScore,
       againstScore,
-      result: won ? 'win' : 'loss',
+      result: outcome,
       context,
       scheduledDate: scheduledDate || null,
       round: round ?? null,
@@ -60,7 +65,7 @@ export function buildPlayerProfile(db, playerId) {
       opponentId: isHome ? fixture.awayPlayerId : fixture.homePlayerId,
       forScore: isHome ? fixture.homeFrameScore : fixture.awayFrameScore,
       againstScore: isHome ? fixture.awayFrameScore : fixture.homeFrameScore,
-      won: fixture.winnerPlayerId === playerId,
+      outcome: fixture.winnerPlayerId === null ? 'void' : (fixture.winnerPlayerId === playerId ? 'win' : 'loss'),
       leagueName: league?.name,
       divisionName: division?.name,
       fixtureId: fixture.id,
@@ -84,7 +89,7 @@ export function buildPlayerProfile(db, playerId) {
         opponentId: isHome ? leg.awayPlayerId : leg.homePlayerId,
         forScore: isHome ? leg.homeFrameScore : leg.awayFrameScore,
         againstScore: isHome ? leg.awayFrameScore : leg.homeFrameScore,
-        won: leg.winnerPlayerId === playerId,
+        outcome: leg.winnerPlayerId === null ? 'void' : (leg.winnerPlayerId === playerId ? 'win' : 'loss'),
         leagueName: league?.name,
         divisionName: division?.name,
         fixtureId: fixture.id,
@@ -106,7 +111,7 @@ export function buildPlayerProfile(db, playerId) {
 
   // Form guide: last 5 completed results, most recent first, as a simple
   // 'W'/'L' sequence - results is already sorted most-recent-first above.
-  const formGuide = results.slice(0, 5).map((r) => (r.result === 'win' ? 'W' : 'L'));
+  const formGuide = results.slice(0, 5).map((r) => (r.result === 'win' ? 'W' : r.result === 'loss' ? 'L' : 'V'));
 
   // Every league/division this player currently shows up in - directly
   // (singles), via a team roster, or via a doubles/triples pairing. Powers

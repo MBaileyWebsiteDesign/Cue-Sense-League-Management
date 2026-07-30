@@ -1,7 +1,10 @@
 // Standings table for a division: 2 points for a match win, 0 for a loss
-// (race-to-N frame formats can't end in a draw), ranked by points then by
+// (normal race-to-N frame play can't end level), ranked by points then by
 // frame difference then by frames won, head-to-head is left as a manual
 // tie-break for the admin since it's rarely needed in a single round-robin.
+// The one exception is a fixture force-completed 0-0 with no winner by an
+// admin closing the division/league early - see the winnerPlayerId === null
+// branch below - which counts as played but awards no points either way.
 export function computeStandings(division, fixtures, players) {
   // Index once by id instead of Array.find()-ing `players` for every entrant
   // (was O(entrants * players) - a real cost once `players` is the whole
@@ -39,7 +42,12 @@ export function computeStandings(division, fixtures, players) {
     away.framesFor += fixture.awayFrameScore;
     away.framesAgainst += fixture.homeFrameScore;
 
-    if (fixture.winnerPlayerId === fixture.homePlayerId) {
+    if (fixture.winnerPlayerId === null) {
+      // Force-completed 0-0 by an admin closing the division/league early
+      // (see closeOutstandingFixtures in server/src/index.js) rather than
+      // actually played out - counts as "played" for both sides, but isn't
+      // a win or a loss for either one, and awards no points.
+    } else if (fixture.winnerPlayerId === fixture.homePlayerId) {
       home.won += 1;
       home.points += 2;
       away.lost += 1;

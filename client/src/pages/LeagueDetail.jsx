@@ -63,6 +63,55 @@ function TablesPanel({ league, onChange, setError }) {
   );
 }
 
+// Admin-only, collapsed-by-default panel that force-completes every
+// outstanding fixture in *every* division of this league at 0-0 with no
+// winner, no player confirmation needed - the league-wide equivalent of the
+// "Close Division Early" panel on a division's own page. Same two-step
+// "Show" then confirm pattern, since this is irreversible and affects the
+// whole league at once.
+function CloseLeagueEarlyPanel({ league, onChange, setError }) {
+  const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const onConfirm = async () => {
+    setSubmitting(true);
+    setError('');
+    try {
+      await api.closeLeagueEarly(league.id);
+      setOpen(false);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Admin: Close League Early</h2>
+        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="muted">
+            Force-completes every outstanding fixture across <strong>every division</strong> in this
+            league at 0-0, with no winner - no confirmation from either side is needed. Use this to end
+            the whole league's season early rather than closing each division one at a time. This can't
+            be undone.
+          </p>
+          <button className="btn btn-primary" type="button" disabled={submitting} onClick={onConfirm}>
+            {submitting ? 'Closing…' : 'Close the whole league now'}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function LeagueDetail() {
   const { isAdmin } = useAuth();
   const { leagueId } = useParams();
@@ -184,8 +233,24 @@ export default function LeagueDetail() {
       {error && <p className="error">{error}</p>}
 
       <p><Link to={`/arena/${league.id}`}>View Arena display &rarr;</Link></p>
+      <p>
+        <Link to={`/public/leagues/${league.id}/table`}>View public League Table &rarr;</Link>
+        {' · '}
+        <Link to={`/public/leagues/${league.id}/fixtures`}>View public League Fixtures &rarr;</Link>
+      </p>
+      {isAdmin && (
+        <p className="muted" style={{ fontSize: '0.8rem' }}>
+          The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
+          &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
+          the page.
+        </p>
+      )}
 
       {isAdmin && <TablesPanel league={league} onChange={load} setError={setError} />}
+
+      {isAdmin && league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed') && (
+        <CloseLeagueEarlyPanel league={league} onChange={load} setError={setError} />
+      )}
 
       <div className="card-grid">
         {league.divisions.map((division) => (
@@ -207,6 +272,7 @@ export default function LeagueDetail() {
                     : 'Round Robin - Single'}
               {' · '}
               {division.fixturesGenerated ? 'fixtures generated' : 'not started'}
+              {division.status === 'completed' && ' · season complete'}
             </p>
           </Link>
         ))}
