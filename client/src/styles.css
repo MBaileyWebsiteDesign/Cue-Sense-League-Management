@@ -479,3 +479,12 @@ h2 { margin-top: 0; }
 .bracket-closed-early { font-size: 9px; fill: var(--muted); }
 .bracket-box-link { cursor: pointer; }
 .bracket-box-link:hover .bracket-box { stroke: var(--secondary); }
+
+/* ---- Double-elimination bracket chart (DoubleElimBracketChart.jsx) ----
+   Reuses every class above (.bracket-box, .bracket-connector, etc.) - the
+   only double-elim-specific addition is a dashed variant for the "loser
+   drops from the winners bracket into the losers bracket" connectors, so
+   they read visually distinct from normal round-to-round advancement
+   lines. */
+.bracket-connector-cross { stroke-dasharray: 4 3; opacity: 0.7; }
+

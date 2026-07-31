@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import BracketChart from '../components/BracketChart.jsx';
+import DoubleElimBracketChart from '../components/DoubleElimBracketChart.jsx';
 
 function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_single_elim') return 'Generate Fixtures (single-elimination knockout)';
@@ -932,6 +933,19 @@ export default function DivisionDetail() {
         </section>
       )}
 
+      {isDoubleElim && division.fixturesGenerated && division.fixtures.length > 0 && (
+        <section className="card">
+          <h2>Bracket</h2>
+          <DoubleElimBracketChart
+            matches={buildDoubleElimMatches(division.fixtures, isTeams, nameOf)}
+            fixtureHref={(id) => `/fixtures/${id}`}
+          />
+          <p className="muted" style={{ fontSize: '0.8rem', marginTop: 8 }}>
+            Dashed lines show a loser dropping from the Winners Bracket into the Losers Bracket.
+          </p>
+        </section>
+      )}
+
       <section className="card">
         <div className="page-header">
           <h2>Fixtures</h2>
@@ -995,6 +1009,27 @@ function buildBracketMatches(fixtures, isTeams, nameOf) {
       bothEntrantsKnown: f.bothEntrantsKnown,
       winnerSide: f.status === 'completed' && winnerId ? (winnerId === homeId ? 'home' : 'away') : null,
       closedEarly: !!f.closedEarly,
+    };
+  });
+}
+
+// Same idea as buildBracketMatches above, but for a double-elimination
+// division's chart (DoubleElimBracketChart) - it needs every raw
+// fixture-to-fixture link (nextFixtureId, loserNextFixtureId,
+// resetFixtureId) alongside the same display fields, since it positions
+// and connects boxes by following those real ids rather than reconstructing
+// structure from round numbers/array position the way BracketChart has to
+// (see that component's header comment for why - it also has to render the
+// public embed, which never gets these link fields; this chart never does).
+function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
+  return buildBracketMatches(fixtures, isTeams, nameOf).map((m, i) => {
+    const f = fixtures[i];
+    return {
+      ...m,
+      bracketRole: f.bracketRole,
+      nextFixtureId: f.nextFixtureId || null,
+      loserNextFixtureId: f.loserNextFixtureId || null,
+      resetFixtureId: f.resetFixtureId || null,
     };
   });
 }
