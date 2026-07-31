@@ -241,9 +241,9 @@ export default function App() {
         }
       />
       {/* Standalone, unauthenticated route for the embeddable Bracket page -
-          one single-elimination knockout division's bracket chart, same
-          reasoning/pattern as the two routes above. See DivisionDetail.jsx
-          for where this link is surfaced to admins. */}
+          one knockout division's bracket chart (single- or double-
+          elimination), same reasoning/pattern as the two routes above. See
+          DivisionDetail.jsx for where this link is surfaced to admins. */}
       <Route
         path="/public/divisions/:divisionId/bracket"
         element={

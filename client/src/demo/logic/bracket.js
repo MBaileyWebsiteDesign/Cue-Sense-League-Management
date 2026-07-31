@@ -14,6 +14,19 @@
 // seeding is a small, isolated improvement for later (sort `entrantIds`
 // before calling this).
 //
+// Picks one random entrant out of the list and moves it to the end,
+// leaving everyone else's relative order untouched - buildBracketRounds
+// always gives an odd round's bye to whoever ends up last, so this is what
+// makes that bye recipient random instead of positional, without changing
+// who else ends up paired against whom.
+function withRandomEntrantLast(entrantIds) {
+  const ids = [...entrantIds];
+  const byeIndex = Math.floor(Math.random() * ids.length);
+  const [byeEntrant] = ids.splice(byeIndex, 1);
+  ids.push(byeEntrant);
+  return ids;
+}
+
 // Byes are only ever given when a round's entrant/survivor count is ODD -
 // never to pad the field up to a power of two. E.g. 6 entrants play 3 real
 // first-round matches (nobody sits out); the resulting 3 survivors are an
@@ -27,21 +40,31 @@
 // means a bye only ever happens where it's structurally unavoidable - and,
 // since at most one entrant per round can ever get one, there's no need to
 // spread multiple byes evenly across the draw the way the old scheme did.
+//
+// When the very first round's entrant count is odd, WHICH entrant sits out
+// is chosen at random (see withRandomEntrantLast) rather than always being
+// whoever happens to be last in seed order - manual seeding (see
+// server/src/index.js's reorder-entrants route) still fully controls who
+// plays whom otherwise, only the bye slot itself is randomised. Later
+// rounds can also produce a bye (see above), but there's no "entrant" to
+// randomise there - it falls out of whichever box a survivor happens to
+// land in, decided by results that don't exist yet at generation time.
 export function buildBracketRounds(entrantIds) {
   if (entrantIds.length < 2) return [];
 
   const n = entrantIds.length;
   const firstRoundRealMatches = Math.floor(n / 2);
   const hasFirstRoundBye = n % 2 === 1;
+  const orderedIds = hasFirstRoundBye ? withRandomEntrantLast(entrantIds) : entrantIds;
 
   const firstRoundPairs = [];
   let idx = 0;
   for (let p = 0; p < firstRoundRealMatches; p++) {
-    firstRoundPairs.push([entrantIds[idx], entrantIds[idx + 1]]);
+    firstRoundPairs.push([orderedIds[idx], orderedIds[idx + 1]]);
     idx += 2;
   }
   if (hasFirstRoundBye) {
-    firstRoundPairs.push([entrantIds[idx], null]);
+    firstRoundPairs.push([orderedIds[idx], null]);
   }
 
   const rounds = [firstRoundPairs];
@@ -59,9 +82,12 @@ export function buildBracketRounds(entrantIds) {
 
 // Double-elimination bracket seeding.
 //
-// Accepts any even entrant count of 4 or more - not just an exact power of
-// two. The winners bracket is built exactly like buildBracketRounds (byes
-// only when a round's survivor count is odd), so a non-power-of-two field
+// Accepts any entrant count of 4 or more, odd or even - not just an exact
+// power of two, and not just an even field (an odd field gets one
+// randomly-assigned bye in the winners bracket's first round, exactly like
+// buildBracketRounds/single-elimination). The winners bracket is built
+// exactly like buildBracketRounds (byes only when a round's survivor count
+// is odd), so a non-power-of-two field
 // can still produce winners-bracket byes in rounds after the first (e.g. 6
 // entrants: round 1 has 3 real matches and no bye, but its 3 survivors are
 // odd, so round 2 gives exactly one of them a bye). The losers bracket has
@@ -99,13 +125,12 @@ export function buildBracketRounds(entrantIds) {
 export function buildDoubleElimBracket(entrantIds) {
   const n = entrantIds.length;
   if (n < 4) throw new Error('Double elimination needs at least 4 entrants');
-  if (n % 2 === 1) {
-    throw new Error(
-      `Double elimination requires an even number of entrants - got ${n}. ` +
-      'Add or remove one to reach an even number.'
-    );
-  }
 
+  // buildBracketRounds already handles an odd entrant count on its own -
+  // one randomly-chosen entrant sits out round 1 with a bye, exactly like
+  // single-elimination - so an odd n here needs no special handling beyond
+  // that; the loser-count math below (Math.floor(count / 2) throughout)
+  // already accounts for a bye box producing no loser.
   const winnersRounds = buildBracketRounds(entrantIds);
   // How many entrants/survivors enter each winners round (round 0 starts
   // with everyone; every later round starts with however many boxes the

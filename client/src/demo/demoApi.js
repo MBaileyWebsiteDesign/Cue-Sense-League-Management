@@ -2048,12 +2048,10 @@ export const demoApi = {
     if (division.scheduling === 'knockout_single_elim') {
       generateKnockoutFixtures({ league, division, entrantIds });
     } else if (division.scheduling === 'knockout_double_elim') {
-      if (entrantIds.length < 4 || entrantIds.length % 2 !== 0) {
-        const entrantNoun = entrantLabel === 'teams' ? 'a team' : entrantLabel === 'pairings' ? 'a pairing' : 'a player';
+      if (entrantIds.length < 4) {
         throw new ApiError(
           400,
-          `Double elimination requires an even number of ${entrantLabel} (4 or more) - ` +
-            `you have ${entrantIds.length}. Add or remove ${entrantNoun} to reach an even number.`
+          `Double elimination needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
         );
       }
       generateDoubleElimFixtures({ league, division, entrantIds });
@@ -2281,12 +2279,14 @@ export const demoApi = {
   }),
 
   // Public Division Bracket (embeddable page) - mirrors server/src/index.js's
-  // GET /api/public/divisions/:id/bracket.
+  // GET /api/public/divisions/:id/bracket, including double-elimination
+  // support (see that file's comment for the full reasoning).
   getPublicDivisionBracket: op((divisionId) => {
     const division = db.divisions.find((d) => d.id === divisionId);
     if (!division) throw new ApiError(404, 'Division not found');
-    if (division.scheduling !== 'knockout_single_elim') {
-      throw new ApiError(400, 'This endpoint only supports single-elimination knockout divisions');
+    const isDoubleElim = division.scheduling === 'knockout_double_elim';
+    if (division.scheduling !== 'knockout_single_elim' && !isDoubleElim) {
+      throw new ApiError(400, 'This endpoint only supports single- or double-elimination knockout divisions');
     }
     const league = db.leagues.find((l) => l.id === division.leagueId);
     const hydrated = hydrateDivision(division);
@@ -2305,9 +2305,18 @@ export const demoApi = {
       };
     };
 
-    const matches = hydrated.fixtures
-      .filter((f) => isRoundVisible(division, f.round))
-      .map(buildPublicBracketMatch);
+    const buildPublicDoubleElimMatch = (fixture) => ({
+      ...buildPublicBracketMatch(fixture),
+      bracketRole: fixture.bracketRole,
+      nextFixtureId: fixture.nextFixtureId || null,
+      loserNextFixtureId: fixture.loserNextFixtureId || null,
+      resetFixtureId: fixture.resetFixtureId || null,
+    });
+
+    const visibleFixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
+    const matches = isDoubleElim
+      ? visibleFixtures.map(buildPublicDoubleElimMatch)
+      : visibleFixtures.map(buildPublicBracketMatch);
 
     return {
       divisionId: division.id,
@@ -2315,8 +2324,9 @@ export const demoApi = {
       leagueId: division.leagueId,
       leagueName: league ? league.name : null,
       entryType: division.entryType,
+      scheduling: division.scheduling,
       status: division.status || 'active',
-      totalRounds: hydrated.totalRounds,
+      totalRounds: isDoubleElim ? null : hydrated.totalRounds,
       generatedAt: new Date().toISOString(),
       matches,
     };

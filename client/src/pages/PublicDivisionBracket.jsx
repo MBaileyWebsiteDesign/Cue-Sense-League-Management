@@ -2,20 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import BracketChart from '../components/BracketChart.jsx';
+import DoubleElimBracketChart from '../components/DoubleElimBracketChart.jsx';
 import './publicPages.css';
 
-// Standalone, unauthenticated "Bracket" board for one single-elimination
-// knockout division - same pattern as PublicLeagueTable/PublicLeagueFixtures
-// (outside the normal app shell, no login gate, meant to be embedded
-// elsewhere), just showing the World-Cup-style bracket chart instead of a
-// table or flat fixture list. Polls GET /api/public/divisions/:id/bracket.
+// Standalone, unauthenticated "Bracket" board for one knockout division -
+// same pattern as PublicLeagueTable/PublicLeagueFixtures (outside the
+// normal app shell, no login gate, meant to be embedded elsewhere), just
+// showing a bracket chart instead of a table or flat fixture list. Polls
+// GET /api/public/divisions/:id/bracket, which works for both single- and
+// double-elimination knockout divisions (round robin's flat standings
+// table doesn't fit either chart shape) - `data.scheduling` says which one
+// this division is, so this page renders the matching chart component.
 //
 // Usage: embed this page's URL, e.g.
 //   https://your-deployment.example.com/public/divisions/<divisionId>/bracket
 // The division id is the same one in that division's own management page
-// URL (/divisions/<divisionId>) - only works for a single-elimination
-// knockout division (round robin and double-elimination don't fit this
-// chart shape).
+// URL (/divisions/<divisionId>).
 const POLL_INTERVAL_MS = 15000;
 
 export default function PublicDivisionBracket() {
@@ -78,6 +80,8 @@ export default function PublicDivisionBracket() {
 
       {data.matches.length === 0 ? (
         <p className="public-empty-state">No bracket to show yet.</p>
+      ) : data.scheduling === 'knockout_double_elim' ? (
+        <DoubleElimBracketChart matches={data.matches} />
       ) : (
         <BracketChart matches={data.matches} totalRounds={data.totalRounds} />
       )}
