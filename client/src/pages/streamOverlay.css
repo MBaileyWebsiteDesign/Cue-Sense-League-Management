@@ -132,3 +132,52 @@
   font-size: 0.8rem;
   color: rgba(255, 255, 255, 0.7);
 }
+
+/* ---- Win celebration (confetti burst + winner name flash) ----
+   See StreamOverlay.jsx: plays once when a fixture is first seen completed
+   with a real winner. Confetti is a fixed full-viewport layer of small
+   rectangles, each with its own randomised fall - purely CSS-driven once
+   the piece list is generated. */
+.overlay-confetti {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.overlay-confetti-piece {
+  position: absolute;
+  top: -24px;
+  border-radius: 1px;
+  opacity: 0;
+  animation-name: overlay-confetti-fall;
+  animation-timing-function: cubic-bezier(0.25, 0.1, 0.4, 1);
+  animation-fill-mode: forwards;
+}
+
+@keyframes overlay-confetti-fall {
+  0% {
+    transform: translate(0, -24px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--overlay-confetti-drift), 110vh) rotate(var(--overlay-confetti-rotate));
+    opacity: 0.85;
+  }
+}
+
+.overlay-entrant-flash {
+  animation: overlay-name-flash 0.62s ease-in-out 5;
+}
+
+@keyframes overlay-name-flash {
+  0%, 100% {
+    color: #4ade80;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+  }
+  50% {
+    color: #ffd60a;
+    text-shadow: 0 0 14px rgba(255, 214, 10, 0.95), 0 2px 6px rgba(0, 0, 0, 0.6);
+  }
+}
