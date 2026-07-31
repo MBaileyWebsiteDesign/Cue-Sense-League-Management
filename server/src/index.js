@@ -1390,6 +1390,12 @@ function propagateLoser(db, division, fixture, loserId) {
   } else {
     dest.awayPlayerId = loserId;
   }
+  // See propagateWinner's byeSlot comment - the losers-bracket destination
+  // might structurally never receive a second entrant either (a losers
+  // bracket round can have its own bye box when its real-match count is
+  // odd - see buildDoubleElimBracket/generateDoubleElimFixtures). Resolve
+  // it immediately and keep the chain going if so.
+  if (dest.byeSlot) resolveByeIfNeeded(db, division, dest);
 }
 
 // Double-elimination only: the losers-bracket champion enters the Grand
@@ -1491,15 +1497,24 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
       return f;
     })
   );
+  // Same linking as generateKnockoutFixtures - a non-power-of-two field can
+  // still give the winners bracket a bye in a round after the first (see
+  // buildBracketRounds), so mark byeSlot the same way here too.
   for (let round = 0; round < wbByRound.length - 1; round++) {
-    wbByRound[round].forEach((fixture, i) => {
-      const next = wbByRound[round + 1][Math.floor(i / 2)];
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
       fixture.nextFixtureId = next.id;
       fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
     });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
   }
   winnersRounds[0].forEach(([a, b], i) => {
     const fixture = wbByRound[0][i];
+    if (b === null) fixture.byeSlot = 'away';
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
       fixture.awayTeamId = b;
@@ -1515,12 +1530,19 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   // conflating them with the `round` number, which is only used for the
   // date-spacing logic below.
   const lbByRound = losersRounds.map((round, roundIndex) =>
-    Array.from({ length: round.matchCount }, () => {
+    Array.from({ length: round.boxCount }, () => {
       const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
       f.bracketRole = 'losers';
       return f;
     })
   );
+  // A round with an odd real-match count leaves one box with only ever one
+  // real feeder (whichever winners-bracket loser or losers-bracket survivor
+  // ends up wired to it below) - mark it byeSlot the same way winners-
+  // bracket byes are marked, always the round's last box.
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
   // Link each losers-bracket round's winner forward to the next LB round.
   for (let round = 0; round < lbByRound.length - 1; round++) {
     const current = lbByRound[round];
@@ -1544,7 +1566,10 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   // Wire each winners round's losers into their losers-bracket destination.
   losersRounds.forEach((lbRound, lbRoundIndex) => {
     if (lbRound.feedsFromWinnersRound === null) return;
-    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound];
+    // A bye box in the source winners round never produces a loser (nobody
+    // played), so it's excluded here - only real-match boxes feed the
+    // losers bracket.
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
     const lbDestFixtures = lbByRound[lbRoundIndex];
     wbSourceFixtures.forEach((fixture, i) => {
       let dest, slot;
@@ -1553,12 +1578,19 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
         // other, two winners-round losers per losers-bracket match.
         dest = lbDestFixtures[Math.floor(i / 2)];
         slot = i % 2 === 0 ? 'home' : 'away';
-      } else {
-        // Merge round - each new loser fills the "away" slot of its own
-        // 1:1-linked fixture (the "home" slot is an existing LB survivor,
-        // wired above).
+      } else if (i < lbRound.crossMatches) {
+        // Cross-match portion - fills the "away" slot of an already-wired
+        // 1:1 fixture (the "home" slot is an existing LB survivor, wired
+        // above).
         dest = lbDestFixtures[i];
         slot = 'away';
+      } else {
+        // Leftover portion - not enough waiting LB survivors to pair
+        // against every new loser, so these extras pair off among
+        // themselves in their own boxes (after the cross-match ones).
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
       }
       fixture.loserNextFixtureId = dest.id;
       fixture.loserNextFixtureSlot = slot;
@@ -1580,6 +1612,15 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
 
   const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
   allFixtures.forEach((f) => db.fixtures.push(f));
+  // Resolve any winners-bracket round-1 byes now that every fixture (and
+  // its next-round link) exists - mirrors generateKnockoutFixtures. This is
+  // a no-op today (double elimination requires an even entrant count, so
+  // round 1 itself never has a bye), but kept for defensive parity with the
+  // single-elimination generator and in case that constraint ever loosens.
+  // Every later-round bye (winners or losers bracket) cascade-resolves
+  // automatically via propagateWinner/propagateLoser as earlier fixtures
+  // complete.
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
 // Assigns a `scheduledDate` (YYYY-MM-DD) to every fixture in a division,
@@ -1707,14 +1748,12 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
   if (division.scheduling === 'knockout_single_elim') {
     generateKnockoutFixtures({ db, league, division, entrantIds });
   } else if (division.scheduling === 'knockout_double_elim') {
-    let bracketSize = 1;
-    while (bracketSize < entrantIds.length) bracketSize *= 2;
-    if (entrantIds.length < 4 || bracketSize !== entrantIds.length) {
+    if (entrantIds.length < 4 || entrantIds.length % 2 !== 0) {
       const entrantNoun = entrantLabel === 'teams' ? 'a team' : entrantLabel === 'pairings' ? 'a pairing' : 'a player';
       throw new ApiError(
         400,
-        `Double elimination requires a power-of-two number of ${entrantLabel} (4, 8, 16, 32...) - ` +
-          `you have ${entrantIds.length}. Add or remove ${entrantNoun} to reach one, or switch to single elimination.`
+        `Double elimination requires an even number of ${entrantLabel} (4 or more) - ` +
+          `you have ${entrantIds.length}. Add or remove ${entrantNoun} to reach an even number.`
       );
     }
     generateDoubleElimFixtures({ db, league, division, entrantIds });

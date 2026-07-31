@@ -642,6 +642,10 @@ function propagateLoser(division, fixture, loserId) {
   } else {
     dest.awayPlayerId = loserId;
   }
+  // See propagateWinner's byeSlot comment - the losers-bracket destination
+  // might structurally never receive a second entrant either. Resolve it
+  // immediately and keep the chain going if so.
+  if (dest.byeSlot) resolveByeIfNeeded(division, dest);
 }
 
 // Double-elimination only: the losers-bracket champion enters the Grand
@@ -679,6 +683,7 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds);
 
+  // ---- Winners bracket ----
   const wbByRound = winnersRounds.map((pairs, roundIndex) =>
     pairs.map(() => {
       const f = makeFixture({ league, division, round: roundIndex + 1 });
@@ -687,14 +692,20 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
     })
   );
   for (let round = 0; round < wbByRound.length - 1; round++) {
-    wbByRound[round].forEach((fixture, i) => {
-      const next = wbByRound[round + 1][Math.floor(i / 2)];
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
       fixture.nextFixtureId = next.id;
       fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
     });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
   }
   winnersRounds[0].forEach(([a, b], i) => {
     const fixture = wbByRound[0][i];
+    if (b === null) fixture.byeSlot = 'away';
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
       fixture.awayTeamId = b;
@@ -704,13 +715,17 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
     }
   });
 
+  // ---- Losers bracket ----
   const lbByRound = losersRounds.map((round, roundIndex) =>
-    Array.from({ length: round.matchCount }, () => {
+    Array.from({ length: round.boxCount }, () => {
       const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
       f.bracketRole = 'losers';
       return f;
     })
   );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
   for (let round = 0; round < lbByRound.length - 1; round++) {
     const current = lbByRound[round];
     const next = lbByRound[round + 1];
@@ -726,24 +741,32 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
       }
     });
   }
+  // Wire each winners round's losers into their losers-bracket destination
+  // - see server/src/index.js's generateDoubleElimFixtures for the full
+  // comments (this is a direct port).
   losersRounds.forEach((lbRound, lbRoundIndex) => {
     if (lbRound.feedsFromWinnersRound === null) return;
-    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound];
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
     const lbDestFixtures = lbByRound[lbRoundIndex];
     wbSourceFixtures.forEach((fixture, i) => {
       let dest, slot;
       if (lbRoundIndex === 0) {
         dest = lbDestFixtures[Math.floor(i / 2)];
         slot = i % 2 === 0 ? 'home' : 'away';
-      } else {
+      } else if (i < lbRound.crossMatches) {
         dest = lbDestFixtures[i];
         slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
       }
       fixture.loserNextFixtureId = dest.id;
       fixture.loserNextFixtureSlot = slot;
     });
   });
 
+  // ---- Grand Final ----
   const wbFinal = wbByRound[wbByRound.length - 1][0];
   const lbFinal = lbByRound[lbByRound.length - 1][0];
   const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
@@ -755,6 +778,10 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
 
   const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
   allFixtures.forEach((f) => db.fixtures.push(f));
+  // Resolve any winners-bracket round-1 byes - see server/src/index.js's
+  // matching comment (no-op today since double elimination requires an
+  // even entrant count, kept for defensive parity).
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
 function assignScheduledDates(division, startDate, gapDays) {
@@ -2021,14 +2048,12 @@ export const demoApi = {
     if (division.scheduling === 'knockout_single_elim') {
       generateKnockoutFixtures({ league, division, entrantIds });
     } else if (division.scheduling === 'knockout_double_elim') {
-      let bracketSize = 1;
-      while (bracketSize < entrantIds.length) bracketSize *= 2;
-      if (entrantIds.length < 4 || bracketSize !== entrantIds.length) {
+      if (entrantIds.length < 4 || entrantIds.length % 2 !== 0) {
         const entrantNoun = entrantLabel === 'teams' ? 'a team' : entrantLabel === 'pairings' ? 'a pairing' : 'a player';
         throw new ApiError(
           400,
-          `Double elimination requires a power-of-two number of ${entrantLabel} (4, 8, 16, 32...) - ` +
-            `you have ${entrantIds.length}. Add or remove ${entrantNoun} to reach one, or switch to single elimination.`
+          `Double elimination requires an even number of ${entrantLabel} (4 or more) - ` +
+            `you have ${entrantIds.length}. Add or remove ${entrantNoun} to reach an even number.`
         );
       }
       generateDoubleElimFixtures({ league, division, entrantIds });

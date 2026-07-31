@@ -59,70 +59,119 @@ export function buildBracketRounds(entrantIds) {
 
 // Double-elimination bracket seeding.
 //
-// v1 scope: requires the entrant count to be an exact power of two (4, 8,
-// 16, 32...). A double-elimination losers bracket works by interleaving
-// newly-eliminated players with the losers bracket's existing survivors,
-// round by round - the arithmetic for that only lines up cleanly when every
-// winners-bracket round produces exactly half as many losers as the round
-// before it, which is only guaranteed when the winners bracket has no byes
-// at all. Non-power-of-two fields should use single elimination (which
-// already handles byes correctly) or add/remove an entrant to reach a power
-// of two - the caller is expected to validate the count and produce a
-// friendly error before calling this.
+// Accepts any even entrant count of 4 or more - not just an exact power of
+// two. The winners bracket is built exactly like buildBracketRounds (byes
+// only when a round's survivor count is odd), so a non-power-of-two field
+// can still produce winners-bracket byes in rounds after the first (e.g. 6
+// entrants: round 1 has 3 real matches and no bye, but its 3 survivors are
+// odd, so round 2 gives exactly one of them a bye). The losers bracket has
+// to absorb whatever comes out of that irregular winners bracket, so unlike
+// the old power-of-two-only version it can no longer assume each winners
+// round produces exactly half as many losers as the round before - instead
+// each losers round is computed from up to two pieces:
+//   - `crossMatches`: how many of the losers bracket's own waiting
+//     survivors get paired 1:1 against a fresh batch of winners-bracket
+//     losers (the survivor takes the "home" slot, the new loser "away").
+//   - any leftover new losers (if the fresh batch outnumbers the waiting
+//     pool) or leftover survivors (if the pool needs consolidating down
+//     before/after) pair off among themselves, taking a bye if there's an
+//     odd one out.
+// A round with `feedsFromWinnersRound: null` is a pure consolidation round
+// (existing losers-bracket survivors playing each other, no new losers
+// arriving); a round with it set receives that winners round's losers,
+// either as brand new entries (pool was empty) or merged in per the above.
 //
 // Returns:
-//   winnersRounds: identical shape to buildBracketRounds()'s return value -
-//     round 0 has the real entrant pairs, later rounds are counts only.
-//   losersRounds: an array of `{ matchCount, feedsFromWinnersRound }`
-//     describing the losers bracket, in play order:
-//       - `feedsFromWinnersRound` is the 0-indexed winners-bracket round
-//         whose losers join this round, paired against whatever the losers
-//         bracket already has (or against each other if it has nobody yet).
-//       - `feedsFromWinnersRound` is `null` for a pure "consolidation"
-//         round, where the losers bracket's own survivors just play each
-//         other to halve the pool before the next round injects new losers.
-//     Like buildBracketRounds, only the *shape* is returned - actual
-//     entrant IDs for anything beyond winnersRounds[0] are only known once
-//     earlier matches are played, and are wired up by the caller via
-//     nextFixtureId/nextFixtureSlot (winner advances) and
-//     loserNextFixtureId/loserNextFixtureSlot (loser drops to the losers
-//     bracket) on each generated fixture.
+//   winnersRounds: identical shape to buildBracketRounds()'s return value.
+//   losersRounds: an array of
+//     `{ boxCount, realMatches, hasBye, feedsFromWinnersRound, crossMatches }`
+//     describing the losers bracket, in play order. `boxCount` is the total
+//     number of fixtures in the round (including any bye box); `realMatches`
+//     is how many of those are actual matches; `hasBye` marks whether the
+//     round has exactly one bye box (always the last one, mirroring
+//     buildBracketRounds); `crossMatches` is how many of the round's boxes
+//     pair a losers-bracket survivor against a fresh winners-bracket loser
+//     (only meaningful on a merge round - see generateDoubleElimFixtures for
+//     how the caller uses it to wire winners-bracket losers to the right
+//     losers-bracket box). Like buildBracketRounds, only the *shape* is
+//     returned - actual entrant IDs are wired up by the caller via
+//     nextFixtureId/nextFixtureSlot and loserNextFixtureId/loserNextFixtureSlot.
 export function buildDoubleElimBracket(entrantIds) {
   const n = entrantIds.length;
   if (n < 4) throw new Error('Double elimination needs at least 4 entrants');
-  let bracketSize = 1;
-  while (bracketSize < n) bracketSize *= 2;
-  if (bracketSize !== n) {
+  if (n % 2 === 1) {
     throw new Error(
-      `Double elimination requires a power-of-two number of entrants (4, 8, 16, 32...) - got ${n}. ` +
-      'Add or remove an entrant to reach one, or use single elimination instead.'
+      `Double elimination requires an even number of entrants - got ${n}. ` +
+      'Add or remove one to reach an even number.'
     );
   }
 
-  const winnersRounds = buildBracketRounds(entrantIds); // no byes possible - n is already a power of two
-  const losersProducedCounts = winnersRounds.map((round) => round.length);
+  const winnersRounds = buildBracketRounds(entrantIds);
+  // How many entrants/survivors enter each winners round (round 0 starts
+  // with everyone; every later round starts with however many boxes the
+  // round before it had, since every box - real match or bye - produces
+  // exactly one survivor).
+  const incoming = [n, ...winnersRounds.slice(0, -1).map((round) => round.length)];
+  // Only real matches produce a loser - a bye box's occupant advances for
+  // free, so Math.floor handles both the even case (no bye) and the odd
+  // case (one bye, floor drops it) correctly.
+  const wbLosers = incoming.map((count) => Math.floor(count / 2));
 
   const losersRounds = [];
-  let pool = 0; // survivors currently waiting in the losers bracket
-  for (let r = 0; r < losersProducedCounts.length; r++) {
-    const batch = losersProducedCounts[r];
+  let pool = 0; // losers-bracket survivors currently waiting, between rounds
+  for (let r = 0; r < wbLosers.length; r++) {
+    const batch = wbLosers[r];
     if (pool === 0) {
-      // First losers to arrive - nothing to consolidate against yet, so
-      // they just play each other directly.
-      losersRounds.push({ matchCount: batch / 2, feedsFromWinnersRound: r });
-      pool = batch / 2;
+      // First losers to arrive this cycle - nothing to consolidate against
+      // yet, so they just play each other directly.
+      const hasBye = batch % 2 === 1;
+      const realMatches = Math.floor(batch / 2);
+      const boxCount = realMatches + (hasBye ? 1 : 0);
+      losersRounds.push({ boxCount, realMatches, hasBye, feedsFromWinnersRound: r, crossMatches: 0 });
+      pool = boxCount;
     } else {
-      // Consolidate existing survivors down until the pool matches this
-      // round's incoming batch size (by construction this is always exactly
-      // one halving, since each winners round produces half as many losers
-      // as the round before it).
+      // Consolidate the existing pool down (pure survivor-vs-survivor
+      // rounds) until it's no larger than this round's incoming batch.
       while (pool > batch) {
-        losersRounds.push({ matchCount: pool / 2, feedsFromWinnersRound: null });
-        pool = pool / 2;
+        const hasBye = pool % 2 === 1;
+        const realMatches = Math.floor(pool / 2);
+        const boxCount = realMatches + (hasBye ? 1 : 0);
+        losersRounds.push({ boxCount, realMatches, hasBye, feedsFromWinnersRound: null, crossMatches: 0 });
+        pool = boxCount;
       }
-      losersRounds.push({ matchCount: batch, feedsFromWinnersRound: r });
-      pool = batch;
+      if (pool === batch) {
+        // Pool lines up exactly with the incoming batch - classic 1:1
+        // merge, every waiting survivor gets a fresh loser to play.
+        losersRounds.push({ boxCount: batch, realMatches: batch, hasBye: false, feedsFromWinnersRound: r, crossMatches: batch });
+        pool = batch;
+      } else {
+        // pool < batch: not enough waiting survivors to pair against every
+        // new loser. `pool` of them get a 1:1 cross-match; the leftover new
+        // losers pair off among themselves (with a bye if there's an odd
+        // one out).
+        const leftover = batch - pool;
+        const leftoverHasBye = leftover % 2 === 1;
+        const leftoverRealMatches = Math.floor(leftover / 2);
+        const leftoverBoxCount = leftoverRealMatches + (leftoverHasBye ? 1 : 0);
+        losersRounds.push({
+          boxCount: pool + leftoverBoxCount,
+          realMatches: pool + leftoverRealMatches,
+          hasBye: leftoverHasBye,
+          feedsFromWinnersRound: r,
+          crossMatches: pool,
+        });
+        pool = pool + leftoverBoxCount;
+      }
     }
+  }
+  // Once the winners bracket is exhausted, keep consolidating any remaining
+  // losers-bracket pool down to a single champion.
+  while (pool > 1) {
+    const hasBye = pool % 2 === 1;
+    const realMatches = Math.floor(pool / 2);
+    const boxCount = realMatches + (hasBye ? 1 : 0);
+    losersRounds.push({ boxCount, realMatches, hasBye, feedsFromWinnersRound: null, crossMatches: 0 });
+    pool = boxCount;
   }
 
   return { winnersRounds, losersRounds };
