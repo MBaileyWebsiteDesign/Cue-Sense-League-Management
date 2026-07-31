@@ -8,16 +8,25 @@
 // unauthenticated embeddable bracket page.
 //
 // Why the "two halves converging on a centre Final" layout works for *any*
-// bracket size: a single-elimination bracket is a strict binary tree where
+// bracket shape: a single-elimination bracket is a strict binary tree where
 // round r's fixture at index i feeds round r+1's fixture at index
-// floor(i/2) (see server/src/index.js's generateKnockoutFixtures). Working
-// that recurrence backwards from the Final, the semi-final round always has
-// exactly 2 matches - one whose lineage is entirely the *first* half of
-// every earlier round's fixture list (in seed order), one entirely the
-// *second* half. So splitting each round's matches down the middle and
-// rendering the first half as the left-hand side, the second half as the
-// right, always produces a structurally correct two-sided bracket, however
-// many rounds deep it goes.
+// floor(i/2) (see server/src/index.js's generateKnockoutFixtures). The
+// semi-final round always has exactly 2 matches when there's more than one
+// round total - one whose lineage is entirely the *left* subtree, one
+// entirely the *right*. Which round-1 (and every intermediate round's)
+// matches belong to which side is computed by walking that same floor(i/2)
+// parent relationship backwards from the semi-final's two known boxes
+// (see computeSides below) - NOT by naively cutting each round's match list
+// in half. A naive half-split only produces a correct bracket when every
+// round's box count is even and each side's subtree is the same depth,
+// which buildBracketRounds no longer guarantees since byes are now handed
+// out only where a round's box count is structurally odd (see that
+// function's comment) rather than padding the whole field up to a power of
+// two - so a round can have an odd box count, or one side of the draw can
+// reach its final survivor in fewer real rounds than the other (that
+// survivor then sits out - "bye" - in any round the other side is still
+// playing catch-up), and the old half-split logic would silently misplace
+// boxes and produce garbled connector lines whenever that happened.
 //
 // Props:
 //   matches: [{ id, round, home: { name, score }, away: { name, score },
@@ -31,6 +40,41 @@
 //     links there (used to jump to the full scoring page); null/undefined
 //     renders a plain, non-linked box (used on the public embed, which has
 //     nowhere logged-out to send that click).
+// Determines, for every round from round 1 up to (and including) the
+// semi-final round, which side of the draw (0 = left, 1 = right) each of
+// that round's boxes belongs to - i.e. whether its lineage eventually feeds
+// the Final's home slot (semi-final box 0) or away slot (semi-final box 1).
+//
+// Computed top-down, one round at a time, starting from the semi-final
+// (which by definition has exactly 2 boxes whenever there's more than one
+// round total: box 0 = left, box 1 = right) and walking backwards via the
+// exact same floor(i/2) parent-index relationship every round's fixtures
+// were linked with at generation time (see generateKnockoutFixtures) - box
+// i in round r belongs to whichever side box floor(i/2) in round r+1
+// belongs to. Because floor(i/2) is a non-decreasing function of i, the
+// resulting side assignment for every round is always a contiguous run of
+// lefts followed by rights (never interleaved) - which is what lets the
+// caller safely treat each side's own box list as if it were a standalone,
+// self-contained bracket (consecutive local boxes (2i, 2i+1) within one
+// side's list always feed that side's own next-round box i, exactly like
+// columnCenters/the connector-drawing loop below assume) even though the
+// two sides can have different depths or an odd box count partway through
+// - e.g. one side finishing (reaching its own final survivor) in fewer
+// real rounds than the other, in which case that survivor carries forward
+// alone (a box with only one real feeder rather than two) through every
+// round the other side is still catching up, rather than every round
+// needing an equal, even box count the way a strict power-of-two bracket
+// would.
+function computeSides(byRound, sfRound) {
+  const sidesByRound = new Map([[sfRound, [0, 1]]]);
+  for (let r = sfRound - 1; r >= 1; r--) {
+    const boxCount = (byRound.get(r) || []).length;
+    const parentSides = sidesByRound.get(r + 1) || [];
+    sidesByRound.set(r, Array.from({ length: boxCount }, (_, i) => parentSides[Math.floor(i / 2)]));
+  }
+  return sidesByRound;
+}
+
 export default function BracketChart({ matches, totalRounds, fixtureHref }) {
   if (!matches || matches.length === 0 || !totalRounds || totalRounds < 1) {
     return <p className="muted">No bracket to show yet.</p>;
@@ -56,13 +100,19 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
   }
 
   const sfRound = totalRounds - 1;
+  // For every round from the semi-final down to round 1, work out which
+  // side (0 = left, feeds the Final's home slot; 1 = right, feeds away)
+  // each of that round's boxes belongs to - see computeSides below for why
+  // this has to be derived from the actual floor(i/2) parent linkage
+  // rather than assumed from box counts.
+  const sidesByRound = computeSides(byRound, sfRound);
   const leftRounds = [];
   const rightRounds = [];
   for (let r = 1; r <= sfRound; r++) {
     const ms = byRound.get(r) || [];
-    const half = ms.length / 2;
-    leftRounds.push(ms.slice(0, half));
-    rightRounds.push(ms.slice(half));
+    const sides = sidesByRound.get(r) || [];
+    leftRounds.push(ms.filter((_, i) => sides[i] === 0));
+    rightRounds.push(ms.filter((_, i) => sides[i] === 1));
   }
 
   const ROUND_NAMES_FROM_FINAL = ['Final', 'Semi-final', 'Quarter-final', 'Round of 16', 'Round of 32', 'Round of 64'];
@@ -87,7 +137,15 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
   function columnCenters(sideRounds) {
     // Returns, for each round in this side, the y-centre of every match box
     // - round 0 (first round) evenly fills the full height; every round
-    // after that is centred between its two feeder boxes.
+    // after that is centred on its feeder box(es) from the round before.
+    // Usually that's a real pair (two boxes averaging together, same as a
+    // normal bracket round) - but a box can also have only ONE real feeder,
+    // when this side reaches its own lone survivor before the other side
+    // does (see the header comment): that survivor then carries forward,
+    // unpaired, through however many more rounds the other side still
+    // needs, each one a box with a single child rather than two. Handle
+    // that by falling back to the one real child's y unchanged instead of
+    // averaging with a second child that doesn't exist.
     const centers = [];
     sideRounds.forEach((roundMatches, r) => {
       if (r === 0) {
@@ -95,7 +153,11 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
         centers.push(roundMatches.map((_, i) => TOP_MARGIN + (i + 0.5) * (usable / roundMatches.length)));
       } else {
         const prev = centers[r - 1];
-        centers.push(roundMatches.map((_, i) => (prev[i * 2] + prev[i * 2 + 1]) / 2));
+        centers.push(roundMatches.map((_, i) => {
+          const c1 = prev[i * 2];
+          const c2 = prev[i * 2 + 1];
+          return c2 === undefined ? c1 : (c1 + c2) / 2;
+        }));
       }
     });
     return centers;
@@ -144,23 +206,25 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
           />
         );
       });
-      // Connectors from this round to the next (if there is one).
+      // Connectors from this round to the next (if there is one) - one
+      // line per box in this round, drawn to wherever its own parent box
+      // ended up (see columnCenters above - that parent might be shared
+      // with a sibling box, or might be this box's only feeder if it's
+      // carrying forward alone). Drawing per-source-box like this, rather
+      // than assuming boxes always come in feeder pairs, is what makes
+      // this correct for an odd box count too.
       if (r < sideRounds.length - 1) {
         const nextX = sideBoxX(side, r + 1);
-        for (let i = 0; i < roundMatches.length; i += 2) {
-          const y1 = centers[r][i];
-          const y2 = centers[r][i + 1];
-          const boxEdgeX = side === 'left' ? x + BOX_W : x;
-          const nextEdgeX = side === 'left' ? nextX : nextX + BOX_W;
+        const boxEdgeX = side === 'left' ? x + BOX_W : x;
+        const nextEdgeX = side === 'left' ? nextX : nextX + BOX_W;
+        roundMatches.forEach((_, i) => {
+          const y = centers[r][i];
+          const parentY = centers[r + 1][Math.floor(i / 2)];
           elements.push(
             <path key={`${side}-conn-${r}-${i}`} className="bracket-connector"
-              d={connectorPath(side, boxEdgeX, y1, nextEdgeX, y1)} fill="none" />
+              d={connectorPath(side, boxEdgeX, y, nextEdgeX, parentY)} fill="none" />
           );
-          elements.push(
-            <path key={`${side}-conn-${r}-${i + 1}`} className="bracket-connector"
-              d={connectorPath(side, boxEdgeX, y2, nextEdgeX, y2)} fill="none" />
-          );
-        }
+        });
       } else {
         // Last column on this side -> the Final box in the centre.
         const finalX = centerX - BOX_W / 2;
