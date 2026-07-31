@@ -109,7 +109,11 @@ function DivisionRounds({ divisionId }) {
 
   return (
     <section className="card">
-      <p><Link to="/admin/manage-fixtures">&larr; Back to Manage Fixtures</Link></p>
+      <p>
+        <Link to="/admin/manage-fixtures">&larr; Back to Manage Fixtures</Link>
+        {' · '}
+        <Link to={`/divisions/${division.id}`}>&larr; Back to {division.name}</Link>
+      </p>
       <div className="page-header">
         <h2>{division.name} — Rounds</h2>
         <Link to={`/divisions/${division.id}`}>Open division page</Link>
