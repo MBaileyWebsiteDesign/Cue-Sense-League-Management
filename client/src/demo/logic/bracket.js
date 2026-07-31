@@ -2,80 +2,59 @@
 //
 // Returns an array of rounds. Round 0 is the first round: each entry is a
 // pair `[entrantA, entrantB]` where either side may be `null` if there
-// weren't enough entrants to fill the bracket evenly (a "bye" - the other
-// side advances automatically, no match played). Rounds after the first are
-// returned only as a *count* of matches (pairs of `null`), since who plays
-// in them depends on results that don't exist yet - the caller links
-// fixtures across rounds via nextFixtureId/nextFixtureSlot instead.
+// weren't enough entrants to pair evenly (a "bye" - the other side advances
+// automatically, no match played). Rounds after the first are returned only
+// as a *count* of matches (pairs of `null`), since who plays in them
+// depends on results that don't exist yet - the caller links fixtures
+// across rounds via nextFixtureId/nextFixtureSlot instead (and marks the
+// resulting bye box's byeSlot - see generateKnockoutFixtures).
 //
 // No real seeding (e.g. by past performance) is implemented - entrants are
 // paired in the order they're given. That's a reasonable v1 default; proper
 // seeding is a small, isolated improvement for later (sort `entrantIds`
-// before calling this). Byes ARE spread deliberately though - see
-// distributeByeSlots below - since which first-round slots get a bye
-// directly determines how the two-sided bracket chart (client's
-// BracketChart, which splits round 1 straight down the middle into a left
-// half and a right half) looks, and an uneven bye split there isn't just a
-// display quirk: it makes one half of the actual draw easier than the
-// other, since the players who land in that half play fewer real matches
-// to reach the same round.
+// before calling this).
+//
+// Byes are only ever given when a round's entrant/survivor count is ODD -
+// never to pad the field up to a power of two. E.g. 6 entrants play 3 real
+// first-round matches (nobody sits out); the resulting 3 survivors are an
+// odd number, so *that* round gives exactly one of them a bye into the
+// round after. This is deliberately different from the more common "pad to
+// the next power of two, front-load every resulting bye into round 1"
+// scheme - that scheme means someone can skip playing an actual match
+// entirely even when the field is otherwise a perfectly even number (e.g.
+// 6 people forced into an 8-slot bracket, 2 of whom never play a first
+// round at all). Building the bracket round-by-round like this instead
+// means a bye only ever happens where it's structurally unavoidable - and,
+// since at most one entrant per round can ever get one, there's no need to
+// spread multiple byes evenly across the draw the way the old scheme did.
 export function buildBracketRounds(entrantIds) {
   if (entrantIds.length < 2) return [];
 
-  let bracketSize = 1;
-  while (bracketSize < entrantIds.length) bracketSize *= 2;
-
-  const pairsCount = bracketSize / 2;
-  const byes = bracketSize - entrantIds.length;
-  // `byes` is always < pairsCount (bracketSize is the *smallest* power of 2 that
-  // fits the entrants, so more than half the bracket is always real entrants).
-  const byeSlots = distributeByeSlots(pairsCount, byes);
+  const n = entrantIds.length;
+  const firstRoundRealMatches = Math.floor(n / 2);
+  const hasFirstRoundBye = n % 2 === 1;
 
   const firstRoundPairs = [];
   let idx = 0;
-  for (let p = 0; p < pairsCount; p++) {
-    if (byeSlots[p]) {
-      firstRoundPairs.push([entrantIds[idx], null]);
-      idx += 1;
-    } else {
-      firstRoundPairs.push([entrantIds[idx], entrantIds[idx + 1]]);
-      idx += 2;
-    }
+  for (let p = 0; p < firstRoundRealMatches; p++) {
+    firstRoundPairs.push([entrantIds[idx], entrantIds[idx + 1]]);
+    idx += 2;
+  }
+  if (hasFirstRoundBye) {
+    firstRoundPairs.push([entrantIds[idx], null]);
   }
 
   const rounds = [firstRoundPairs];
-  let roundSize = pairsCount;
-  while (roundSize >= 2) {
-    roundSize = roundSize / 2;
-    rounds.push(Array.from({ length: roundSize }, () => [null, null]));
+  // Every box in a round (real match or bye) produces exactly one winner,
+  // so the next round's box count is always ceil(current / 2) - not an
+  // exact halving, since an odd count needs one bye box to mop up the
+  // leftover survivor.
+  let survivors = firstRoundPairs.length;
+  while (survivors > 1) {
+    survivors = Math.ceil(survivors / 2);
+    rounds.push(Array.from({ length: survivors }, () => [null, null]));
   }
   return rounds;
-}
-
-// Marks which of `slotCount` first-round pair slots get a bye, spreading
-// `byeCount` of them as evenly as possible across the whole range by
-// recursively halving it: each half gets byeCount/2 (rounded), so no half -
-// and, one level down, no quarter - absorbs a disproportionate share.
-// slotCount is always a power of two (it's `bracketSize / 2` from the
-// caller) so the halving always divides evenly. This also guarantees no
-// pair ends up as bye-vs-bye (each bye slot only ever holds one entrant),
-// since byeCount is always < slotCount - see the caller's comment.
-function distributeByeSlots(slotCount, byeCount) {
-  const slots = new Array(slotCount).fill(false);
-  function assign(start, count, byes) {
-    if (byes <= 0 || count === 0) return;
-    if (count === 1) {
-      slots[start] = true; // byes >= 1 here since we returned above otherwise
-      return;
-    }
-    const half = count / 2;
-    const leftByes = Math.ceil(byes / 2);
-    const rightByes = byes - leftByes;
-    assign(start, half, leftByes);
-    assign(start + half, half, rightByes);
-  }
-  assign(0, slotCount, byeCount);
-  return slots;
 }
 
 // Double-elimination bracket seeding.

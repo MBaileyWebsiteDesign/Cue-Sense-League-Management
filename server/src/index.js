@@ -484,11 +484,12 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
 //   plays everyone once), "round_robin_double" (Round Robin - Double,
 //   everyone plays everyone twice - a home leg and an away leg with sides
 //   swapped, see services/roundRobin.js), "knockout_single_elim"
-//   (single-elimination bracket, byes if the entrant count isn't a power of
-//   2), or "knockout_double_elim" (winners bracket + losers bracket + Grand
-//   Final, with a bracket-reset decider if the losers-bracket finalist wins
-//   the Grand Final - requires an exact power-of-2 entrant count, see
-//   services/bracket.js). This can differ per division from the league's
+//   (single-elimination bracket, byes only in a round whose survivor count
+//   is odd - never just to pad up to a power of two), or "knockout_double_elim"
+//   (winners bracket + losers bracket + Grand Final, with a bracket-reset
+//   decider if the losers-bracket finalist wins the Grand Final - requires
+//   an exact power-of-2 entrant count, see services/bracket.js). This can
+//   differ per division from the league's
 //   own default, since a league often runs its regular season as a round
 //   robin but a separate cup division as a knockout.
 
@@ -1252,6 +1253,12 @@ function makeSinglesFixture({ league, division, round }) {
     winnerPlayerId: null,
     nextFixtureId: null,
     nextFixtureSlot: null,
+    // Knockout only: set to 'home' or 'away' when this fixture structurally
+    // can never receive an entrant on that side (a bye, from a round whose
+    // survivor count was odd - see buildBracketRounds/generateKnockoutFixtures).
+    // null for every non-knockout fixture and every genuine two-sided
+    // knockout fixture.
+    byeSlot: null,
     // Double-elimination only (bracketRole stays 'single' for round robin and
     // single-elimination fixtures, which don't use any of the fields below).
     bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
@@ -1292,6 +1299,8 @@ function makeTeamFixture({ league, division, round }) {
     winnerTeamId: null,
     nextFixtureId: null,
     nextFixtureSlot: null,
+    // See makeSinglesFixture's byeSlot comment - same meaning here.
+    byeSlot: null,
     bracketRole: 'single',
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -1351,13 +1360,17 @@ function propagateWinner(db, division, fixture, winnerId) {
   } else {
     next.awayPlayerId = winnerId;
   }
-  // NB: do NOT call resolveByeIfNeeded here. A bye (a slot that will never be
-  // filled) can only ever occur in the very first round, where the bracket
-  // was seeded with an uneven entrant count - that's resolved once, right
-  // after seeding. From round 2 onward, a slot being empty just means "the
-  // other semi-final hasn't been played yet", not a bye - filling one side of
-  // a two-sided fixture must never auto-declare a winner. The match still has
-  // to be played once both real entrants have arrived.
+  // `next` might structurally never receive a second entrant - see
+  // generateKnockoutFixtures, which marks byeSlot on any fixture created
+  // from a round whose survivor count was odd (so its last box only ever
+  // gets one real feeder). If so, the slot we just filled is next's only
+  // real entrant, so it's already decided - resolve it immediately and
+  // keep propagating, rather than waiting for a match that will never be
+  // played. A genuine two-sided fixture (byeSlot left null) is left alone
+  // here: an empty side there just means "the other semi-final hasn't been
+  // played yet", not a bye - filling one side of a real fixture must never
+  // auto-declare a winner.
+  if (next.byeSlot) resolveByeIfNeeded(db, division, next);
 }
 
 // Double-elimination only: sends the LOSER of a winners-bracket fixture down
@@ -1418,18 +1431,31 @@ function generateKnockoutFixtures({ db, league, division, entrantIds }) {
     pairs.map(() => makeFixture({ league, division, round: roundIndex + 1 }))
   );
 
-  // Link each fixture to the one its winner advances to.
+  // Link each fixture to the one its winner advances to. When a round has
+  // an odd number of boxes, its last box (index count-1, always even)
+  // maps alone into the next round's last box's 'home' slot - nothing ever
+  // maps to that box's 'away' slot, so it's marked byeSlot: 'away' below
+  // and resolves itself automatically the moment its one real feeder
+  // concludes (see propagateWinner).
   for (let round = 0; round < fixturesByRound.length - 1; round++) {
-    fixturesByRound[round].forEach((fixture, i) => {
-      const next = fixturesByRound[round + 1][Math.floor(i / 2)];
+    const thisRound = fixturesByRound[round];
+    const nextRound = fixturesByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
       fixture.nextFixtureId = next.id;
       fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
     });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
   }
 
-  // Seed round 1 with the real entrants.
+  // Seed round 1 with the real entrants (marking its own bye box, if any -
+  // same byeSlot field every later round uses, so propagateWinner only
+  // needs one code path regardless of which round a bye falls in).
   bracketRounds[0].forEach(([a, b], i) => {
     const fixture = fixturesByRound[0][i];
+    if (b === null) fixture.byeSlot = 'away';
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
       fixture.awayTeamId = b;
