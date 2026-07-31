@@ -1748,12 +1748,10 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
   if (division.scheduling === 'knockout_single_elim') {
     generateKnockoutFixtures({ db, league, division, entrantIds });
   } else if (division.scheduling === 'knockout_double_elim') {
-    if (entrantIds.length < 4 || entrantIds.length % 2 !== 0) {
-      const entrantNoun = entrantLabel === 'teams' ? 'a team' : entrantLabel === 'pairings' ? 'a pairing' : 'a player';
+    if (entrantIds.length < 4) {
       throw new ApiError(
         400,
-        `Double elimination requires an even number of ${entrantLabel} (4 or more) - ` +
-          `you have ${entrantIds.length}. Add or remove ${entrantNoun} to reach an even number.`
+        `Double elimination needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
       );
     }
     generateDoubleElimFixtures({ db, league, division, entrantIds });
@@ -2797,12 +2795,18 @@ app.get('/api/public/leagues/:id/fixtures', asyncRoute((req, res) => {
 // same way: reuse buildOverlayFixture (already computes entrant names,
 // scores, bothEntrantsKnown and who won) rather than re-deriving any of
 // that, and respect isRoundVisible so an embed can never show a round
-// before an admin has released it. Only meaningful for a single-elimination
-// knockout division (a flat standings table/fixture list, or a
-// double-elimination division's two-bracket-plus-decider shape, don't fit
-// the "two sides converging on a Final" chart this is built for) - any
-// other scheduling type gets a 400 rather than a best-effort guess at
-// rendering something.
+// before an admin has released it. Supports both single- and
+// double-elimination knockout divisions (round robin's flat standings
+// table doesn't fit either chart shape, so anything else still gets a 400)
+// - which shape the client should render is told apart by the `scheduling`
+// field in the response, since single-elimination's chart needs `matches`
+// grouped by a flat `round` plus `totalRounds`, while double-elimination's
+// needs each match's `bracketRole`/`nextFixtureId`/`loserNextFixtureId`/
+// `resetFixtureId` links instead (see DoubleElimBracketChart.jsx - unlike
+// the authenticated division page, this is the only place that chart is
+// ever handed those links without also being logged in, so they're
+// deliberately included here even though the rest of this endpoint is
+// otherwise a deliberately trimmed-down public view).
 function buildPublicBracketMatch(db, division, league, fixture) {
   const overlay = buildOverlayFixture(db, division, league, fixture);
   return {
@@ -2817,19 +2821,31 @@ function buildPublicBracketMatch(db, division, league, fixture) {
   };
 }
 
+function buildPublicDoubleElimMatch(db, division, league, fixture) {
+  return {
+    ...buildPublicBracketMatch(db, division, league, fixture),
+    bracketRole: fixture.bracketRole,
+    nextFixtureId: fixture.nextFixtureId || null,
+    loserNextFixtureId: fixture.loserNextFixtureId || null,
+    resetFixtureId: fixture.resetFixtureId || null,
+  };
+}
+
 app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  if (division.scheduling !== 'knockout_single_elim') {
-    throw new ApiError(400, 'This endpoint only supports single-elimination knockout divisions');
+  const isDoubleElim = division.scheduling === 'knockout_double_elim';
+  if (division.scheduling !== 'knockout_single_elim' && !isDoubleElim) {
+    throw new ApiError(400, 'This endpoint only supports single- or double-elimination knockout divisions');
   }
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const hydrated = hydrateDivision(db, division);
 
-  const matches = hydrated.fixtures
-    .filter((f) => isRoundVisible(division, f.round))
-    .map((f) => buildPublicBracketMatch(db, division, league, f));
+  const visibleFixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
+  const matches = isDoubleElim
+    ? visibleFixtures.map((f) => buildPublicDoubleElimMatch(db, division, league, f))
+    : visibleFixtures.map((f) => buildPublicBracketMatch(db, division, league, f));
 
   res.json({
     divisionId: division.id,
@@ -2837,8 +2853,9 @@ app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
     leagueId: division.leagueId,
     leagueName: league ? league.name : null,
     entryType: division.entryType,
+    scheduling: division.scheduling,
     status: division.status || 'active',
-    totalRounds: hydrated.totalRounds,
+    totalRounds: isDoubleElim ? null : hydrated.totalRounds,
     generatedAt: new Date().toISOString(),
     matches,
   });

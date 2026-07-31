@@ -267,7 +267,7 @@ export default function LeagueDetail() {
               <option value="round_robin_single">Round Robin - Single (everyone plays each other once)</option>
               <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
               <option value="knockout_single_elim">Knockout (single elimination)</option>
-              <option value="knockout_double_elim">Knockout (double elimination - needs 4/8/16/32 entrants)</option>
+              <option value="knockout_double_elim">Knockout (double elimination)</option>
             </select>
           </label>
           <button className="btn btn-primary" type="submit">

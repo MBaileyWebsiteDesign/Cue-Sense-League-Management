@@ -943,6 +943,16 @@ export default function DivisionDetail() {
           <p className="muted" style={{ fontSize: '0.8rem', marginTop: 8 }}>
             Dashed lines show a loser dropping from the Winners Bracket into the Losers Bracket.
           </p>
+          <p style={{ marginTop: 8 }}>
+            <Link to={`/public/divisions/${division.id}/bracket`}>View public Bracket &rarr;</Link>
+          </p>
+          {isAdmin && (
+            <p className="muted" style={{ fontSize: '0.8rem' }}>
+              That link is a live, unauthenticated page meant to be embedded elsewhere (e.g. an
+              &lt;iframe&gt; on another site) - copy the URL from your browser's address bar once you're on
+              the page.
+            </p>
+          )}
         </section>
       )}
 
