@@ -262,7 +262,7 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
   );
 }
 
-function MatchBox({ match, label, href, x, y, width = 176, height = 56, isFinal }) {
+export function MatchBox({ match, label, href, x, y, width = 176, height = 56, isFinal }) {
   const winnerSide = match.status === 'completed' ? match.winnerSide : null;
   const content = (
     <g>
@@ -284,7 +284,7 @@ function MatchBox({ match, label, href, x, y, width = 176, height = 56, isFinal 
   ) : content;
 }
 
-function EntrantRow({ entrant, won, x, y, width, rowHeight }) {
+export function EntrantRow({ entrant, won, x, y, width, rowHeight }) {
   const name = entrant?.name || 'TBD';
   return (
     <g>
