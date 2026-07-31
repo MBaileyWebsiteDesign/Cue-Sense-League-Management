@@ -10,7 +10,19 @@ export default function LeagueList() {
   const { isAdmin } = useAuth();
   const [leagues, setLeagues] = useState([]);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ name: '', raceTo: 6 });
+  // "Race to (frames)" is the raw value the server stores and every match
+  // uses to decide when a fixture is done (see server/src/index.js's frame
+  // recording - it already stops a match the moment one side reaches the
+  // target, without playing out frames that can no longer change the
+  // result). "Best of (frames)" is just a different way for an admin to
+  // express the same target using how pool leagues usually talk about
+  // match length ("best of 3", "best of 5"...) - best of X frames means
+  // first to (X+1)/2 wins, which only makes sense for an odd X (an even
+  // "best of" could end level). Whichever mode is selected, only the
+  // resulting raceTo number is ever sent to the server - there's no
+  // separate "format mode" stored anywhere, since the two are otherwise
+  // identical once converted.
+  const [form, setForm] = useState({ name: '', formatMode: 'raceTo', formatValue: 6 });
   const [showForm, setShowForm] = useState(false);
 
   const load = () => api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
@@ -22,9 +34,24 @@ export default function LeagueList() {
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    const formatValue = Number(form.formatValue);
+    let raceTo;
+    if (form.formatMode === 'bestOf') {
+      if (!Number.isInteger(formatValue) || formatValue < 1 || formatValue % 2 === 0) {
+        setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
+        return;
+      }
+      raceTo = (formatValue + 1) / 2;
+    } else {
+      if (!Number.isInteger(formatValue) || formatValue < 1) {
+        setError('Race to (frames) must be a whole number of 1 or more');
+        return;
+      }
+      raceTo = formatValue;
+    }
     try {
-      await api.createLeague({ name: form.name, raceTo: Number(form.raceTo) });
-      setForm({ name: '', raceTo: 6 });
+      await api.createLeague({ name: form.name, raceTo });
+      setForm({ name: '', formatMode: 'raceTo', formatValue: 6 });
       setShowForm(false);
       load();
     } catch (err) {
@@ -55,14 +82,39 @@ export default function LeagueList() {
             />
           </label>
           <label>
-            Race to (frames)
+            Match format
+            <select
+              value={form.formatMode}
+              onChange={(e) => setForm({ ...form, formatMode: e.target.value })}
+            >
+              <option value="raceTo">Race to (frames)</option>
+              <option value="bestOf">Best of (frames)</option>
+            </select>
+          </label>
+          <label>
+            {form.formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
             <input
               type="number"
               min="1"
-              value={form.raceTo}
-              onChange={(e) => setForm({ ...form, raceTo: e.target.value })}
+              step={form.formatMode === 'bestOf' ? 2 : 1}
+              value={form.formatValue}
+              onChange={(e) => setForm({ ...form, formatValue: e.target.value })}
               required
             />
+            {form.formatMode === 'bestOf' && (() => {
+              const v = Number(form.formatValue);
+              if (!Number.isInteger(v) || v < 1) return null;
+              return v % 2 === 0 ? (
+                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                  Best of must be an odd number, so it can't end level.
+                </span>
+              ) : (
+                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                  = Race to {(v + 1) / 2} - first to {(v + 1) / 2} frame{(v + 1) / 2 === 1 ? '' : 's'} wins the
+                  match; any frames that can no longer affect the result aren't played.
+                </span>
+              );
+            })()}
           </label>
           <button className="btn btn-primary" type="submit">
             Create League
