@@ -2788,6 +2788,65 @@ app.get('/api/public/leagues/:id/fixtures', asyncRoute((req, res) => {
   });
 }));
 
+// ---------- Public: Division Table & Division Fixtures (embeddable pages) ----------
+// Same reasoning/pattern as the League Table/Fixtures endpoints above, but
+// scoped to a single division rather than every division in a league - for
+// embedding one division's standings/fixtures on its own page elsewhere
+// (e.g. a dedicated "Division 3" page on another site), rather than a whole
+// league's worth of divisions on one embed.
+
+app.get('/api/public/divisions/:id/table', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  const hydrated = hydrateDivision(db, division);
+
+  res.json({
+    divisionId: division.id,
+    divisionName: division.name,
+    leagueId: division.leagueId,
+    leagueName: league ? league.name : null,
+    entryType: division.entryType,
+    scheduling: division.scheduling,
+    status: division.status || 'active',
+    generatedAt: new Date().toISOString(),
+    standings: hydrated.standings,
+  });
+}));
+
+app.get('/api/public/divisions/:id/fixtures', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+
+  const fixtures = db.fixtures
+    .filter((f) => f.divisionId === division.id)
+    .filter((f) => isRoundVisible(division, f.round))
+    .map((f) => buildPublicFixture(db, division, league, f))
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aDone = a.status === 'completed';
+      const bDone = b.status === 'completed';
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
+      if (!a.scheduledDate && !b.scheduledDate) return 0;
+      if (!a.scheduledDate) return 1;
+      if (!b.scheduledDate) return -1;
+      return new Date(a.scheduledDate) - new Date(b.scheduledDate);
+    });
+
+  res.json({
+    divisionId: division.id,
+    divisionName: division.name,
+    leagueId: division.leagueId,
+    leagueName: league ? league.name : null,
+    generatedAt: new Date().toISOString(),
+    fixtures,
+  });
+}));
+
 // ---------- Public: Division Bracket (embeddable page) ----------
 // A read-only, unauthenticated view of one single-elimination knockout
 // division's bracket - same "no login available to an embedded page"

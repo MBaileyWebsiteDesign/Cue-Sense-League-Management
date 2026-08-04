@@ -38,6 +38,8 @@ const Arena = lazy(() => import('./pages/Arena.jsx'));
 const PublicLeagueTable = lazy(() => import('./pages/PublicLeagueTable.jsx'));
 const PublicLeagueFixtures = lazy(() => import('./pages/PublicLeagueFixtures.jsx'));
 const PublicDivisionBracket = lazy(() => import('./pages/PublicDivisionBracket.jsx'));
+const PublicDivisionTable = lazy(() => import('./pages/PublicDivisionTable.jsx'));
+const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures.jsx'));
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
@@ -249,6 +251,28 @@ export default function App() {
         element={
           <Suspense fallback={null}>
             <PublicDivisionBracket />
+          </Suspense>
+        }
+      />
+      {/* Standalone, unauthenticated routes for the embeddable Division
+          Table / Division Fixtures pages - one division's standings or
+          fixtures on their own, e.g. for a dedicated per-division page on
+          another site. Same pattern as the League Table/Fixtures and
+          Bracket routes above. See DivisionDetail.jsx for where these
+          links are surfaced to admins. */}
+      <Route
+        path="/public/divisions/:divisionId/table"
+        element={
+          <Suspense fallback={null}>
+            <PublicDivisionTable />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/public/divisions/:divisionId/fixtures"
+        element={
+          <Suspense fallback={null}>
+            <PublicDivisionFixtures />
           </Suspense>
         }
       />

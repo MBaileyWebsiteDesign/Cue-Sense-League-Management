@@ -2278,6 +2278,66 @@ export const demoApi = {
     };
   }),
 
+  // Public Division Table / Division Fixtures (embeddable pages) - mirrors
+  // server/src/index.js's GET /api/public/divisions/:id/table and
+  // GET /api/public/divisions/:id/fixtures.
+  getPublicDivisionTable: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    const hydrated = hydrateDivision(division);
+    return {
+      divisionId: division.id,
+      divisionName: division.name,
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : null,
+      entryType: division.entryType,
+      scheduling: division.scheduling,
+      status: division.status || 'active',
+      generatedAt: new Date().toISOString(),
+      standings: hydrated.standings,
+    };
+  }),
+
+  getPublicDivisionFixtures: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+
+    const buildPublicFixture = (fixture) => ({
+      ...buildOverlayFixture(fixture),
+      divisionId: division.id,
+      round: fixture.round,
+      scheduledDate: fixture.scheduledDate,
+      scheduledTime: fixture.scheduledTime,
+    });
+
+    const fixtures = db.fixtures
+      .filter((f) => f.divisionId === division.id)
+      .filter((f) => isRoundVisible(division, f.round))
+      .map(buildPublicFixture)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aDone = a.status === 'completed';
+        const bDone = b.status === 'completed';
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
+        if (!a.scheduledDate && !b.scheduledDate) return 0;
+        if (!a.scheduledDate) return 1;
+        if (!b.scheduledDate) return -1;
+        return new Date(a.scheduledDate) - new Date(b.scheduledDate);
+      });
+
+    return {
+      divisionId: division.id,
+      divisionName: division.name,
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : null,
+      generatedAt: new Date().toISOString(),
+      fixtures,
+    };
+  }),
+
   // Public Division Bracket (embeddable page) - mirrors server/src/index.js's
   // GET /api/public/divisions/:id/bracket, including double-elimination
   // support (see that file's comment for the full reasoning).

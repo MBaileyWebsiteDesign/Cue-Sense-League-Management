@@ -912,6 +912,19 @@ export default function DivisionDetail() {
         </table>
       </section>
 
+      <p>
+        <Link to={`/public/divisions/${division.id}/table`}>View public Division Table &rarr;</Link>
+        {' · '}
+        <Link to={`/public/divisions/${division.id}/fixtures`}>View public Division Fixtures &rarr;</Link>
+      </p>
+      {isAdmin && (
+        <p className="muted" style={{ fontSize: '0.8rem' }}>
+          The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
+          &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
+          the page.
+        </p>
+      )}
+
       {isSingleElimKnockout && division.fixturesGenerated && division.fixtures.length > 0 && (
         <section className="card">
           <h2>Bracket</h2>
