@@ -47,6 +47,9 @@ const EMPTY_STATE = {
   tours: [],
   rollOfHonour: [],
   apiKeys: [],
+  // League payment wall: one record per (leagueId, playerId) - see
+  // assertPaymentCleared in index.js and POST /api/leagues/:id/payments/:playerId.
+  leaguePayments: [],
 };
 
 function ensureDataFile() {
@@ -85,11 +88,18 @@ export function readDb() {
   if (!state.rollOfHonour) state.rollOfHonour = [];
   // StreamDeck / integration API keys - see userAuth.js's loadApiKeyUser.
   if (!state.apiKeys) state.apiKeys = [];
+  if (!state.leaguePayments) state.leaguePayments = [];
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
   // that route and the Arena display (GET /api/overlay/leagues/:id/arena).
   for (const league of state.leagues) {
     if (!league.tables) league.tables = [];
+    // Payment wall (see assertPaymentCleared in index.js) - every league
+    // created before this feature existed defaults to `required: false`,
+    // exactly like a freshly-created league with the toggle left off.
+    if (!league.payment) {
+      league.payment = { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
+    }
   }
   for (const fixture of state.fixtures) {
     if (fixture.tableId === undefined) fixture.tableId = null;

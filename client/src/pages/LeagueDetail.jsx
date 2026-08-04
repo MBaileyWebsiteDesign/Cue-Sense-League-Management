@@ -63,6 +63,169 @@ function TablesPanel({ league, onChange, setError }) {
   );
 }
 
+// Admin-only panel for the payment wall: turning it on/off and setting the
+// amount + optional window (edits the League record via PATCH), plus - once
+// it's on - a per-player list with Confirm/Waive/Reset actions (see
+// assertPaymentCleared in server/src/index.js for how this gates adding
+// entrants elsewhere). Settings and the player list are deliberately one
+// panel rather than two, since there's nothing useful to show in the player
+// list until the wall is actually turned on.
+function PaymentsPanel({ league, onChange, setError }) {
+  const [editing, setEditing] = useState(false);
+  const [required, setRequired] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [windowStart, setWindowStart] = useState('');
+  const [windowEnd, setWindowEnd] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const [players, setPlayers] = useState([]);
+  const [loadingPlayers, setLoadingPlayers] = useState(false);
+
+  // Re-populate the edit form from the current league every time it's
+  // opened, rather than once on mount - otherwise a second edit after a
+  // save would show stale values from before the first save.
+  useEffect(() => {
+    if (editing) {
+      setRequired(league.payment?.required || false);
+      setAmount(league.payment?.amount || '');
+      setWindowStart(league.payment?.windowStart || '');
+      setWindowEnd(league.payment?.windowEnd || '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  useEffect(() => {
+    if (!league.payment?.required) {
+      setPlayers([]);
+      return;
+    }
+    setLoadingPlayers(true);
+    api.getLeaguePayments(league.id)
+      .then((res) => setPlayers(res.players))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoadingPlayers(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [league.payment?.required, league.id]);
+
+  const onSaveSettings = async (e) => {
+    e.preventDefault();
+    if (required && (!amount || Number(amount) <= 0)) {
+      setError('Entry fee must be a number greater than 0');
+      return;
+    }
+    setError('');
+    setSaving(true);
+    try {
+      await api.updateLeague(league.id, {
+        payment: required
+          ? { required: true, amount: Number(amount), currency: 'GBP', windowStart: windowStart || null, windowEnd: windowEnd || null }
+          : { required: false },
+      });
+      setEditing(false);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onSetStatus = async (playerId, status) => {
+    setError('');
+    try {
+      await api.setLeaguePaymentStatus(league.id, playerId, status);
+      const res = await api.getLeaguePayments(league.id);
+      setPlayers(res.players);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Payment Wall</h2>
+        <button className="btn" type="button" onClick={() => setEditing((v) => !v)}>
+          {editing ? 'Cancel' : league.payment?.required ? 'Edit' : 'Set Up'}
+        </button>
+      </div>
+
+      {!editing && (
+        league.payment?.required ? (
+          <p className="muted">
+            Requires a confirmed £{league.payment.amount} entry fee before a player can be added to any division
+            in this league.
+            {(league.payment.windowStart || league.payment.windowEnd) && (
+              <> Payment window: {league.payment.windowStart || 'no start set'} to {league.payment.windowEnd || 'no end set'}.</>
+            )}
+          </p>
+        ) : (
+          <p className="muted">No payment wall - anyone can be added to this league's divisions for free.</p>
+        )
+      )}
+
+      {editing && (
+        <form className="form" onSubmit={onSaveSettings}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={required} onChange={(e) => setRequired(e.target.checked)} />
+            Require payment to join this league
+          </label>
+          {required && (
+            <>
+              <label>
+                Entry fee (£)
+                <input type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+              </label>
+              <label>
+                Payment window opens (optional)
+                <input type="date" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} />
+              </label>
+              <label>
+                Payment window closes (optional)
+                <input type="date" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} />
+              </label>
+            </>
+          )}
+          <button className="btn btn-primary" type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+      )}
+
+      {league.payment?.required && (
+        <>
+          <h3 style={{ marginTop: 16, marginBottom: 8 }}>Players</h3>
+          {loadingPlayers && <p className="muted">Loading…</p>}
+          <ul className="player-list">
+            {players.map((p) => (
+              <li key={p.playerId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                  {p.playerName} <strong>{p.status}</strong>
+                  {p.status !== 'unpaid' && p.confirmedBy && (
+                    <span className="muted" style={{ fontSize: '0.8rem' }}> - by {p.confirmedBy}</span>
+                  )}
+                </span>
+                <span>
+                  {p.status !== 'confirmed' && (
+                    <button className="btn-link" onClick={() => onSetStatus(p.playerId, 'confirmed')}>confirm paid</button>
+                  )}
+                  {p.status !== 'waived' && (
+                    <button className="btn-link" onClick={() => onSetStatus(p.playerId, 'waived')}>waive</button>
+                  )}
+                  {p.status !== 'unpaid' && (
+                    <button className="btn-link" onClick={() => onSetStatus(p.playerId, 'unpaid')}>reset</button>
+                  )}
+                </span>
+              </li>
+            ))}
+            {players.length === 0 && !loadingPlayers && <li className="muted">No registered players yet.</li>}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
 // Admin-only, collapsed-by-default panel of league-wide destructive admin
 // actions - closing the season early (force-completes outstanding fixtures,
 // but the league and its history stick around) and, below that, permanently
@@ -293,6 +456,8 @@ export default function LeagueDetail() {
       )}
 
       {isAdmin && <TablesPanel league={league} onChange={load} setError={setError} />}
+
+      {isAdmin && <PaymentsPanel league={league} onChange={load} setError={setError} />}
 
       {isAdmin && (
         <ManageLeaguePanel

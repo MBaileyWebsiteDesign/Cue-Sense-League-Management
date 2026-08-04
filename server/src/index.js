@@ -408,7 +408,7 @@ app.get('/api/leagues', requireAuth, asyncRoute((req, res) => {
 }));
 
 app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
-  const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single' } = req.body;
+  const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'League name is required');
 
   const db = readDb();
@@ -423,6 +423,8 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
     // Named physical tables for scheduling fixtures onto - see
     // POST /api/leagues/:id/tables and POST /api/fixtures/:id/schedule.
     tables: [],
+    // Payment wall - see normalizePaymentConfig/assertPaymentCleared below.
+    payment: normalizePaymentConfig(payment),
   };
   db.leagues.push(league);
   writeDb(db);
@@ -471,6 +473,118 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
     .filter((d) => d.leagueId === league.id)
     .sort((a, b) => a.order - b.order);
   res.json({ ...league, divisions });
+}));
+
+// Leagues could previously only be created or deleted, never edited - this
+// is mainly here so the payment wall (amount, window) can be turned on/off
+// or adjusted after a league already exists, but also allows a rename.
+app.patch('/api/leagues/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+
+  if (req.body.name !== undefined) {
+    if (!req.body.name.trim()) throw new ApiError(400, 'League name is required');
+    league.name = req.body.name.trim();
+  }
+  if (req.body.payment !== undefined) {
+    league.payment = normalizePaymentConfig(req.body.payment);
+  }
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.edit',
+    targetType: 'league',
+    targetId: league.id,
+    details: `Updated settings for "${league.name}"`,
+  });
+
+  writeDb(db);
+  res.json(league);
+}));
+
+// ---------- League payments (manual confirmation) ----------
+// A league can require players to have a confirmed (or waived) payment
+// before being added as an entrant to any of its divisions - see
+// assertPaymentCleared, used by every place a player becomes an entrant
+// (singles/team/pairing add, season-wizard import, substitution). Payment
+// is tracked once per (league, player) - not per division - so clearing it
+// for one division's entry covers every other division in the same league
+// too.
+
+// Admin-only: mark a player's payment 'confirmed' (they paid, however that
+// happened outside the app), 'waived' (comp entry - counts the same as
+// confirmed for the purposes of assertPaymentCleared), or back to 'unpaid'.
+// This only gates *future* adds - it never removes someone already in a
+// division.
+app.post('/api/leagues/:id/payments/:playerId', requireAdmin, asyncRoute((req, res) => {
+  const { status, notes = '' } = req.body || {};
+  if (!['confirmed', 'waived', 'unpaid'].includes(status)) {
+    throw new ApiError(400, "status must be 'confirmed', 'waived' or 'unpaid'");
+  }
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  const player = db.players.find((p) => p.id === req.params.playerId);
+  if (!player) throw new ApiError(404, 'Player not found');
+
+  let record = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === player.id);
+  if (!record) {
+    record = {
+      id: uuid(),
+      leagueId: league.id,
+      playerId: player.id,
+      status: 'unpaid',
+      amount: league.payment.amount,
+      currency: league.payment.currency,
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    };
+    db.leaguePayments.push(record);
+  }
+  record.status = status;
+  record.notes = notes;
+  record.confirmedBy = status === 'unpaid' ? null : req.adminSession.label;
+  record.confirmedAt = status === 'unpaid' ? null : new Date().toISOString();
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.payment',
+    targetType: 'league',
+    targetId: league.id,
+    details: `${player.name}: payment marked ${status} for "${league.name}"`,
+  });
+
+  writeDb(db);
+  res.json(record);
+}));
+
+// Lists every registered player against their payment status for this
+// league, for the admin "Payments" tab - includes players with no
+// leaguePayments record yet at all (shown as 'unpaid' without writing one,
+// so just viewing this list never silently creates rows).
+app.get('/api/leagues/:id/payments', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  const recordsByPlayer = new Map(
+    db.leaguePayments.filter((p) => p.leagueId === league.id).map((p) => [p.playerId, p])
+  );
+  const players = registeredPlayers(db).map((player) => {
+    const record = recordsByPlayer.get(player.id);
+    return {
+      playerId: player.id,
+      playerName: player.name,
+      status: record ? record.status : 'unpaid',
+      amount: record ? record.amount : league.payment.amount,
+      currency: record ? record.currency : league.payment.currency,
+      confirmedBy: record ? record.confirmedBy : null,
+      confirmedAt: record ? record.confirmedAt : null,
+      notes: record ? record.notes : '',
+    };
+  });
+  res.json({ league: { id: league.id, name: league.name, payment: league.payment }, players });
 }));
 
 // ---------- Divisions ----------
@@ -623,6 +737,7 @@ function hydrateDivision(db, division) {
     hydrated = { ...division, leagueName, players, fixtures: displayFixtures, standings };
   }
   hydrated.totalRounds = totalRounds;
+  hydrated.leaguePayment = league ? league.payment : null;
 
   // Roll of Honour: rather than hooking every single fixture-completion code
   // path (confirm-result, no-show walkovers, admin overrides, team leg
@@ -880,6 +995,59 @@ app.delete('/api/leagues/:id', requireAdmin, asyncRoute((req, res) => {
 // building a division roster or a team. Demo/seed players created directly
 // in db.players without a linked user (e.g. the seeded Premier League demo
 // data) are NOT included here, since they don't correspond to a real account.
+// ---------- League payment wall helpers ----------
+// `required: false` keeps the shape stable but inert, so every league (even
+// ones that never touch this feature) always has a payment object rather
+// than sometimes having one - callers never need an extra null check.
+function normalizePaymentConfig(input) {
+  const required = !!(input && input.required);
+  if (!required) {
+    return { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
+  }
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new ApiError(400, 'Payment amount must be a number greater than 0');
+  }
+  const windowStart = input.windowStart || null;
+  const windowEnd = input.windowEnd || null;
+  if (windowStart && windowEnd && new Date(windowEnd) < new Date(windowStart)) {
+    throw new ApiError(400, 'Payment window end date cannot be before the start date');
+  }
+  return {
+    required: true,
+    amount,
+    currency: (input.currency || 'GBP').toUpperCase(),
+    windowStart,
+    windowEnd,
+  };
+}
+
+function formatMoney(amount, currency) {
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(amount);
+  } catch {
+    return `${amount} ${currency || 'GBP'}`;
+  }
+}
+
+// Throws unless `playerId` has a confirmed or waived payment record for the
+// league that owns `division` - a no-op when that league doesn't require
+// payment. Called from every place a player becomes an entrant: adding to a
+// singles division, a team, a pairing, and substituting a replacement in
+// (the season wizard's bulk CSV import is deliberately NOT gated here - see
+// the note at POST /api/admin/seasons/:leagueId/import-players for why).
+function assertPaymentCleared(db, division, playerId) {
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  if (!league || !league.payment || !league.payment.required) return;
+  const record = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === playerId);
+  if (record && ['confirmed', 'waived'].includes(record.status)) return;
+  const player = db.players.find((p) => p.id === playerId);
+  throw new ApiError(
+    402,
+    `${player ? player.name : 'This player'} hasn't paid the ${formatMoney(league.payment.amount, league.payment.currency)} entry fee for "${league.name}" yet - confirm or waive their payment from the league's Payments tab before adding them.`
+  );
+}
+
 function registeredPlayers(db) {
   const linkedPlayerIds = new Set(
     db.users.filter((u) => u.status === 'active' && u.playerId).map((u) => u.playerId)
@@ -1028,6 +1196,7 @@ app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
 
   const player = registeredPlayers(db).find((p) => p.id === playerId);
   if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, player.id);
   if (!division.playerIds.includes(player.id)) {
     division.playerIds.push(player.id);
   }
@@ -1094,6 +1263,7 @@ app.post('/api/teams/:teamId/players', asyncRoute((req, res) => {
 
   const player = registeredPlayers(db).find((p) => p.id === playerId);
   if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, player.id);
   if (!team.playerIds.includes(player.id)) {
     team.playerIds.push(player.id);
   }
@@ -1170,6 +1340,7 @@ app.post('/api/pairings/:pairingId/players', asyncRoute((req, res) => {
 
   const player = registeredPlayers(db).find((p) => p.id === playerId);
   if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, player.id);
   if (!pairing.playerIds.includes(player.id)) {
     pairing.playerIds.push(player.id);
   }
@@ -3074,6 +3245,7 @@ app.post('/api/divisions/:id/substitute-player', requireAdmin, asyncRoute((req, 
 
   const incoming = registeredPlayers(db).find((p) => p.id === incomingPlayerId);
   if (!incoming) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, incoming.id);
   const outgoing = db.players.find((p) => p.id === outgoingPlayerId);
 
   const divisionFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
@@ -3411,7 +3583,7 @@ app.get('/api/admin/audit-log', requireAdmin, asyncRoute((req, res) => {
 // the server just receives plain row objects either way.
 
 app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
-  const { name, leagueCount, playersPerLeague } = req.body;
+  const { name, leagueCount, playersPerLeague, payment } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'Season name is required');
   const count = Number(leagueCount);
   const perLeague = Number(playersPerLeague);
@@ -3431,6 +3603,8 @@ app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
     startDate: null,
     endDate: null,
     createdAt: new Date().toISOString(),
+    // Payment wall - see normalizePaymentConfig/assertPaymentCleared above.
+    payment: normalizePaymentConfig(payment),
   };
   db.leagues.push(league);
 
@@ -3465,6 +3639,17 @@ app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
 // password handed back to the admin) unless the email already matches an
 // existing account, in which case that person is just added to the
 // requested division instead of being duplicated.
+//
+// Deliberately NOT hard-gated by assertPaymentCleared like the other four
+// entrant-adding routes: a brand-new player has no leaguePayments record at
+// all yet (there's nothing to have confirmed before their account exists),
+// so a hard block here would make it impossible to bulk-import a fresh
+// roster into a paid season in one step - the entire point of this wizard
+// stage. Instead, anyone imported into a paid league who doesn't already
+// have a confirmed/waived record gets an 'unpaid' one created for them (so
+// they show up on the league's Payments tab) and is returned in
+// `pendingPayment` below, rather than being silently skipped or blocking
+// the whole import.
 app.post('/api/admin/seasons/:leagueId/import-players', requireAdmin, asyncRoute((req, res) => {
   const { rows } = req.body;
   if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(400, 'rows must be a non-empty array');
@@ -3478,6 +3663,7 @@ app.post('/api/admin/seasons/:leagueId/import-players', requireAdmin, asyncRoute
   const created = [];
   const linkedExisting = [];
   const errors = [];
+  const pendingPayment = [];
 
   rows.forEach((row, index) => {
     const rowNum = index + 1;
@@ -3524,6 +3710,30 @@ app.post('/api/admin/seasons/:leagueId/import-players', requireAdmin, asyncRoute
       if (!division.playerIds.includes(user.playerId)) {
         division.playerIds.push(user.playerId);
       }
+
+      if (league.payment.required) {
+        const existingPayment = db.leaguePayments.find(
+          (p) => p.leagueId === league.id && p.playerId === user.playerId
+        );
+        if (existingPayment && ['confirmed', 'waived'].includes(existingPayment.status)) {
+          // already cleared from an earlier season/import - nothing to do.
+        } else if (!existingPayment) {
+          db.leaguePayments.push({
+            id: uuid(),
+            leagueId: league.id,
+            playerId: user.playerId,
+            status: 'unpaid',
+            amount: league.payment.amount,
+            currency: league.payment.currency,
+            confirmedBy: null,
+            confirmedAt: null,
+            notes: '',
+          });
+          pendingPayment.push({ row: rowNum, name: `${user.firstName} ${user.lastName}`, email: user.email, division: division.name });
+        } else {
+          pendingPayment.push({ row: rowNum, name: `${user.firstName} ${user.lastName}`, email: user.email, division: division.name });
+        }
+      }
     } catch (err) {
       errors.push({ row: rowNum, reason: err.message });
     }
@@ -3536,7 +3746,7 @@ app.post('/api/admin/seasons/:leagueId/import-players', requireAdmin, asyncRoute
   // zero successes, not a malformed request, and a 400 here makes the client
   // throw a generic "Request failed: 400" instead of showing the real
   // per-row reasons in `errors`.
-  res.status(created.length + linkedExisting.length > 0 ? 201 : 200).json({ created, linkedExisting, errors });
+  res.status(created.length + linkedExisting.length > 0 ? 201 : 200).json({ created, linkedExisting, errors, pendingPayment });
 }));
 
 // Generates round-robin fixtures for every division in the season that has

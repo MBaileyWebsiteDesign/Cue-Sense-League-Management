@@ -24,6 +24,12 @@ export default function LeagueList() {
   // identical once converted.
   const [form, setForm] = useState({ name: '', formatMode: 'raceTo', formatValue: 6 });
   const [showForm, setShowForm] = useState(false);
+  // Payment wall (optional) - see the League Detail page's Payment Wall
+  // panel for editing this after the league already exists.
+  const [paymentRequired, setPaymentRequired] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentWindowStart, setPaymentWindowStart] = useState('');
+  const [paymentWindowEnd, setPaymentWindowEnd] = useState('');
 
   const load = () => api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
 
@@ -49,9 +55,29 @@ export default function LeagueList() {
       }
       raceTo = formatValue;
     }
+    if (paymentRequired && (!paymentAmount || Number(paymentAmount) <= 0)) {
+      setError('Entry fee must be a number greater than 0');
+      return;
+    }
     try {
-      await api.createLeague({ name: form.name, raceTo });
+      await api.createLeague({
+        name: form.name,
+        raceTo,
+        payment: paymentRequired
+          ? {
+              required: true,
+              amount: Number(paymentAmount),
+              currency: 'GBP',
+              windowStart: paymentWindowStart || null,
+              windowEnd: paymentWindowEnd || null,
+            }
+          : { required: false },
+      });
       setForm({ name: '', formatMode: 'raceTo', formatValue: 6 });
+      setPaymentRequired(false);
+      setPaymentAmount('');
+      setPaymentWindowStart('');
+      setPaymentWindowEnd('');
       setShowForm(false);
       load();
     } catch (err) {
@@ -116,6 +142,50 @@ export default function LeagueList() {
               );
             })()}
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={paymentRequired}
+              onChange={(e) => setPaymentRequired(e.target.checked)}
+            />
+            Require payment to join this league
+          </label>
+          {paymentRequired && (
+            <>
+              <label>
+                Entry fee (£)
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Payment window opens (optional)
+                <input
+                  type="date"
+                  value={paymentWindowStart}
+                  onChange={(e) => setPaymentWindowStart(e.target.value)}
+                />
+              </label>
+              <label>
+                Payment window closes (optional)
+                <input
+                  type="date"
+                  value={paymentWindowEnd}
+                  onChange={(e) => setPaymentWindowEnd(e.target.value)}
+                />
+              </label>
+              <p className="muted" style={{ fontSize: '0.8rem', marginTop: -8 }}>
+                Players can only be added to this league's divisions once their payment is confirmed or waived
+                from the league page.
+              </p>
+            </>
+          )}
           <button className="btn btn-primary" type="submit">
             Create League
           </button>

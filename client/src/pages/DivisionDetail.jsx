@@ -838,6 +838,14 @@ export default function DivisionDetail() {
         </p>
       )}
 
+      {division.leaguePayment?.required && (
+        <p className="banner">
+          This league requires a confirmed £{division.leaguePayment.amount} entry fee before a player can be
+          added here. Manage payments from the{' '}
+          <Link to={`/leagues/${division.leagueId}`}>league page</Link>.
+        </p>
+      )}
+
       {isTeams ? (
         <TeamRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       ) : isDoubles ? (

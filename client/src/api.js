@@ -91,6 +91,10 @@ const networkApi = {
   getLeagues: () => request('/leagues'),
   createLeague: (data) => request('/leagues', { method: 'POST', body: JSON.stringify(data) }),
   getLeague: (id) => request(`/leagues/${id}`),
+  updateLeague: (id, data) => request(`/leagues/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getLeaguePayments: (leagueId) => request(`/leagues/${leagueId}/payments`),
+  setLeaguePaymentStatus: (leagueId, playerId, status, notes) =>
+    request(`/leagues/${leagueId}/payments/${playerId}`, { method: 'POST', body: JSON.stringify({ status, notes }) }),
 
   createDivision: (leagueId, data) =>
     request(`/leagues/${leagueId}/divisions`, { method: 'POST', body: JSON.stringify(data) }),

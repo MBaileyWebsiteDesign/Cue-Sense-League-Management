@@ -118,6 +118,21 @@ function ImportResultSummary({ result }) {
           </ul>
         </>
       )}
+      {result.pendingPayment && result.pendingPayment.length > 0 && (
+        <>
+          <p style={{ margin: '8px 0 4px', fontWeight: 700, color: '#92400e' }}>
+            Added, but still need payment confirmed ({result.pendingPayment.length}):
+          </p>
+          <ul style={{ margin: 0, paddingLeft: 20, color: '#92400e' }}>
+            {result.pendingPayment.map((p) => (
+              <li key={p.email}>{p.name} ({p.email}) - {p.division}</li>
+            ))}
+          </ul>
+          <p className="muted" style={{ fontSize: '0.8rem', marginTop: 4 }}>
+            Confirm or waive each of these from the league's Payments tab once you're done importing.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -196,6 +211,14 @@ export default function AdminSeasonWizard() {
   const [playersPerLeague, setPlayersPerLeague] = useState(8);
   const [league, setLeague] = useState(null); // created season + divisions
 
+  // Payment wall (optional) - applies to the whole season (one League
+  // record), not per sub-league/division - see LeagueDetail's Payment Wall
+  // panel for editing this later.
+  const [paymentRequired, setPaymentRequired] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentWindowStart, setPaymentWindowStart] = useState('');
+  const [paymentWindowEnd, setPaymentWindowEnd] = useState('');
+
   const [importMode, setImportMode] = useState('csv');
   const [parsedRows, setParsedRows] = useState(null);
   const [importResult, setImportResult] = useState(null);
@@ -212,6 +235,10 @@ export default function AdminSeasonWizard() {
   const onStep1Submit = (e) => {
     e.preventDefault();
     if (!seasonName.trim()) { setError('Season name is required'); return; }
+    if (paymentRequired && (!paymentAmount || Number(paymentAmount) <= 0)) {
+      setError('Entry fee must be a number greater than 0');
+      return;
+    }
     setError('');
     setStep(2);
   };
@@ -223,6 +250,15 @@ export default function AdminSeasonWizard() {
     try {
       const created = await api.adminCreateSeason({
         name: seasonName, leagueCount: Number(leagueCount), playersPerLeague: Number(playersPerLeague),
+        payment: paymentRequired
+          ? {
+              required: true,
+              amount: Number(paymentAmount),
+              currency: 'GBP',
+              windowStart: paymentWindowStart || null,
+              windowEnd: paymentWindowEnd || null,
+            }
+          : { required: false },
       });
       setLeague(created);
       setStep(3);
@@ -294,6 +330,42 @@ export default function AdminSeasonWizard() {
             Season name
             <input value={seasonName} onChange={(e) => setSeasonName(e.target.value)} placeholder="e.g. Autumn 2026" required autoFocus />
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={paymentRequired}
+              onChange={(e) => setPaymentRequired(e.target.checked)}
+            />
+            Require payment to join this season
+          </label>
+          {paymentRequired && (
+            <>
+              <label>
+                Entry fee (£)
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Payment window opens (optional)
+                <input type="date" value={paymentWindowStart} onChange={(e) => setPaymentWindowStart(e.target.value)} />
+              </label>
+              <label>
+                Payment window closes (optional)
+                <input type="date" value={paymentWindowEnd} onChange={(e) => setPaymentWindowEnd(e.target.value)} />
+              </label>
+              <p className="muted" style={{ fontSize: '0.8rem', marginTop: -8 }}>
+                Anyone imported without an existing confirmed payment is added to their division but flagged as
+                unpaid on this league's Payments tab - the import step never blocks on this.
+              </p>
+            </>
+          )}
           <button className="btn btn-primary" type="submit">Next</button>
         </form>
       )}

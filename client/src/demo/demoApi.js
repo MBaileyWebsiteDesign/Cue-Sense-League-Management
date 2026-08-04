@@ -57,8 +57,12 @@ function loadInitialDb() {
   if (!base.tours) base.tours = [];
   if (!base.rollOfHonour) base.rollOfHonour = [];
   if (!base.apiKeys) base.apiKeys = [];
+  if (!base.leaguePayments) base.leaguePayments = [];
   for (const league of base.leagues) {
     if (!league.tables) league.tables = [];
+    if (!league.payment) {
+      league.payment = { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
+    }
   }
   for (const fixture of base.fixtures) {
     if (fixture.tableId === undefined) fixture.tableId = null;
@@ -271,6 +275,7 @@ function hydrateDivision(division) {
     hydrated = { ...division, leagueName, players, fixtures: displayFixtures, standings };
   }
   hydrated.totalRounds = totalRounds;
+  hydrated.leaguePayment = league ? league.payment : null;
 
   // Roll of Honour - mirrors server/src/index.js's
   // recordChampionIfDivisionComplete (see that copy for the full note on why
@@ -448,6 +453,53 @@ function buildOverlayFixture(fixture) {
     legsTotal,
     winner,
   };
+}
+
+// ---------- League payment wall helpers (mirrors server/src/index.js) ----------
+function normalizePaymentConfig(input) {
+  const required = !!(input && input.required);
+  if (!required) {
+    return { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
+  }
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new ApiError(400, 'Payment amount must be a number greater than 0');
+  }
+  const windowStart = input.windowStart || null;
+  const windowEnd = input.windowEnd || null;
+  if (windowStart && windowEnd && new Date(windowEnd) < new Date(windowStart)) {
+    throw new ApiError(400, 'Payment window end date cannot be before the start date');
+  }
+  return {
+    required: true,
+    amount,
+    currency: (input.currency || 'GBP').toUpperCase(),
+    windowStart,
+    windowEnd,
+  };
+}
+
+function formatMoney(amount, currency) {
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(amount);
+  } catch {
+    return `${amount} ${currency || 'GBP'}`;
+  }
+}
+
+// See server/src/index.js's assertPaymentCleared for the full note - not
+// called from adminImportSeasonPlayers below for the same chicken-and-egg
+// reason documented there.
+function assertPaymentCleared(division, playerId) {
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  if (!league || !league.payment || !league.payment.required) return;
+  const record = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === playerId);
+  if (record && ['confirmed', 'waived'].includes(record.status)) return;
+  const player = db.players.find((p) => p.id === playerId);
+  throw new ApiError(
+    402,
+    `${player ? player.name : 'This player'} hasn't paid the ${formatMoney(league.payment.amount, league.payment.currency)} entry fee for "${league.name}" yet - confirm or waive their payment from the league's Payments tab before adding them.`
+  );
 }
 
 function registeredPlayers() {
@@ -1306,7 +1358,7 @@ export const demoApi = {
   adminGetAuditLog: op(() => [...db.auditLog].reverse().slice(0, 200)),
 
   adminCreateSeason: op((data) => {
-    const { name, leagueCount, playersPerLeague } = data;
+    const { name, leagueCount, playersPerLeague, payment } = data;
     if (!name || !name.trim()) throw new ApiError(400, 'Season name is required');
     const count = Number(leagueCount);
     const perLeague = Number(playersPerLeague);
@@ -1324,6 +1376,7 @@ export const demoApi = {
       startDate: null,
       endDate: null,
       createdAt: new Date().toISOString(),
+      payment: normalizePaymentConfig(payment),
     };
     db.leagues.push(league);
     const divisions = [];
@@ -1348,6 +1401,11 @@ export const demoApi = {
     const created = [];
     const linkedExisting = [];
     const errors = [];
+    // See server/src/index.js's import-players route for why this isn't
+    // hard-gated by assertPaymentCleared - anyone imported into a paid
+    // league without an existing confirmed/waived record gets an 'unpaid'
+    // one created and is listed here instead.
+    const pendingPayment = [];
     rows.forEach((row, index) => {
       const rowNum = index + 1;
       try {
@@ -1386,11 +1444,29 @@ export const demoApi = {
         if (!division.playerIds.includes(user.playerId)) {
           division.playerIds.push(user.playerId);
         }
+
+        if (league.payment.required) {
+          const existingPayment = db.leaguePayments.find(
+            (p) => p.leagueId === league.id && p.playerId === user.playerId
+          );
+          if (existingPayment && ['confirmed', 'waived'].includes(existingPayment.status)) {
+            // already cleared - nothing to do.
+          } else if (!existingPayment) {
+            db.leaguePayments.push({
+              id: uuid(), leagueId: league.id, playerId: user.playerId, status: 'unpaid',
+              amount: league.payment.amount, currency: league.payment.currency,
+              confirmedBy: null, confirmedAt: null, notes: '',
+            });
+            pendingPayment.push({ row: rowNum, name: `${user.firstName} ${user.lastName}`, email: user.email, division: division.name });
+          } else {
+            pendingPayment.push({ row: rowNum, name: `${user.firstName} ${user.lastName}`, email: user.email, division: division.name });
+          }
+        }
       } catch (err) {
         errors.push({ row: rowNum, reason: err.message });
       }
     });
-    return { created, linkedExisting, errors };
+    return { created, linkedExisting, errors, pendingPayment };
   }),
 
   adminGenerateSeason: op((leagueId, data) => {
@@ -1690,12 +1766,13 @@ export const demoApi = {
   getLeagues: op(() => db.leagues),
 
   createLeague: op((data) => {
-    const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single' } = data;
+    const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment } = data;
     if (!name || !name.trim()) throw new ApiError(400, 'League name is required');
     const league = {
       id: uuid(), name: name.trim(), sport, format: { matchFormat, raceTo, scheduling },
       startDate: null, endDate: null, createdAt: new Date().toISOString(),
       tables: [],
+      payment: normalizePaymentConfig(payment),
     };
     db.leagues.push(league);
     return league;
@@ -1706,6 +1783,76 @@ export const demoApi = {
     if (!league) throw new ApiError(404, 'League not found');
     const divisions = db.divisions.filter((d) => d.leagueId === league.id).sort((a, b) => a.order - b.order);
     return { ...league, divisions };
+  }),
+
+  // Mirrors server/src/index.js's PATCH /api/leagues/:id.
+  updateLeague: op((id, data) => {
+    const league = db.leagues.find((l) => l.id === id);
+    if (!league) throw new ApiError(404, 'League not found');
+    if (data.name !== undefined) {
+      if (!data.name.trim()) throw new ApiError(400, 'League name is required');
+      league.name = data.name.trim();
+    }
+    if (data.payment !== undefined) {
+      league.payment = normalizePaymentConfig(data.payment);
+    }
+    recordAudit(db, {
+      actor: adminLabel(), action: 'league.edit', targetType: 'league', targetId: league.id,
+      details: `Updated settings for "${league.name}"`,
+    });
+    return league;
+  }),
+
+  // Mirrors server/src/index.js's POST /api/leagues/:id/payments/:playerId.
+  setLeaguePaymentStatus: op((leagueId, playerId, status, notes = '') => {
+    if (!['confirmed', 'waived', 'unpaid'].includes(status)) {
+      throw new ApiError(400, "status must be 'confirmed', 'waived' or 'unpaid'");
+    }
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const player = db.players.find((p) => p.id === playerId);
+    if (!player) throw new ApiError(404, 'Player not found');
+    let record = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === player.id);
+    if (!record) {
+      record = {
+        id: uuid(), leagueId: league.id, playerId: player.id, status: 'unpaid',
+        amount: league.payment.amount, currency: league.payment.currency,
+        confirmedBy: null, confirmedAt: null, notes: '',
+      };
+      db.leaguePayments.push(record);
+    }
+    record.status = status;
+    record.notes = notes;
+    record.confirmedBy = status === 'unpaid' ? null : adminLabel();
+    record.confirmedAt = status === 'unpaid' ? null : new Date().toISOString();
+    recordAudit(db, {
+      actor: adminLabel(), action: 'league.payment', targetType: 'league', targetId: league.id,
+      details: `${player.name}: payment marked ${status} for "${league.name}"`,
+    });
+    return record;
+  }),
+
+  // Mirrors server/src/index.js's GET /api/leagues/:id/payments.
+  getLeaguePayments: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const recordsByPlayer = new Map(
+      db.leaguePayments.filter((p) => p.leagueId === league.id).map((p) => [p.playerId, p])
+    );
+    const players = registeredPlayers().map((player) => {
+      const record = recordsByPlayer.get(player.id);
+      return {
+        playerId: player.id,
+        playerName: player.name,
+        status: record ? record.status : 'unpaid',
+        amount: record ? record.amount : league.payment.amount,
+        currency: record ? record.currency : league.payment.currency,
+        confirmedBy: record ? record.confirmedBy : null,
+        confirmedAt: record ? record.confirmedAt : null,
+        notes: record ? record.notes : '',
+      };
+    });
+    return { league: { id: league.id, name: league.name, payment: league.payment }, players };
   }),
 
   createDivision: op((leagueId, data) => {
@@ -1873,6 +2020,7 @@ export const demoApi = {
     if (division.fixturesGenerated) throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
     const player = registeredPlayers().find((p) => p.id === playerId);
     if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+    assertPaymentCleared(division, player.id);
     if (!division.playerIds.includes(player.id)) division.playerIds.push(player.id);
     return hydrateDivision(division);
   }),
@@ -1916,6 +2064,7 @@ export const demoApi = {
     }
     const player = registeredPlayers().find((p) => p.id === playerId);
     if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+    assertPaymentCleared(division, player.id);
     if (!pairing.playerIds.includes(player.id)) pairing.playerIds.push(player.id);
     return hydrateDivision(division);
   }),
@@ -2076,6 +2225,7 @@ export const demoApi = {
     if (division.playerIds.includes(incomingPlayerId)) throw new ApiError(400, 'That replacement is already registered in this division');
     const incoming = registeredPlayers().find((p) => p.id === incomingPlayerId);
     if (!incoming) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+    assertPaymentCleared(division, incoming.id);
     const outgoing = db.players.find((p) => p.id === outgoingPlayerId);
     const divisionFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
     const swapped = [];
@@ -2675,6 +2825,7 @@ export const demoApi = {
     if (division.fixturesGenerated) throw new ApiError(400, 'Cannot add players once fixtures have been generated for this division');
     const player = registeredPlayers().find((p) => p.id === playerId);
     if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+    assertPaymentCleared(division, player.id);
     if (!team.playerIds.includes(player.id)) team.playerIds.push(player.id);
     return hydrateDivision(division);
   }),
