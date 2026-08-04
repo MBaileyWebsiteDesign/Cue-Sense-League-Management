@@ -1,6 +1,6 @@
 # Cue Sense - Pool Management
 
-Live on GitHub: https://github.com/MBaileyWebsiteDesign/the-ultimate-pool-league
+Live on GitHub: https://github.com/MBaileyWebsiteDesign/Cue-Sense-Pool-Management
 
 A self-hosted pool league management platform: admins create leagues, divisions and
 players (or spin up a whole new season in one guided wizard); the app schedules
