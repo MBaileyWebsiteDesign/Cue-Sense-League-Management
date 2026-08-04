@@ -899,12 +899,11 @@ export const demoApi = {
 
   register: op((data) => {
     const {
-      firstName, lastName, email, phone = '', teamName, classification = null,
+      firstName, lastName, email, phone = '', teamName = '', classification = null,
     } = data;
     if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
     if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
     if (!email || !email.trim()) throw new ApiError(400, 'Email is required');
-    if (!teamName || !teamName.trim()) throw new ApiError(400, 'Team name is required');
     if (classification && !CLASSIFICATIONS.includes(classification)) {
       throw new ApiError(400, `classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
     }
@@ -914,7 +913,7 @@ export const demoApi = {
     }
     const user = createUserAccount({
       firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim(),
-      phone: phone ? phone.trim() : '', teamName: teamName.trim(),
+      phone: phone ? phone.trim() : '', teamName: teamName ? teamName.trim() : '',
       classification: classification || null, isAdmin: false, isCaptain: false,
     });
     setCurrentUser(user.id);

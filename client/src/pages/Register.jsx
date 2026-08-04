@@ -44,21 +44,22 @@ export default function Register() {
         Register to browse leagues, divisions, fixtures and player profiles. Already have
         an account? <Link to="/login">Sign in</Link>.
       </p>
+      <p className="muted" style={{ fontSize: '0.85rem' }}>* Required field</p>
       <form className="card form" onSubmit={onSubmit}>
         <label>
-          First name
+          First name *
           <input value={form.firstName} onChange={set('firstName')} required autoFocus />
         </label>
         <label>
-          Last name
+          Last name *
           <input value={form.lastName} onChange={set('lastName')} required />
         </label>
         <label>
-          Email
+          Email *
           <input type="email" value={form.email} onChange={set('email')} required />
         </label>
         <label>
-          Password
+          Password *
           <input type="password" value={form.password} onChange={set('password')} minLength={8} required />
         </label>
         <label>
@@ -66,8 +67,8 @@ export default function Register() {
           <input type="tel" value={form.phone} onChange={set('phone')} />
         </label>
         <label>
-          Team name
-          <input value={form.teamName} onChange={set('teamName')} required />
+          Team name <span className="muted">(optional)</span>
+          <input value={form.teamName} onChange={set('teamName')} />
         </label>
         <label>
           Classification <span className="muted">(optional)</span>

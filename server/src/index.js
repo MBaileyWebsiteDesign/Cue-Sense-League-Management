@@ -100,14 +100,13 @@ app.post('/api/auth/reset-password/:token', asyncRoute((req, res) => {
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
     firstName, lastName, email, password,
-    phone = '', teamName, classification = null,
+    phone = '', teamName = '', classification = null,
   } = req.body;
 
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
   if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
   if (!email || !email.trim()) throw new ApiError(400, 'Email is required');
   if (!password || password.length < 8) throw new ApiError(400, 'Password must be at least 8 characters');
-  if (!teamName || !teamName.trim()) throw new ApiError(400, 'Team name is required');
   if (classification && !CLASSIFICATIONS.includes(classification)) {
     throw new ApiError(400, `classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
   }
@@ -124,7 +123,11 @@ app.post('/api/users/register', asyncRoute((req, res) => {
     email: email.trim(),
     passwordHash: hashPassword(password),
     phone: phone ? phone.trim() : '',
-    teamName: teamName.trim(),
+    // Team name is optional at self-registration (unlike the admin bulk-add
+    // and season-import flows, which default a blank one to 'Unassigned') -
+    // a player can register before knowing/being assigned to a team, so an
+    // empty string is left as-is here rather than substituted.
+    teamName: teamName ? teamName.trim() : '',
     classification: classification || null,
     isAdmin: false,
     isCaptain: false,
