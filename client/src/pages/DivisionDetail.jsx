@@ -768,7 +768,7 @@ const KNOCKOUT_BRACKET_POLL_MS = 15000;
 
 export default function DivisionDetail() {
   const { divisionId } = useParams();
-  const { isAdmin } = useAuth();
+  const { isAdmin, canManageLeague } = useAuth();
   const [division, setDivision] = useState(null);
   const [registeredPlayers, setRegisteredPlayers] = useState([]);
   const [error, setError] = useState('');
@@ -811,6 +811,11 @@ export default function DivisionDetail() {
   );
 
   if (!division) return <p>Loading…</p>;
+
+  // League Manager scoping - see hydrateDivision in server/src/index.js,
+  // which embeds the owning league's managerUserIds onto the division
+  // response specifically so this page doesn't need a second fetch.
+  const canManage = canManageLeague({ managerUserIds: division.leagueManagerUserIds });
 
   const isTeams = division.entryType === 'teams';
   const isDoubles = division.entryType === 'doubles';
@@ -911,18 +916,18 @@ export default function DivisionDetail() {
       ) : isDoubles ? (
         <PairingRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       ) : (
-        <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isAdmin={isAdmin} />
+        <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isAdmin={canManage} />
       )}
 
-      {isAdmin && !division.fixturesGenerated && (
+      {canManage && !division.fixturesGenerated && (
         <SeedFromGroupsPanel division={division} onChange={load} setError={setError} />
       )}
 
-      {isAdmin && division.fixturesGenerated && division.status !== 'completed' && (
+      {canManage && division.fixturesGenerated && division.status !== 'completed' && (
         <CloseDivisionEarlyPanel division={division} onChange={load} setError={setError} />
       )}
 
-      {isAdmin && !isTeams && !isDoubles && division.fixturesGenerated && (
+      {canManage && !isTeams && !isDoubles && division.fixturesGenerated && (
         <PlayerSubstitutionPanel division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       )}
 
@@ -985,7 +990,7 @@ export default function DivisionDetail() {
         {' · '}
         <Link to={`/public/divisions/${division.id}/fixtures`}>View public Division Fixtures &rarr;</Link>
       </p>
-      {isAdmin && (
+      {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
           The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
           &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
@@ -1004,7 +1009,7 @@ export default function DivisionDetail() {
           <p style={{ marginTop: 8 }}>
             <Link to={`/public/divisions/${division.id}/bracket`}>View public Bracket &rarr;</Link>
           </p>
-          {isAdmin && (
+          {canManage && (
             <p className="muted" style={{ fontSize: '0.8rem' }}>
               That link is a live, unauthenticated page meant to be embedded elsewhere (e.g. an
               &lt;iframe&gt; on another site) - copy the URL from your browser's address bar once you're on
@@ -1027,7 +1032,7 @@ export default function DivisionDetail() {
           <p style={{ marginTop: 8 }}>
             <Link to={`/public/divisions/${division.id}/bracket`}>View public Bracket &rarr;</Link>
           </p>
-          {isAdmin && (
+          {canManage && (
             <p className="muted" style={{ fontSize: '0.8rem' }}>
               That link is a live, unauthenticated page meant to be embedded elsewhere (e.g. an
               &lt;iframe&gt; on another site) - copy the URL from your browser's address bar once you're on
@@ -1040,11 +1045,11 @@ export default function DivisionDetail() {
       <section className="card">
         <div className="page-header">
           <h2>Fixtures</h2>
-          {isAdmin && division.fixturesGenerated && (
+          {canManage && division.fixturesGenerated && (
             <Link to={`/admin/manage-fixtures/${division.id}`}>Manage round visibility</Link>
           )}
         </div>
-        {isAdmin && division.fixturesGenerated && (
+        {canManage && division.fixturesGenerated && (
           <p className="muted" style={{ marginTop: -8, fontSize: '0.8rem' }}>
             Players currently see: {division.visibleRounds && division.visibleRounds.length > 0
               ? `Round${division.visibleRounds.length === 1 ? '' : 's'} ${[...division.visibleRounds].sort((a, b) => a - b).join(', ')}`

@@ -100,6 +100,12 @@ export function readDb() {
     if (!league.payment) {
       league.payment = { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
     }
+    // League Manager scoping: userIds of accounts granted admin-equivalent
+    // access to just this league (assigned by an Overall Admin only - see
+    // POST /api/leagues/:id/managers in index.js). Every league created
+    // before this feature existed defaults to an empty list, same as a
+    // freshly-created league with no managers assigned yet.
+    if (!league.managerUserIds) league.managerUserIds = [];
   }
   for (const fixture of state.fixtures) {
     if (fixture.tableId === undefined) fixture.tableId = null;
@@ -142,6 +148,10 @@ export function readDb() {
     // flags, which support being both at once.
     if (user.isAdmin === undefined) user.isAdmin = user.role === 'admin';
     if (user.isCaptain === undefined) user.isCaptain = false;
+    // League Manager: scoped admin access to specific leagues via
+    // league.managerUserIds, granted by an Overall Admin. Defaults to false
+    // for every existing account, same as a freshly-created one.
+    if (user.isLeagueManager === undefined) user.isLeagueManager = false;
     if (!user.status) user.status = 'active';
     if (user.playerId === undefined) user.playerId = null;
   }

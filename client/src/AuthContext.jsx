@@ -59,12 +59,32 @@ export function AuthProvider({ children }) {
 
   const user = session?.user || null;
 
+  // League Manager scoping: `isAdmin` can always manage any league;
+  // `isLeagueManager` can only manage a league whose `managerUserIds`
+  // (assigned by an Overall Admin, see LeagueDetail's Managers panel)
+  // includes their own account id. Every page that gates a management
+  // action on `isAdmin` for something league-scoped should use
+  // canManageLeague(league) instead, so a League Manager sees the same
+  // controls an Overall Admin does for leagues they've been assigned to -
+  // see assertLeagueAccess in server/src/userAuth.js for the backend
+  // enforcement this mirrors.
+  const canManageLeague = useCallback(
+    (league) => {
+      if (!user) return false;
+      if (user.isAdmin) return true;
+      return !!user.isLeagueManager && Array.isArray(league?.managerUserIds) && league.managerUserIds.includes(user.id);
+    },
+    [user]
+  );
+
   const value = {
     isLoggedIn: !!session,
     token: session?.token || null,
     user,
     isAdmin: !!user?.isAdmin,
     isCaptain: !!user?.isCaptain,
+    isLeagueManager: !!user?.isLeagueManager,
+    canManageLeague,
     login,
     logout,
     updateUser,

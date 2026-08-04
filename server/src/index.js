@@ -23,6 +23,8 @@ import {
   publicUser,
   requireAuth,
   requireAdmin,
+  requireAnyAdmin,
+  assertLeagueAccess,
   generateApiKeyValue,
   hashApiKey,
 } from './userAuth.js';
@@ -438,21 +440,23 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
 // Arena display (GET /api/overlay/leagues/:id/arena) for a public read-only
 // board of what's on which table.
 
-app.post('/api/leagues/:id/tables', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/leagues/:id/tables', requireAnyAdmin, asyncRoute((req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'Table name is required');
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
   league.tables.push({ id: uuid(), name: name.trim() });
   writeDb(db);
   res.status(201).json(league);
 }));
 
-app.delete('/api/leagues/:id/tables/:tableId', requireAdmin, asyncRoute((req, res) => {
+app.delete('/api/leagues/:id/tables/:tableId', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
   league.tables = league.tables.filter((t) => t.id !== req.params.tableId);
   // Unassign the table from any fixture that had it, rather than leaving a
   // dangling reference to a table that no longer exists.
@@ -478,10 +482,11 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
 // Leagues could previously only be created or deleted, never edited - this
 // is mainly here so the payment wall (amount, window) can be turned on/off
 // or adjusted after a league already exists, but also allows a rename.
-app.patch('/api/leagues/:id', requireAdmin, asyncRoute((req, res) => {
+app.patch('/api/leagues/:id', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
 
   if (req.body.name !== undefined) {
     if (!req.body.name.trim()) throw new ApiError(400, 'League name is required');
@@ -503,6 +508,62 @@ app.patch('/api/leagues/:id', requireAdmin, asyncRoute((req, res) => {
   res.json(league);
 }));
 
+// ---------- League Manager assignment ----------
+// Overall-Admin-only (deliberately requireAdmin, not requireAnyAdmin/
+// assertLeagueAccess) - a League Manager can do almost everything within a
+// league they're assigned to, but can never assign or remove managers,
+// including themselves, on any league. Only an Overall Admin controls who
+// has manager access to which league. The "isLeagueManager" account flag
+// (see POST /api/admin/users/:id/permissions) just marks someone as
+// eligible to be assigned as a manager somewhere - assertLeagueAccess in
+// userAuth.js checks league.managerUserIds for the actual per-league grant.
+app.post('/api/leagues/:id/managers', requireAdmin, asyncRoute((req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) throw new ApiError(400, 'userId is required');
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) throw new ApiError(404, 'User not found');
+  if (!user.isLeagueManager) {
+    throw new ApiError(400, `${user.firstName} ${user.lastName} isn't flagged as a League Manager yet - grant that on their account first`);
+  }
+  if (!Array.isArray(league.managerUserIds)) league.managerUserIds = [];
+  if (!league.managerUserIds.includes(userId)) {
+    league.managerUserIds.push(userId);
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'league.manager_added',
+      targetType: 'league',
+      targetId: league.id,
+      details: `Gave ${user.firstName} ${user.lastName} League Manager access to "${league.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(league);
+}));
+
+app.delete('/api/leagues/:id/managers/:userId', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  const user = db.users.find((u) => u.id === req.params.userId);
+  if (!Array.isArray(league.managerUserIds)) league.managerUserIds = [];
+  const hadAccess = league.managerUserIds.includes(req.params.userId);
+  league.managerUserIds = league.managerUserIds.filter((id) => id !== req.params.userId);
+  if (hadAccess) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'league.manager_removed',
+      targetType: 'league',
+      targetId: league.id,
+      details: `Removed ${user ? `${user.firstName} ${user.lastName}` : 'a user'}'s League Manager access to "${league.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(league);
+}));
+
 // ---------- League payments (manual confirmation) ----------
 // A league can require players to have a confirmed (or waived) payment
 // before being added as an entrant to any of its divisions - see
@@ -517,7 +578,7 @@ app.patch('/api/leagues/:id', requireAdmin, asyncRoute((req, res) => {
 // confirmed for the purposes of assertPaymentCleared), or back to 'unpaid'.
 // This only gates *future* adds - it never removes someone already in a
 // division.
-app.post('/api/leagues/:id/payments/:playerId', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/leagues/:id/payments/:playerId', requireAnyAdmin, asyncRoute((req, res) => {
   const { status, notes = '' } = req.body || {};
   if (!['confirmed', 'waived', 'unpaid'].includes(status)) {
     throw new ApiError(400, "status must be 'confirmed', 'waived' or 'unpaid'");
@@ -525,6 +586,7 @@ app.post('/api/leagues/:id/payments/:playerId', requireAdmin, asyncRoute((req, r
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
   const player = db.players.find((p) => p.id === req.params.playerId);
   if (!player) throw new ApiError(404, 'Player not found');
 
@@ -564,10 +626,11 @@ app.post('/api/leagues/:id/payments/:playerId', requireAdmin, asyncRoute((req, r
 // league, for the admin "Payments" tab - includes players with no
 // leaguePayments record yet at all (shown as 'unpaid' without writing one,
 // so just viewing this list never silently creates rows).
-app.get('/api/leagues/:id/payments', requireAdmin, asyncRoute((req, res) => {
+app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
   const recordsByPlayer = new Map(
     db.leaguePayments.filter((p) => p.leagueId === league.id).map((p) => [p.playerId, p])
   );
@@ -610,11 +673,12 @@ app.get('/api/leagues/:id/payments', requireAdmin, asyncRoute((req, res) => {
 //   own default, since a league often runs its regular season as a round
 //   robin but a separate cup division as a knockout.
 
-app.post('/api/leagues/:leagueId/divisions', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, res) => {
   const { name, order = 0, entryType = 'singles', legsPerMatch = 5, pairingSize = 2 } = req.body;
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.leagueId);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
   const scheduling = req.body.scheduling || league.format.scheduling || 'round_robin_single';
 
   if (!name || !name.trim()) throw new ApiError(400, 'Division name is required');
@@ -738,6 +802,9 @@ function hydrateDivision(db, division) {
   }
   hydrated.totalRounds = totalRounds;
   hydrated.leaguePayment = league ? league.payment : null;
+  // So DivisionDetail.jsx can compute canManageLeague(...) for a League
+  // Manager without a second round-trip to GET /api/leagues/:id.
+  hydrated.leagueManagerUserIds = league && Array.isArray(league.managerUserIds) ? league.managerUserIds : [];
 
   // Roll of Honour: rather than hooking every single fixture-completion code
   // path (confirm-result, no-show walkovers, admin overrides, team leg
@@ -886,10 +953,12 @@ function closeOutstandingFixtures(db, division, actorLabel) {
   return outstanding.length;
 }
 
-app.post('/api/divisions/:id/close-early', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/close-early', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
 
   const closedCount = closeOutstandingFixtures(db, division, req.adminSession.label);
 
@@ -911,10 +980,11 @@ app.post('/api/divisions/:id/close-early', requireAdmin, asyncRoute((req, res) =
 // force-complete-at-0-0 treatment to every division in the league in one
 // call, for "close the whole league's season early" rather than one
 // division at a time. Surfaced from the league management page.
-app.post('/api/leagues/:id/close-early', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/leagues/:id/close-early', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
 
   const divisions = db.divisions.filter((d) => d.leagueId === league.id);
   let totalClosed = 0;
@@ -1232,7 +1302,7 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
 // not attempt, and insertLateEntrantIntoRoundRobin for the (much simpler)
 // round-robin case. Team and doubles divisions aren't supported here yet -
 // only singles.
-app.post('/api/divisions/:id/quick-add-player', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req, res) => {
   const { firstName, lastName } = req.body || {};
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
   if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
@@ -1244,6 +1314,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAdmin, asyncRoute((req, r
     throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
   }
   const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
 
   const tempPassword = generateTempPassword();
   const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
@@ -1565,11 +1636,13 @@ app.delete('/api/pairings/:pairingId/players/:playerId', asyncRoute((req, res) =
 // entrants directly - before fixtures are generated. Works for any entry
 // type (singles/teams/doubles), since it's just reordering whichever ID
 // array the division uses.
-app.post('/api/divisions/:id/reorder-entrants', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/reorder-entrants', requireAnyAdmin, asyncRoute((req, res) => {
   const { order } = req.body || {};
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
   if (division.fixturesGenerated) {
     throw new ApiError(400, 'Cannot reorder entrants after fixtures have been generated for this division');
   }
@@ -2018,11 +2091,13 @@ function assignScheduledDates(db, division, startDate, gapDays) {
 // completely unchanged on the resulting division - it's just a division
 // whose roster happens to have been filled by group results instead of by
 // hand.
-app.post('/api/divisions/:id/seed-from-groups', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/seed-from-groups', requireAnyAdmin, asyncRoute((req, res) => {
   const { sources } = req.body || {};
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
   if (division.fixturesGenerated) {
     throw new ApiError(400, 'Cannot seed entrants after fixtures have been generated for this division');
   }
@@ -2142,11 +2217,13 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
 // (release Round 1, then Round 2 the following week, and so on) rather than
 // publishing the whole season's fixtures up front - see isRoundVisible above
 // for what this actually gates.
-app.post('/api/divisions/:id/rounds/:round/visibility', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/rounds/:round/visibility', requireAnyAdmin, asyncRoute((req, res) => {
   const { visible } = req.body || {};
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
   const round = Number(req.params.round);
   if (!Number.isInteger(round)) throw new ApiError(400, 'round must be a whole number');
   const roundExists = db.fixtures.some((f) => f.divisionId === division.id && f.round === round);
@@ -2173,10 +2250,12 @@ app.post('/api/divisions/:id/rounds/:round/visibility', requireAdmin, asyncRoute
 // an admin was ready - e.g. legacy data saved before fixtures started
 // defaulting to hidden. Resets straight to "nothing released" in one request
 // instead of clicking "Hide from Players" round by round.
-app.post('/api/divisions/:id/hide-all-rounds', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/hide-all-rounds', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
   const hadVisibleRounds = Array.isArray(division.visibleRounds) && division.visibleRounds.length > 0;
   division.visibleRounds = [];
   if (hadVisibleRounds) {
@@ -2232,12 +2311,13 @@ app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
   res.json({ ...fixture, divisionName, homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
 }));
 
-app.post('/api/fixtures/:id/schedule', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/schedule', requireAnyAdmin, asyncRoute((req, res) => {
   const { tableId, scheduledDate, scheduledTime } = req.body || {};
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  assertLeagueAccess(req, league);
 
   // tableId is nullable (explicitly passing null/omitting clears it); if
   // provided and non-null, it must belong to this fixture's own league.
@@ -2531,10 +2611,12 @@ app.post('/api/fixtures/:id/dispute-result', requireAuth, asyncRoute((req, res) 
   res.json(fixture);
 }));
 
-app.post('/api/fixtures/:id/reopen', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/reopen', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  assertLeagueAccess(req, league);
   if (!['pending_confirmation', 'disputed'].includes(fixture.status)) {
     throw new ApiError(400, 'Only a pending or disputed result can be reopened');
   }
@@ -2627,12 +2709,14 @@ app.post('/api/fixtures/:id/no-show', requireAuth, asyncRoute((req, res) => {
   res.json(fixture);
 }));
 
-app.post('/api/fixtures/:id/no-show/authorize', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/no-show/authorize', requireAnyAdmin, asyncRoute((req, res) => {
   const { legNumber } = req.body || {};
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  assertLeagueAccess(req, league);
 
   if (legNumber !== undefined && legNumber !== null) {
     const { leg } = findTeamFixtureAndLeg(db, req.params.id, legNumber);
@@ -2895,10 +2979,12 @@ app.post('/api/fixtures/:id/legs/:legNumber/dispute-result', requireAuth, asyncR
   res.json(fixture);
 }));
 
-app.post('/api/fixtures/:id/legs/:legNumber/reopen', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/legs/:legNumber/reopen', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  assertLeagueAccess(req, league);
   if (!['pending_confirmation', 'disputed'].includes(leg.status)) {
     throw new ApiError(400, 'Only a pending or disputed leg can be reopened');
   }
@@ -3297,12 +3383,14 @@ app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
 // changed, but refuses if that would silently overwrite a match that's
 // already been played - the admin has to fix the downstream fixture first,
 // so a correction can never quietly erase someone else's recorded result.
-app.post('/api/fixtures/:id/override', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/fixtures/:id/override', requireAnyAdmin, asyncRoute((req, res) => {
   const { homeScore, awayScore } = req.body;
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  assertLeagueAccess(req, league);
   const isTeams = division.entryType === 'teams';
 
   if (isTeams) {
@@ -3411,7 +3499,7 @@ app.post('/api/fixtures/:id/override', requireAdmin, asyncRoute((req, res) => {
 //     history still shows on their own player profile page regardless.
 // There's no "reset scores and start the incoming player from zero" option
 // yet - that's a bigger, separate feature if it's ever needed.
-app.post('/api/divisions/:id/substitute-player', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/substitute-player', requireAnyAdmin, asyncRoute((req, res) => {
   const { outgoingPlayerId, incomingPlayerId, reason = 'substitution' } = req.body;
   if (!outgoingPlayerId || !incomingPlayerId) {
     throw new ApiError(400, 'outgoingPlayerId and incomingPlayerId are required');
@@ -3426,6 +3514,8 @@ app.post('/api/divisions/:id/substitute-player', requireAdmin, asyncRoute((req, 
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Player substitution is only available for singles divisions right now');
   }
@@ -3566,7 +3656,7 @@ app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
 // Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
 // toggle now that an account can be both, either or neither.
 app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
-  const { isAdmin, isCaptain } = req.body;
+  const { isAdmin, isCaptain, isLeagueManager } = req.body;
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
@@ -3578,6 +3668,20 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
   if (isCaptain !== undefined && !!isCaptain !== user.isCaptain) {
     user.isCaptain = !!isCaptain;
     changes.push(user.isCaptain ? 'marked as captain' : 'unmarked as captain');
+  }
+  // Revoking League Manager also strips their access to every league they
+  // were assigned to, rather than leaving orphaned entries in
+  // league.managerUserIds that a re-grant would silently reactivate.
+  if (isLeagueManager !== undefined && !!isLeagueManager !== user.isLeagueManager) {
+    user.isLeagueManager = !!isLeagueManager;
+    changes.push(user.isLeagueManager ? 'granted League Manager' : 'revoked League Manager');
+    if (!user.isLeagueManager) {
+      for (const league of db.leagues) {
+        if (Array.isArray(league.managerUserIds) && league.managerUserIds.includes(user.id)) {
+          league.managerUserIds = league.managerUserIds.filter((id) => id !== user.id);
+        }
+      }
+    }
   }
   if (changes.length > 0) {
     recordAudit(db, {
@@ -3843,13 +3947,14 @@ app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
 // they show up on the league's Payments tab) and is returned in
 // `pendingPayment` below, rather than being silently skipped or blocking
 // the whole import.
-app.post('/api/admin/seasons/:leagueId/import-players', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/admin/seasons/:leagueId/import-players', requireAnyAdmin, asyncRoute((req, res) => {
   const { rows } = req.body;
   if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(400, 'rows must be a non-empty array');
 
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.leagueId);
   if (!league) throw new ApiError(404, 'Season not found');
+  assertLeagueAccess(req, league);
   const divisions = db.divisions.filter((d) => d.leagueId === league.id);
   const divisionByName = new Map(divisions.map((d) => [d.name.trim().toLowerCase(), d]));
 
@@ -3946,7 +4051,7 @@ app.post('/api/admin/seasons/:leagueId/import-players', requireAdmin, asyncRoute
 // at least 2 players and hasn't been generated yet, spacing rounds
 // `gapDays` apart starting at `startDate`. Also stamps the season's
 // start/end dates onto the League record itself.
-app.post('/api/admin/seasons/:leagueId/generate', requireAdmin, asyncRoute((req, res) => {
+app.post('/api/admin/seasons/:leagueId/generate', requireAnyAdmin, asyncRoute((req, res) => {
   const { startDate, endDate, gapDays } = req.body;
   if (!startDate) throw new ApiError(400, 'startDate is required');
   if (!endDate) throw new ApiError(400, 'endDate is required');
@@ -3960,6 +4065,7 @@ app.post('/api/admin/seasons/:leagueId/generate', requireAdmin, asyncRoute((req,
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.leagueId);
   if (!league) throw new ApiError(404, 'Season not found');
+  assertLeagueAccess(req, league);
   league.startDate = startDate;
   league.endDate = endDate;
 

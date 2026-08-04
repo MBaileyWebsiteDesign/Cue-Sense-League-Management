@@ -234,7 +234,7 @@ function PaymentsPanel({ league, onChange, setError }) {
 // two-step "Show" then confirm pattern as the rest of the app's irreversible
 // actions, with an extra type-the-league-name confirmation before delete
 // specifically, since that one can't be recovered from at all.
-function ManageLeaguePanel({ league, canCloseEarly, onChange, setError }) {
+function ManageLeaguePanel({ league, isAdmin, canCloseEarly, onChange, setError }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -291,30 +291,137 @@ function ManageLeaguePanel({ league, canCloseEarly, onChange, setError }) {
             </div>
           )}
 
-          <div>
-            <h3 style={{ marginBottom: '0.25rem' }}>Delete League</h3>
-            <p className="muted">
-              Permanently deletes <strong>{league.name}</strong> and everything in it - every division,
-              fixture, team and pairing, plus its roll-of-honour history. This cannot be undone. To
-              confirm, type the league's name below.
-            </p>
-            <label>
-              League name
-              <input
-                value={confirmName}
-                onChange={(e) => setConfirmName(e.target.value)}
-                placeholder={league.name}
-              />
-            </label>
-            <button
-              className="btn btn-danger"
-              type="button"
-              disabled={deleting || confirmName.trim() !== league.name}
-              onClick={onDelete}
-            >
-              {deleting ? 'Deleting…' : 'Delete this league permanently'}
+          {isAdmin && (
+            <div>
+              <h3 style={{ marginBottom: '0.25rem' }}>Delete League</h3>
+              <p className="muted">
+                Permanently deletes <strong>{league.name}</strong> and everything in it - every division,
+                fixture, team and pairing, plus its roll-of-honour history. This cannot be undone. To
+                confirm, type the league's name below. League Managers can't delete a league, even one
+                they manage - only an Overall Admin can.
+              </p>
+              <label>
+                League name
+                <input
+                  value={confirmName}
+                  onChange={(e) => setConfirmName(e.target.value)}
+                  placeholder={league.name}
+                />
+              </label>
+              <button
+                className="btn btn-danger"
+                type="button"
+                disabled={deleting || confirmName.trim() !== league.name}
+                onClick={onDelete}
+              >
+                {deleting ? 'Deleting…' : 'Delete this league permanently'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// Overall-Admin-only: assign/remove which accounts (already flagged
+// isLeagueManager on their user profile - see AdminUserEdit) have League
+// Manager access to this specific league. A League Manager can do almost
+// everything else here (see ManageLeaguePanel/TablesPanel/PaymentsPanel
+// above), but never this - see server/src/index.js's POST/DELETE
+// /api/leagues/:id/managers, which is deliberately requireAdmin rather than
+// requireAnyAdmin.
+function LeagueManagersPanel({ league, onChange, setError }) {
+  const [open, setOpen] = useState(false);
+  const [candidates, setCandidates] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api.adminListUsers().then(setCandidates).catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const managers = candidates.filter((u) => (league.managerUserIds || []).includes(u.id));
+  const eligible = candidates.filter((u) => u.isLeagueManager && !(league.managerUserIds || []).includes(u.id));
+
+  const onAdd = async (e) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.addLeagueManager(league.id, selectedUserId);
+      setSelectedUserId('');
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRemove = async (userId) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.removeLeagueManager(league.id, userId);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Admin: League Managers</h2>
+        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="muted">
+            League Managers get the same day-to-day access as an Overall Admin for this one league
+            (entrants, tables, payments, fixtures, closing it early) - but can never delete the league or
+            manage who else has access. Grant the League Manager flag on an account's profile first (Admin
+            Portal &rarr; Users) before assigning them here.
+          </p>
+          {managers.length === 0 ? (
+            <p className="muted">No League Managers assigned to this league yet.</p>
+          ) : (
+            <ul className="fixture-list">
+              {managers.map((m) => (
+                <li key={m.id}>
+                  <span>{m.firstName} {m.lastName} <span className="muted">({m.email})</span></span>
+                  <button className="btn" type="button" disabled={busy} onClick={() => onRemove(m.id)}>
+                    Remove access
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form className="inline-form" onSubmit={onAdd}>
+            <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
+              <option value="">Select a League Manager to add…</option>
+              {eligible.map((u) => (
+                <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
+              ))}
+            </select>
+            <button className="btn btn-primary" type="submit" disabled={busy || !selectedUserId}>
+              Grant access
             </button>
-          </div>
+          </form>
+          {eligible.length === 0 && candidates.length > 0 && (
+            <p className="muted">
+              Nobody is flagged as a League Manager yet - grant that flag on an account first from Admin
+              Portal &rarr; Users.
+            </p>
+          )}
         </>
       )}
     </section>
@@ -322,7 +429,7 @@ function ManageLeaguePanel({ league, canCloseEarly, onChange, setError }) {
 }
 
 export default function LeagueDetail() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, canManageLeague } = useAuth();
   const { leagueId } = useParams();
   const [league, setLeague] = useState(null);
   const [error, setError] = useState('');
@@ -372,6 +479,8 @@ export default function LeagueDetail() {
 
   if (!league) return <p>Loading…</p>;
 
+  const canManage = canManageLeague(league);
+
   return (
     <div>
       <p><Link to="/">&larr; All leagues</Link></p>
@@ -382,14 +491,14 @@ export default function LeagueDetail() {
             {league.sport} · {league.format.matchFormat}, race to {league.format.raceTo}, single round robin
           </p>
         </div>
-        {isAdmin && (
+        {canManage && (
           <button className="btn" onClick={() => setShowForm((v) => !v)}>
             {showForm ? 'Cancel' : '+ New Division'}
           </button>
         )}
       </div>
 
-      {showForm && isAdmin && (
+      {showForm && canManage && (
         <form className="card form" onSubmit={onAddDivision}>
           <label>
             Division name
@@ -447,7 +556,7 @@ export default function LeagueDetail() {
         {' · '}
         <Link to={`/public/leagues/${league.id}/fixtures`}>View public League Fixtures &rarr;</Link>
       </p>
-      {isAdmin && (
+      {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
           The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
           &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
@@ -455,18 +564,21 @@ export default function LeagueDetail() {
         </p>
       )}
 
-      {isAdmin && <TablesPanel league={league} onChange={load} setError={setError} />}
+      {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
 
-      {isAdmin && <PaymentsPanel league={league} onChange={load} setError={setError} />}
+      {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
 
-      {isAdmin && (
+      {canManage && (
         <ManageLeaguePanel
           league={league}
+          isAdmin={isAdmin}
           canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
           onChange={load}
           setError={setError}
         />
       )}
+
+      {isAdmin && <LeagueManagersPanel league={league} onChange={load} setError={setError} />}
 
       <div className="card-grid">
         {league.divisions.map((division) => (

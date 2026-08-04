@@ -739,8 +739,12 @@ function ScheduleFixturePanel({ fixture, onChange, setError }) {
 export default function FixtureDetail() {
   const { fixtureId } = useParams();
   const [fixture, setFixture] = useState(null);
+  const [league, setLeague] = useState(null);
   const [error, setError] = useState('');
-  const isAdminSession = useIsAdminSession();
+  // League-scoped: an Overall Admin passes regardless of `league` (even
+  // before it's loaded, since canManageLeague short-circuits on isAdmin) -
+  // a League Manager only passes once `league` has loaded and lists them.
+  const isAdminSession = useIsAdminSession(league);
 
   const load = () => api.getFixture(fixtureId).then(setFixture).catch((e) => setError(e.message));
 
@@ -748,6 +752,12 @@ export default function FixtureDetail() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixtureId]);
+
+  useEffect(() => {
+    if (!fixture) return;
+    api.getLeague(fixture.leagueId).then(setLeague).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixture?.leagueId]);
 
   // Double-elimination fixtures carry a bracketRole that's more useful to
   // show than the raw (globally-offset) round number - e.g. a losers-bracket

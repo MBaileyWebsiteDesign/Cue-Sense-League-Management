@@ -66,6 +66,20 @@ function RequireAdmin({ children }) {
   return children;
 }
 
+// League Managers need to reach Manage Fixtures for their own assigned
+// league(s) (round visibility is now a league-scoped action, see
+// assertLeagueAccess in server/src/userAuth.js) but nothing else under
+// /admin/* - every other admin route stays RequireAdmin-only below.
+function RequireAnyAdmin({ children }) {
+  const { isAdmin, isLeagueManager } = useAuth();
+  const location = useLocation();
+
+  if (!isAdmin && !isLeagueManager) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return children;
+}
+
 function RequireCaptain({ children }) {
   const { isCaptain, isAdmin } = useAuth();
   const location = useLocation();
@@ -181,8 +195,8 @@ function AppShell() {
             <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAdmin><GameAdjustments /></RequireAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
-            <Route path="/admin/manage-fixtures" element={<RequireAdmin><ManageFixtures /></RequireAdmin>} />
-            <Route path="/admin/manage-fixtures/:divisionId" element={<RequireAdmin><ManageFixtures /></RequireAdmin>} />
+            <Route path="/admin/manage-fixtures" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />
+            <Route path="/admin/manage-fixtures/:divisionId" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />
             <Route path="/leagues/:leagueId" element={<RequireLogin><LeagueDetail /></RequireLogin>} />
             <Route path="/divisions/:divisionId" element={<RequireLogin><DivisionDetail /></RequireLogin>} />
             <Route path="/fixtures/:fixtureId" element={<RequireLogin><FixtureDetail /></RequireLogin>} />

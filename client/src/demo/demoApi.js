@@ -63,6 +63,12 @@ function loadInitialDb() {
     if (!league.payment) {
       league.payment = { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
     }
+    // League Manager scoping - mirrors db.js's readDb() migration.
+    if (!league.managerUserIds) league.managerUserIds = [];
+  }
+  // League Manager account flag - mirrors db.js's readDb() migration.
+  for (const user of base.users) {
+    if (user.isLeagueManager === undefined) user.isLeagueManager = false;
   }
   for (const fixture of base.fixtures) {
     if (fixture.tableId === undefined) fixture.tableId = null;
@@ -176,6 +182,7 @@ function createUserAccount(fields) {
     classification: fields.classification || null,
     isAdmin: !!fields.isAdmin,
     isCaptain: !!fields.isCaptain,
+    isLeagueManager: !!fields.isLeagueManager,
     status: 'active',
     playerId: linkedPlayer.id,
     createdAt: new Date().toISOString(),
@@ -276,6 +283,7 @@ function hydrateDivision(division) {
   }
   hydrated.totalRounds = totalRounds;
   hydrated.leaguePayment = league ? league.payment : null;
+  hydrated.leagueManagerUserIds = league && Array.isArray(league.managerUserIds) ? league.managerUserIds : [];
 
   // Roll of Honour - mirrors server/src/index.js's
   // recordChampionIfDivisionComplete (see that copy for the full note on why
@@ -1332,7 +1340,7 @@ export const demoApi = {
   }),
 
   adminSetPermissions: op((id, permissions) => {
-    const { isAdmin, isCaptain } = permissions;
+    const { isAdmin, isCaptain, isLeagueManager } = permissions;
     const user = db.users.find((u) => u.id === id);
     if (!user) throw new ApiError(404, 'User not found');
     const changes = [];
@@ -1343,6 +1351,17 @@ export const demoApi = {
     if (isCaptain !== undefined && !!isCaptain !== user.isCaptain) {
       user.isCaptain = !!isCaptain;
       changes.push(user.isCaptain ? 'marked as captain' : 'unmarked as captain');
+    }
+    if (isLeagueManager !== undefined && !!isLeagueManager !== user.isLeagueManager) {
+      user.isLeagueManager = !!isLeagueManager;
+      changes.push(user.isLeagueManager ? 'granted League Manager' : 'revoked League Manager');
+      if (!user.isLeagueManager) {
+        for (const league of db.leagues) {
+          if (Array.isArray(league.managerUserIds) && league.managerUserIds.includes(user.id)) {
+            league.managerUserIds = league.managerUserIds.filter((mid) => mid !== user.id);
+          }
+        }
+      }
     }
     if (changes.length > 0) {
       recordAudit(db, {
@@ -1456,6 +1475,8 @@ export const demoApi = {
       endDate: null,
       createdAt: new Date().toISOString(),
       payment: normalizePaymentConfig(payment),
+      managerUserIds: [],
+      tables: [],
     };
     db.leagues.push(league);
     const divisions = [];
@@ -1852,8 +1873,49 @@ export const demoApi = {
       startDate: null, endDate: null, createdAt: new Date().toISOString(),
       tables: [],
       payment: normalizePaymentConfig(payment),
+      managerUserIds: [],
     };
     db.leagues.push(league);
+    return league;
+  }),
+
+  // ---------- League Manager assignment ----------
+  // Mirrors server/src/index.js's POST/DELETE /api/leagues/:id/managers -
+  // Overall-Admin-only in the real app (enforced by the UI, same as every
+  // other admin-only demo op); a League Manager can never assign or remove
+  // managers on any league, including themselves.
+  addLeagueManager: op((leagueId, userId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const user = db.users.find((u) => u.id === userId);
+    if (!user) throw new ApiError(404, 'User not found');
+    if (!user.isLeagueManager) {
+      throw new ApiError(400, `${user.firstName} ${user.lastName} isn't flagged as a League Manager yet - grant that on their account first`);
+    }
+    if (!Array.isArray(league.managerUserIds)) league.managerUserIds = [];
+    if (!league.managerUserIds.includes(userId)) {
+      league.managerUserIds.push(userId);
+      recordAudit(db, {
+        actor: adminLabel(), action: 'league.manager_added', targetType: 'league', targetId: league.id,
+        details: `Gave ${user.firstName} ${user.lastName} League Manager access to "${league.name}"`,
+      });
+    }
+    return league;
+  }),
+
+  removeLeagueManager: op((leagueId, userId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const user = db.users.find((u) => u.id === userId);
+    if (!Array.isArray(league.managerUserIds)) league.managerUserIds = [];
+    const hadAccess = league.managerUserIds.includes(userId);
+    league.managerUserIds = league.managerUserIds.filter((id) => id !== userId);
+    if (hadAccess) {
+      recordAudit(db, {
+        actor: adminLabel(), action: 'league.manager_removed', targetType: 'league', targetId: league.id,
+        details: `Removed ${user ? `${user.firstName} ${user.lastName}` : 'a user'}'s League Manager access to "${league.name}"`,
+      });
+    }
     return league;
   }),
 

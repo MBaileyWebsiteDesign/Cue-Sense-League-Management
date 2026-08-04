@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const BRACKET_ROLE_LABEL = {
@@ -150,13 +151,22 @@ function DivisionRounds({ divisionId }) {
 export default function ManageFixtures() {
   const { divisionId: routedDivisionId } = useParams();
   const navigate = useNavigate();
+  const { isAdmin, canManageLeague } = useAuth();
   const [leagues, setLeagues] = useState([]);
   const [selectedLeagueId, setSelectedLeagueId] = useState('');
   const [league, setLeague] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
+    // A League Manager only ever gets here for a league they're assigned to
+    // (the direct "Manage round visibility" link from a division page skips
+    // this picker entirely) - but if they land on the bare picker anyway,
+    // only list leagues they can actually act on, rather than every league
+    // in the app.
+    api.getLeagues()
+      .then((all) => setLeagues(isAdmin ? all : all.filter((l) => canManageLeague(l))))
+      .catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

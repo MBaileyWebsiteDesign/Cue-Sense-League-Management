@@ -101,13 +101,20 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         <button className="btn" disabled={busy} onClick={() => setPermission({ isCaptain: !user.isCaptain })}>
           {user.isCaptain ? 'Unmark Captain' : 'Mark as Captain'}
         </button>
+        <button className="btn" disabled={busy} onClick={() => setPermission({ isLeagueManager: !user.isLeagueManager })}>
+          {user.isLeagueManager ? 'Revoke League Manager' : 'Grant League Manager'}
+        </button>
         <button className="btn" disabled={busy} onClick={toggleStatus}>
           {user.status === 'suspended' ? 'Reactivate Account' : 'Suspend Account'}
         </button>
       </div>
       <p className="muted" style={{ marginTop: 12, fontSize: '0.8rem' }}>
         Admin unlocks the full Admin Portal (users, seasons, audit log). Captain is
-        currently a flag only - team captain tools appear once team leagues launch.
+        currently a flag only - team captain tools appear once team leagues launch. League
+        Manager makes this account eligible to be assigned scoped admin access to specific
+        leagues (assign them from that league's own page) - granting it here doesn't give
+        access to anything by itself, and revoking it also strips any leagues they were
+        already assigned to.
       </p>
     </section>
   );

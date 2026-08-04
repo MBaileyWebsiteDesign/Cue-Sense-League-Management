@@ -95,6 +95,13 @@ const networkApi = {
   getLeaguePayments: (leagueId) => request(`/leagues/${leagueId}/payments`),
   setLeaguePaymentStatus: (leagueId, playerId, status, notes) =>
     request(`/leagues/${leagueId}/payments/${playerId}`, { method: 'POST', body: JSON.stringify({ status, notes }) }),
+  // Overall-Admin-only: assign/remove a League Manager's scoped access to
+  // this specific league. See server/src/index.js's POST/DELETE
+  // /api/leagues/:id/managers.
+  addLeagueManager: (leagueId, userId) =>
+    request(`/leagues/${leagueId}/managers`, { method: 'POST', body: JSON.stringify({ userId }) }),
+  removeLeagueManager: (leagueId, userId) =>
+    request(`/leagues/${leagueId}/managers/${userId}`, { method: 'DELETE' }),
 
   createDivision: (leagueId, data) =>
     request(`/leagues/${leagueId}/divisions`, { method: 'POST', body: JSON.stringify(data) }),
