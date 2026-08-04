@@ -1218,6 +1218,199 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
 
 // ---- Teams (team divisions only) ----
 
+// Admin-only "quick add" for a walk-in who's never used CueSense before -
+// a front-desk-friendly alternative to POST /api/divisions/:id/players,
+// which only accepts an existing registered playerId. Takes just a name,
+// creates a minimal account behind the scenes (synthetic, unguessable
+// email + random password - this person never needs to log in; an admin
+// can turn it into a real account later from Admin > Users if they want
+// one), and adds them to the division.
+//
+// Unlike the ordinary add-player route, this one also works AFTER fixtures
+// have been generated for a singles knockout division - see
+// insertLateEntrantIntoKnockout below for exactly what that does and does
+// not attempt, and insertLateEntrantIntoRoundRobin for the (much simpler)
+// round-robin case. Team and doubles divisions aren't supported here yet -
+// only singles.
+app.post('/api/divisions/:id/quick-add-player', requireAdmin, asyncRoute((req, res) => {
+  const { firstName, lastName } = req.body || {};
+  if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
+  if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
+
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.entryType !== 'singles') {
+    throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
+  }
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+
+  const tempPassword = generateTempPassword();
+  const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
+  const user = createUserAccount(db, {
+    firstName: firstName.trim(),
+    lastName: lastName.trim(),
+    email: syntheticEmail,
+    passwordHash: hashPassword(tempPassword),
+    teamName: 'Unassigned',
+  });
+  const newPlayerId = user.playerId;
+
+  let outcome = { method: 'added' };
+
+  if (!division.fixturesGenerated) {
+    if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
+  } else if (division.scheduling === 'round_robin_single' || division.scheduling === 'round_robin_double') {
+    outcome = insertLateEntrantIntoRoundRobin({ db, league, division, newPlayerId });
+    division.playerIds.push(newPlayerId);
+  } else if (division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim') {
+    outcome = insertLateEntrantIntoKnockout({ db, league, division, newPlayerId });
+  } else {
+    throw new ApiError(400, `Quick-add doesn't support the "${division.scheduling}" scheduling type yet`);
+  }
+
+  // Same "don't hard-block, just flag it" approach as the season wizard's
+  // CSV import (see POST /api/admin/seasons/:leagueId/import-players) - a
+  // walk-in who hasn't paid yet shouldn't be refused a spot in the draw,
+  // but the league's Payments tab needs to know they owe the entry fee.
+  if (league && league.payment && league.payment.required) {
+    const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
+    if (!existing) {
+      db.leaguePayments.push({
+        id: uuid(),
+        leagueId: league.id,
+        playerId: newPlayerId,
+        status: 'unpaid',
+        amount: league.payment.amount,
+        currency: league.payment.currency,
+        confirmedBy: null,
+        confirmedAt: null,
+        notes: '',
+      });
+    }
+  }
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.quick_add_player',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}" (${outcome.method})`,
+  });
+
+  writeDb(db);
+  res.status(201).json({ division: hydrateDivision(db, division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` }, outcome });
+}));
+
+// Round-robin late entrant: nothing here is a wired tree the way a
+// knockout bracket is, so there's no structural risk - just create one new
+// fixture (two, for a double round-robin's home/away legs) pairing the
+// newcomer against every entrant who was already in the division, and
+// leave every existing fixture completely untouched. New fixtures land in
+// a fresh round number after whatever's already there, rather than being
+// interleaved into existing rounds, so per-round visibility toggles (see
+// POST /api/divisions/:id/rounds/:round/visibility) keep behaving
+// predictably for the rounds that existed before this call.
+function insertLateEntrantIntoRoundRobin({ db, league, division, newPlayerId }) {
+  const makeFixture = makeSinglesFixture;
+  const existingFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+  const maxRound = existingFixtures.reduce((max, f) => Math.max(max, f.round), 0);
+  const existingPlayerIds = [...division.playerIds];
+  const isDouble = division.scheduling === 'round_robin_double';
+
+  const legOne = existingPlayerIds.map((opponentId) => {
+    const fixture = makeFixture({ league, division, round: maxRound + 1 });
+    fixture.homePlayerId = newPlayerId;
+    fixture.awayPlayerId = opponentId;
+    return fixture;
+  });
+  legOne.forEach((f) => db.fixtures.push(f));
+
+  if (isDouble) {
+    const legTwo = existingPlayerIds.map((opponentId) => {
+      const fixture = makeFixture({ league, division, round: maxRound + 2 });
+      fixture.homePlayerId = opponentId;
+      fixture.awayPlayerId = newPlayerId;
+      return fixture;
+    });
+    legTwo.forEach((f) => db.fixtures.push(f));
+  }
+
+  return { method: 'round-robin-extra-round', fixturesAdded: legOne.length * (isDouble ? 2 : 1) };
+}
+
+// Knockout late entrant. Two safe paths only - anything riskier than these
+// is refused with a clear error rather than attempted:
+//
+// 1. Bye reclaim: a round-1 bye auto-resolves the instant fixtures are
+//    generated (see resolveByeIfNeeded) - its occupant is immediately
+//    marked the winner and advanced into round 2. If that round-2 fixture
+//    hasn't started yet (and isn't itself another bye - a cascade more
+//    than one level deep is refused, to keep the revert logic simple and
+//    safe rather than chasing a chain of auto-resolved winners), the bye
+//    can be "reclaimed": the newcomer fills the empty bye slot, the round-1
+//    fixture becomes a real match again, and the round-2 slot that was
+//    prematurely filled by the walkover is cleared back to pending -
+//    exactly mirroring how that slot would look if round 1 just hadn't
+//    finished yet. Nothing that's actually been played is touched.
+//
+// 2. Full regenerate: only if literally no fixture in the whole division
+//    has started or completed - i.e. fixtures were generated but the event
+//    hasn't actually begun yet. In that case every fixture is thrown away
+//    and the bracket is rebuilt from scratch with the newcomer included,
+//    using the exact same generator as a fresh division - safe because no
+//    real result exists anywhere yet to lose.
+//
+// If neither applies (the bracket is genuinely underway and has no open
+// bye to use), this throws rather than attempting to splice a new branch
+// into an already-live bracket tree - see the quick-add-player route's
+// caller for the resulting error message.
+function insertLateEntrantIntoKnockout({ db, league, division, newPlayerId }) {
+  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+
+  const round1Byes = fixtures.filter(
+    (f) => f.round === 1 && f.byeSlot && f.status === 'completed' &&
+      (division.scheduling !== 'knockout_double_elim' || f.bracketRole === 'winners')
+  );
+  for (const bye of round1Byes) {
+    if (!bye.nextFixtureId) continue;
+    const next = fixtures.find((f) => f.id === bye.nextFixtureId);
+    if (!next || next.byeSlot || next.status !== 'scheduled') continue;
+
+    if (bye.nextFixtureSlot === 'home') next.homePlayerId = null;
+    else next.awayPlayerId = null;
+
+    if (bye.byeSlot === 'home') bye.homePlayerId = newPlayerId;
+    else bye.awayPlayerId = newPlayerId;
+    bye.byeSlot = null;
+    bye.status = 'scheduled';
+    bye.winnerPlayerId = null;
+
+    division.playerIds.push(newPlayerId);
+    return { method: 'bye-reclaim', fixtureId: bye.id };
+  }
+
+  const anyStarted = fixtures.some((f) => f.status === 'in_progress' || f.status === 'completed');
+  if (!anyStarted) {
+    db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
+    division.playerIds.push(newPlayerId);
+    const entrantIds = [...division.playerIds];
+    if (division.scheduling === 'knockout_single_elim') {
+      generateKnockoutFixtures({ db, league, division, entrantIds });
+    } else {
+      generateDoubleElimFixtures({ db, league, division, entrantIds });
+    }
+    return { method: 'bracket-regenerated' };
+  }
+
+  throw new ApiError(
+    400,
+    "This bracket has already started and has no open bye to slot a new player into right now - it can't be safely expanded without disturbing a match that's already underway. They can still be registered for next time from here, or play an off-bracket exhibition match instead."
+  );
+}
+
+// ---- Teams (team divisions only) ----
+
 app.post('/api/divisions/:id/teams', asyncRoute((req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'Team name is required');

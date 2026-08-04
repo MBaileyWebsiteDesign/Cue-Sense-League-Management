@@ -836,6 +836,85 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
+// Mirrors server/src/index.js's insertLateEntrantIntoRoundRobin exactly -
+// see the comment there for why this is safe (nothing existing is touched,
+// just new fixtures appended in a fresh round).
+function insertLateEntrantIntoRoundRobin({ league, division, newPlayerId }) {
+  const existingFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+  const maxRound = existingFixtures.reduce((max, f) => Math.max(max, f.round), 0);
+  const existingPlayerIds = [...division.playerIds];
+  const isDouble = division.scheduling === 'round_robin_double';
+
+  const legOne = existingPlayerIds.map((opponentId) => {
+    const fixture = makeSinglesFixture({ league, division, round: maxRound + 1 });
+    fixture.homePlayerId = newPlayerId;
+    fixture.awayPlayerId = opponentId;
+    return fixture;
+  });
+  legOne.forEach((f) => db.fixtures.push(f));
+
+  if (isDouble) {
+    const legTwo = existingPlayerIds.map((opponentId) => {
+      const fixture = makeSinglesFixture({ league, division, round: maxRound + 2 });
+      fixture.homePlayerId = opponentId;
+      fixture.awayPlayerId = newPlayerId;
+      return fixture;
+    });
+    legTwo.forEach((f) => db.fixtures.push(f));
+  }
+
+  return { method: 'round-robin-extra-round', fixturesAdded: legOne.length * (isDouble ? 2 : 1) };
+}
+
+// Mirrors server/src/index.js's insertLateEntrantIntoKnockout exactly -
+// see the comment there for the full reasoning behind the two safe paths
+// (bye reclaim, or a full regenerate when nothing's been played yet) and
+// why anything riskier than those is refused instead of attempted.
+function insertLateEntrantIntoKnockout({ league, division, newPlayerId }) {
+  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+
+  const round1Byes = fixtures.filter(
+    (f) => f.round === 1 && f.byeSlot && f.status === 'completed' &&
+      (division.scheduling !== 'knockout_double_elim' || f.bracketRole === 'winners')
+  );
+  for (const bye of round1Byes) {
+    if (!bye.nextFixtureId) continue;
+    const next = fixtures.find((f) => f.id === bye.nextFixtureId);
+    if (!next || next.byeSlot || next.status !== 'scheduled') continue;
+
+    if (bye.nextFixtureSlot === 'home') next.homePlayerId = null;
+    else next.awayPlayerId = null;
+
+    if (bye.byeSlot === 'home') bye.homePlayerId = newPlayerId;
+    else bye.awayPlayerId = newPlayerId;
+    bye.byeSlot = null;
+    bye.status = 'scheduled';
+    bye.winnerPlayerId = null;
+
+    division.playerIds.push(newPlayerId);
+    return { method: 'bye-reclaim', fixtureId: bye.id };
+  }
+
+  const anyStarted = fixtures.some((f) => f.status === 'in_progress' || f.status === 'completed');
+  if (!anyStarted) {
+    db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
+    division.playerIds.push(newPlayerId);
+    const entrantIds = [...division.playerIds];
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    if (division.scheduling === 'knockout_single_elim') {
+      generateKnockoutFixtures({ league, division, entrantIds });
+    } else {
+      generateDoubleElimFixtures({ league, division, entrantIds });
+    }
+    return { method: 'bracket-regenerated' };
+  }
+
+  throw new ApiError(
+    400,
+    "This bracket has already started and has no open bye to slot a new player into right now - it can't be safely expanded without disturbing a match that's already underway. They can still be registered for next time from here, or play an off-bracket exhibition match instead."
+  );
+}
+
 function assignScheduledDates(division, startDate, gapDays) {
   if (!startDate || !gapDays) return;
   const base = new Date(`${startDate}T00:00:00`);
@@ -2031,6 +2110,66 @@ export const demoApi = {
     if (division.fixturesGenerated) throw new ApiError(400, 'Cannot remove players after fixtures have been generated for this division');
     division.playerIds = division.playerIds.filter((id) => id !== playerId);
     return hydrateDivision(division);
+  }),
+
+  // Mirrors server/src/index.js's POST /api/divisions/:id/quick-add-player.
+  quickAddPlayer: op((divisionId, firstName, lastName) => {
+    if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
+    if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.entryType !== 'singles') {
+      throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
+    }
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+
+    const user = createUserAccount({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: `walkin-${uuid()}@no-login.cuesense`,
+      teamName: 'Unassigned',
+    });
+    const newPlayerId = user.playerId;
+
+    let outcome = { method: 'added' };
+
+    if (!division.fixturesGenerated) {
+      if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
+    } else if (division.scheduling === 'round_robin_single' || division.scheduling === 'round_robin_double') {
+      outcome = insertLateEntrantIntoRoundRobin({ league, division, newPlayerId });
+      division.playerIds.push(newPlayerId);
+    } else if (division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim') {
+      outcome = insertLateEntrantIntoKnockout({ league, division, newPlayerId });
+    } else {
+      throw new ApiError(400, `Quick-add doesn't support the "${division.scheduling}" scheduling type yet`);
+    }
+
+    if (league && league.payment && league.payment.required) {
+      const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
+      if (!existing) {
+        db.leaguePayments.push({
+          id: uuid(),
+          leagueId: league.id,
+          playerId: newPlayerId,
+          status: 'unpaid',
+          amount: league.payment.amount,
+          currency: league.payment.currency,
+          confirmedBy: null,
+          confirmedAt: null,
+          notes: '',
+        });
+      }
+    }
+
+    recordAudit(db, {
+      actor: adminLabel(),
+      action: 'division.quick_add_player',
+      targetType: 'division',
+      targetId: division.id,
+      details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}" (${outcome.method})`,
+    });
+
+    return { division: hydrateDivision(division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` }, outcome };
   }),
 
   createPairing: op((divisionId, name) => {

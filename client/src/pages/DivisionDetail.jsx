@@ -13,8 +13,12 @@ function generateFixturesLabel(division) {
   return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
 
-function SinglesRoster({ division, registeredPlayers, onChange, setError }) {
+function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin }) {
   const [playerId, setPlayerId] = useState('');
+  const [quickFirstName, setQuickFirstName] = useState('');
+  const [quickLastName, setQuickLastName] = useState('');
+  const [quickAdding, setQuickAdding] = useState(false);
+  const [quickResult, setQuickResult] = useState('');
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
 
@@ -28,6 +32,31 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError }) {
       onChange();
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const onQuickAdd = async (e) => {
+    e.preventDefault();
+    if (!quickFirstName.trim() || !quickLastName.trim()) return;
+    setError('');
+    setQuickResult('');
+    setQuickAdding(true);
+    try {
+      const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim());
+      setQuickFirstName('');
+      setQuickLastName('');
+      const methodLabel = {
+        'added': 'Added.',
+        'bye-reclaim': 'Added - took the place of an open bye in round 1.',
+        'bracket-regenerated': 'Added - the bracket was regenerated to include them (nothing had been played yet).',
+        'round-robin-extra-round': 'Added - new fixtures were created against everyone already in the division.',
+      }[res.outcome?.method] || 'Added.';
+      setQuickResult(`${res.player.name}: ${methodLabel}`);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setQuickAdding(false);
     }
   };
 
@@ -75,8 +104,39 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError }) {
         </form>
       )}
       <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
-        Only people with a registered player account can be added - see "My Account" to register.
+        Only people with a registered player account can be added this way - see "My Account" to register.
       </p>
+
+      {isAdmin && (
+        <>
+          <h3 style={{ marginBottom: 4 }}>Quick add (walk-in)</h3>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
+            {!division.fixturesGenerated
+              ? 'For someone who\'s never used CueSense before - just a name, no account needed to add them to the draw.'
+              : 'Fixtures are already generated, but a late arrival can still be worked in: they\'ll take an open round 1 bye if one exists, or the bracket will be safely regenerated if nothing\'s been played yet. If neither is possible, you\'ll get a clear reason why not.'}
+          </p>
+          <form className="inline-form" onSubmit={onQuickAdd}>
+            <input
+              type="text"
+              placeholder="First name"
+              value={quickFirstName}
+              onChange={(e) => setQuickFirstName(e.target.value)}
+              required
+            />
+            <input
+              type="text"
+              placeholder="Last name"
+              value={quickLastName}
+              onChange={(e) => setQuickLastName(e.target.value)}
+              required
+            />
+            <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim() || !quickLastName.trim()}>
+              {quickAdding ? 'Adding…' : 'Quick Add'}
+            </button>
+          </form>
+          {quickResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{quickResult}</p>}
+        </>
+      )}
       <ul className="player-list">
         {division.players.map((p, i) => (
           <li key={p.id}>
@@ -105,7 +165,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError }) {
           {generateFixturesLabel(division)}
         </button>
       ) : (
-        <p className="muted">Fixtures generated — player list is locked.</p>
+        <p className="muted">Fixtures generated - the regular roster is locked, but Quick Add above can still work a late arrival in.</p>
       )}
     </section>
   );
@@ -851,7 +911,7 @@ export default function DivisionDetail() {
       ) : isDoubles ? (
         <PairingRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       ) : (
-        <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
+        <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isAdmin={isAdmin} />
       )}
 
       {isAdmin && !division.fixturesGenerated && (
