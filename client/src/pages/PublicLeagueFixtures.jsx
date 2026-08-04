@@ -92,7 +92,7 @@ export default function PublicLeagueFixtures() {
         ))}
       </ul>
 
-      <p className="public-footer">The Ultimate Pool League</p>
+      <p className="public-footer">Cue Sense - Pool Management</p>
     </div>
   );
 }

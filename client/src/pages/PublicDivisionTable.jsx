@@ -121,7 +121,7 @@ export default function PublicDivisionTable() {
         </table>
       )}
 
-      <p className="public-footer">The Ultimate Pool League</p>
+      <p className="public-footer">Cue Sense - Pool Management</p>
     </div>
   );
 }

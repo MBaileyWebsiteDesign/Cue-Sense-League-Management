@@ -1,9 +1,9 @@
 {
-  "name": "pool-league-server",
+  "name": "cue-sense-server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "API server for The Ultimate Pool League",
+  "description": "API server for Cue Sense - Pool Management",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

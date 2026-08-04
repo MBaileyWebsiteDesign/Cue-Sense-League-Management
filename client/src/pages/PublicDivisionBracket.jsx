@@ -86,7 +86,7 @@ export default function PublicDivisionBracket() {
         <BracketChart matches={data.matches} totalRounds={data.totalRounds} />
       )}
 
-      <p className="public-footer">The Ultimate Pool League</p>
+      <p className="public-footer">Cue Sense - Pool Management</p>
     </div>
   );
 }

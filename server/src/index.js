@@ -3778,5 +3778,5 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`Pool League API listening on http://localhost:${PORT}`);
+  console.log(`Cue Sense API listening on http://localhost:${PORT}`);
 });

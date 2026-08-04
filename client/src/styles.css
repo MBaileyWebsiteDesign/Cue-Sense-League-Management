@@ -2,12 +2,12 @@
   /* Brand palette. --green/--green-dark are kept as aliases to --primary/
      --primary-dark so any old CSS/inline reference to the previous variable
      names keeps working unchanged. */
-  --primary: #0b6e4f;
-  --primary-dark: #084d38;
-  --secondary: #3e8ede;
-  --secondary-dark: #2e6db4;
-  --cta: #c89b3c;
-  --cta-dark: #a67d2e;
+  --primary: #123d24;
+  --primary-dark: #0a2617;
+  --secondary: #3c9c48;
+  --secondary-dark: #2f7d39;
+  --cta: #d9a62a;
+  --cta-dark: #a67d1f;
   --green: var(--primary);
   --green-dark: var(--primary-dark);
   --ink: #1a1a1a;
@@ -35,8 +35,6 @@ body {
 
 .brand {
   color: white;
-  font-size: 1.25rem;
-  font-weight: 700;
   text-decoration: none;
   display: flex;
   align-items: center;
@@ -48,6 +46,26 @@ body {
   width: 40px;
   object-fit: contain;
   display: block;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.brand-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.brand-tagline {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cta);
+  opacity: 0.9;
 }
 
 .header-link {
@@ -379,8 +397,10 @@ h2 { margin-top: 0; }
     position: relative;
   }
 
-  .brand { font-size: 1.05rem; gap: 8px; }
+  .brand { gap: 8px; }
   .brand-logo { height: 32px; width: 32px; }
+  .brand-name { font-size: 1.05rem; }
+  .brand-tagline { font-size: 0.6rem; }
 
   .hamburger-btn { display: flex; }
 

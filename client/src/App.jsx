@@ -157,7 +157,10 @@ function AppShell() {
       <header className="app-header">
         <Link to="/" className="brand">
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
-          The Ultimate Pool League
+          <span className="brand-text">
+            <span className="brand-name">Cue Sense</span>
+            <span className="brand-tagline">Pool Management</span>
+          </span>
         </Link>
         <HeaderNav />
       </header>

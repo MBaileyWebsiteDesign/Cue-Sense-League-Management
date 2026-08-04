@@ -1,4 +1,4 @@
-# The Ultimate Pool League
+# Cue Sense - Pool Management
 
 Live on GitHub: https://github.com/MBaileyWebsiteDesign/the-ultimate-pool-league
 
