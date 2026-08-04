@@ -193,6 +193,14 @@ function AppShell() {
           </Routes>
         </Suspense>
       </main>
+      <footer className="app-footer">
+        <p>
+          Powered By Cue Sense,{' '}
+          <a href="https://www.cuesense.co.uk" target="_blank" rel="noopener noreferrer">
+            www.CueSense.co.uk
+          </a>
+        </p>
+      </footer>
     </div>
   );
 }

@@ -134,6 +134,29 @@ body {
   padding: 24px;
 }
 
+.app-footer {
+  text-align: center;
+  padding: 20px 24px;
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+}
+
+.app-footer p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.app-footer a {
+  color: var(--secondary-dark);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.app-footer a:hover {
+  text-decoration: underline;
+}
+
 .page-header {
   display: flex;
   align-items: center;

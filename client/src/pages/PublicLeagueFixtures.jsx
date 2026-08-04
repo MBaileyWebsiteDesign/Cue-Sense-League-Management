@@ -92,7 +92,12 @@ export default function PublicLeagueFixtures() {
         ))}
       </ul>
 
-      <p className="public-footer">Cue Sense - Pool Management</p>
+      <p className="public-footer">
+        Powered By Cue Sense,{' '}
+        <a href="https://www.cuesense.co.uk" target="_blank" rel="noopener noreferrer">
+          www.CueSense.co.uk
+        </a>
+      </p>
     </div>
   );
 }
