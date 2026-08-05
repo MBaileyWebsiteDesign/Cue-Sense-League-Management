@@ -892,7 +892,7 @@ function insertLateEntrantIntoRoundRobin({ league, division, newPlayerId }) {
 // see the comment there for the full reasoning behind the two safe paths
 // (bye reclaim, or a full regenerate when nothing's been played yet) and
 // why anything riskier than those is refused instead of attempted.
-function insertLateEntrantIntoKnockout({ league, division, newPlayerId }) {
+function insertLateEntrantIntoKnockout({ league, division, newPlayerId, override }) {
   const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
 
   const round1Byes = fixtures.filter(
@@ -931,10 +931,71 @@ function insertLateEntrantIntoKnockout({ league, division, newPlayerId }) {
     return { method: 'bracket-regenerated' };
   }
 
+  // Admin override: rather than refusing outright, splice the late entrant
+  // in as a brand new round-1 branch - see appendLateEntrantBranch.
+  if (override) {
+    return appendLateEntrantBranch({ league, division, newPlayerId, fixtures });
+  }
+
   throw new ApiError(
     400,
-    "This bracket has already started and has no open bye to slot a new player into right now - it can't be safely expanded without disturbing a match that's already underway. They can still be registered for next time from here, or play an off-bracket exhibition match instead."
+    "This bracket has already started and has no open bye to slot a new player into right now - it can't be safely expanded without disturbing a match that's already underway. They can still be registered for next time from here, or added anyway as a new branch that plays off against the eventual champion."
   );
+}
+
+// Admin override for a knockout bracket that's already underway with no
+// open bye to reclaim (see insertLateEntrantIntoKnockout above). Rather
+// than refusing the late entrant outright, gives them their own new
+// round-1 box - a bye, since there's nobody left to pair them against -
+// and carries that bye forward directly into a brand new "decider" fixture
+// created one round past whatever is currently the last round, where they
+// play off against the tournament's eventual champion. Every existing
+// fixture is left untouched except the current final/Grand Final, which
+// gets pointed at the new decider instead of staying terminal.
+//
+// Known limitation (double-elimination only): if this is used before the
+// Grand Final has been played, and that Grand Final result later triggers
+// a bracket-reset decider (see checkGrandFinalReset), the late entrant's
+// decider will already be wired to the Grand Final's immediate winner
+// rather than waiting for the reset - a genuinely rare double-edge-case
+// this override doesn't attempt to chase.
+function appendLateEntrantBranch({ league, division, newPlayerId, fixtures }) {
+  const isDoubleElim = division.scheduling === 'knockout_double_elim';
+  const mainFixtures = isDoubleElim
+    ? fixtures.filter((f) => ['winners', 'grand_final', 'grand_final_reset'].includes(f.bracketRole))
+    : fixtures;
+
+  const terminalFixtures = mainFixtures.filter((f) => !f.nextFixtureId);
+  const currentFinal = terminalFixtures.reduce(
+    (latest, f) => (!latest || f.round > latest.round ? f : latest),
+    null
+  );
+
+  const branchFixture = makeSinglesFixture({ league, division, round: 1 });
+  branchFixture.bracketRole = isDoubleElim ? 'winners' : 'single';
+  branchFixture.homePlayerId = newPlayerId;
+  branchFixture.byeSlot = 'away';
+
+  const decider = makeSinglesFixture({ league, division, round: currentFinal.round + 1 });
+  decider.bracketRole = 'late_entry_decider';
+
+  branchFixture.nextFixtureId = decider.id;
+  branchFixture.nextFixtureSlot = 'home';
+
+  db.fixtures.push(branchFixture);
+  db.fixtures.push(decider);
+  division.playerIds.push(newPlayerId);
+
+  resolveByeIfNeeded(division, branchFixture);
+
+  if (currentFinal.status === 'completed') {
+    decider.awayPlayerId = currentFinal.winnerPlayerId;
+  } else {
+    currentFinal.nextFixtureId = decider.id;
+    currentFinal.nextFixtureSlot = 'away';
+  }
+
+  return { method: 'late-branch', fixtureId: branchFixture.id, deciderFixtureId: decider.id };
 }
 
 function assignScheduledDates(division, startDate, gapDays) {
@@ -2211,7 +2272,7 @@ export const demoApi = {
   }),
 
   // Mirrors server/src/index.js's POST /api/divisions/:id/quick-add-player.
-  quickAddPlayer: op((divisionId, firstName, lastName) => {
+  quickAddPlayer: op((divisionId, firstName, lastName, override) => {
     if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
     const division = db.divisions.find((d) => d.id === divisionId);
     if (!division) throw new ApiError(404, 'Division not found');
@@ -2236,7 +2297,7 @@ export const demoApi = {
       outcome = insertLateEntrantIntoRoundRobin({ league, division, newPlayerId });
       division.playerIds.push(newPlayerId);
     } else if (division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim') {
-      outcome = insertLateEntrantIntoKnockout({ league, division, newPlayerId });
+      outcome = insertLateEntrantIntoKnockout({ league, division, newPlayerId, override: !!override });
     } else {
       throw new ApiError(400, `Quick-add doesn't support the "${division.scheduling}" scheduling type yet`);
     }

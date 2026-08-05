@@ -377,6 +377,7 @@ h2 { margin-top: 0; }
 }
 
 .banner-success { background: #d1fae5; color: #065f46; }
+.banner-warning { background: #fef3c7; color: #92400e; }
 
 .frame-history {
   padding-left: 20px;

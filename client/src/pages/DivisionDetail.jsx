@@ -58,6 +58,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const [quickLastName, setQuickLastName] = useState('');
   const [quickAdding, setQuickAdding] = useState(false);
   const [quickResult, setQuickResult] = useState('');
+  const [bracketFullOverride, setBracketFullOverride] = useState(false);
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
 
@@ -74,25 +75,34 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
     }
   };
 
-  const onQuickAdd = async (e) => {
-    e.preventDefault();
+  const onQuickAdd = async (e, withOverride = false) => {
+    if (e) e.preventDefault();
     if (!quickFirstName.trim()) return;
     setError('');
     setQuickResult('');
+    if (!withOverride) setBracketFullOverride(false);
     setQuickAdding(true);
     try {
-      const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null);
+      const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null, withOverride);
       setQuickFirstName('');
       setQuickLastName('');
+      setBracketFullOverride(false);
       const methodLabel = {
         'added': 'Added.',
         'bye-reclaim': 'Added - took the place of an open bye in round 1.',
         'bracket-regenerated': 'Added - the bracket was regenerated to include them (nothing had been played yet).',
         'round-robin-extra-round': 'Added - new fixtures were created against everyone already in the division.',
+        'late-branch': 'Added - given a new round 1 bye, and a decider match against the eventual champion once the bracket finishes.',
       }[res.outcome?.method] || 'Added.';
       setQuickResult(`${res.player.name}: ${methodLabel}`);
       onChange();
     } catch (err) {
+      // The one refusal this override applies to - see insertLateEntrantIntoKnockout
+      // (server/src/index.js) - is worded consistently so it can be matched here
+      // without a dedicated error code.
+      if (!withOverride && /has no open bye to slot a new player/.test(err.message)) {
+        setBracketFullOverride(true);
+      }
       setError(err.message);
     } finally {
       setQuickAdding(false);
@@ -175,6 +185,16 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
             </button>
           </form>
           <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
+          {bracketFullOverride && (
+            <p className="banner banner-warning">
+              This bracket's already underway with no open bye. Add {quickFirstName.trim() || 'them'} anyway as a
+              new round 1 branch - they'll get a bye now, then play off against the eventual champion once the
+              bracket finishes.{' '}
+              <button className="btn" type="button" disabled={quickAdding} onClick={() => onQuickAdd(null, true)}>
+                {quickAdding ? 'Adding…' : 'Add anyway'}
+              </button>
+            </p>
+          )}
           {quickResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{quickResult}</p>}
         </>
       )}
@@ -873,6 +893,7 @@ export default function DivisionDetail() {
     losers: 'Losers Bracket',
     grand_final: 'Grand Final',
     grand_final_reset: 'Grand Final — Bracket Reset (decider)',
+    late_entry_decider: 'Late Entry — Decider',
   };
 
   function groupByRound(fixtures, useRawRoundNumber = false) {
@@ -917,7 +938,7 @@ export default function DivisionDetail() {
   ]);
 
   const bracketSections = isDoubleElim
-    ? ['winners', 'losers', 'grand_final', 'grand_final_reset']
+    ? ['winners', 'losers', 'grand_final', 'grand_final_reset', 'late_entry_decider']
         .map((role) => ({ role, fixtures: division.fixtures.filter((f) => f.bracketRole === role) }))
         .filter((s) => s.fixtures.length > 0)
     : [];
