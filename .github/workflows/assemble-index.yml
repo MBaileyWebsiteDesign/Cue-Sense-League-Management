@@ -1,0 +1,32 @@
+name: Assemble index.js
+
+on:
+  push:
+    branches: [staging]
+    paths:
+      - 'server/src/.index_chunks/**'
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
+      - name: Concatenate chunks into index.js
+        run: |
+          set -e
+          ls server/src/.index_chunks/
+          cat server/src/.index_chunks/part*.txt > server/src/index.js
+          wc -c server/src/index.js
+          rm -rf server/src/.index_chunks
+      - name: Commit and push assembled file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Assemble server/src/index.js from chunk files" || echo "nothing to commit"
+          git push origin HEAD:staging
