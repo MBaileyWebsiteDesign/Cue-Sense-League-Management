@@ -147,7 +147,7 @@ export default function LeagueList() {
               multiple
               value={selectedManagerIds}
               onChange={(e) => setSelectedManagerIds(Array.from(e.target.selectedOptions, (o) => o.value))}
-              style={{ minHeight: 80 }}
+              style={{ minHeight: 80, width: '100%' }}
             >
               {managerCandidates.map((u) => (
                 <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>

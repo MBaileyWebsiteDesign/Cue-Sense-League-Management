@@ -94,8 +94,8 @@ function RequireCaptain({ children }) {
 }
 
 // On a narrow (phone-width) screen there isn't room for every link in one
-// row (Admin Portal, Captain Portal, Tours, Roll of Honour, Player Portal,
-// Log out), so below the 640px breakpoint (see styles.css) the link list
+// row (Admin Portal, Captain Portal, Player Portal, Log out), so below the
+// 640px breakpoint (see styles.css) the link list
 // collapses behind a hamburger toggle instead - the links themselves are
 // unchanged, just hidden/shown as a dropdown panel via the
 // "header-accounts-open" class rather than always inline. Above 640px the
@@ -145,12 +145,6 @@ function HeaderNav() {
             Captain Portal
           </Link>
         )}
-        <Link to="/tours" className="header-link" onClick={closeMenu}>
-          Tours
-        </Link>
-        <Link to="/roll-of-honour" className="header-link" onClick={closeMenu}>
-          Roll of Honour
-        </Link>
         <Link to="/account" className="header-link" onClick={closeMenu}>
           Player Portal
         </Link>

@@ -294,6 +294,9 @@ export default function AdminUsers() {
   const [users, setUsers] = useState(null);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState(null);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Users' }]);
 
@@ -307,6 +310,43 @@ export default function AdminUsers() {
   const onSearch = (e) => {
     e.preventDefault();
     load(query);
+  };
+
+  const toggleOne = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const allSelected = users && users.length > 0 && selectedIds.length === users.length;
+  const toggleAll = () => {
+    setSelectedIds(allSelected ? [] : users.map((u) => u.id));
+  };
+
+  // Accounts with any league/match history (played a fixture, on a division/
+  // team/pairing roster, in Roll of Honour, a league manager) can't be
+  // hard-deleted - the server skips those and reports why (see userInUse
+  // in server/src/index.js) rather than silently ignoring or force-deleting
+  // them, since force-deleting would leave a fixture or Roll of Honour entry
+  // pointing at a player id that no longer exists. Suspend those instead
+  // from the account's own edit page.
+  const onDeleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    const names = users.filter((u) => selectedIds.includes(u.id)).map((u) => `${u.firstName} ${u.lastName}`);
+    if (!window.confirm(`Delete ${selectedIds.length} account(s)?\n\n${names.join(', ')}\n\nThis can't be undone.`)) {
+      return;
+    }
+    setError('');
+    setDeleteResult(null);
+    setDeleting(true);
+    try {
+      const result = await api.adminBulkDeleteUsers(selectedIds);
+      setDeleteResult(result);
+      setSelectedIds([]);
+      load(query);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -331,18 +371,70 @@ export default function AdminUsers() {
 
       {error && <p className="error">{error}</p>}
 
+      {deleteResult && (
+        <div className="banner banner-success" style={{ marginTop: 12 }}>
+          {deleteResult.deleted.length > 0 && (
+            <p style={{ margin: '0 0 8px' }}>
+              Deleted {deleteResult.deleted.length} account{deleteResult.deleted.length === 1 ? '' : 's'}:{' '}
+              {deleteResult.deleted.map((d) => d.name).join(', ')}.
+            </p>
+          )}
+          {deleteResult.blocked.length > 0 && (
+            <>
+              <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#991b1b' }}>
+                Couldn't delete {deleteResult.blocked.length}:
+              </p>
+              <ul style={{ margin: 0, paddingLeft: 20, color: '#991b1b' }}>
+                {deleteResult.blocked.map((b) => (
+                  <li key={b.id}>{b.name}: {b.reason}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+
+      {selectedIds.length > 0 && (
+        <div className="inline-form" style={{ marginTop: 12 }}>
+          <button className="btn btn-danger" type="button" onClick={onDeleteSelected} disabled={deleting}>
+            {deleting ? 'Deleting…' : `Delete ${selectedIds.length} selected`}
+          </button>
+          <button className="btn" type="button" onClick={() => setSelectedIds([])} disabled={deleting}>
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {!users ? (
         <p>Loading…</p>
       ) : (
         <table className="standings-table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto' }}
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  aria-label="Select all users"
+                />
+              </th>
               <th>Name</th><th>Email</th><th>Team</th><th>Class</th><th>Flags</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    style={{ width: 'auto' }}
+                    checked={selectedIds.includes(u.id)}
+                    onChange={() => toggleOne(u.id)}
+                    aria-label={`Select ${u.firstName} ${u.lastName}`}
+                  />
+                </td>
                 <td style={{ textAlign: 'left' }}>
                   <Link to={`/admin/users/${u.id}`}>{u.firstName} {u.lastName}</Link>
                 </td>
@@ -356,7 +448,7 @@ export default function AdminUsers() {
               </tr>
             ))}
             {users.length === 0 && (
-              <tr><td colSpan={6} className="muted">No users match that search.</td></tr>
+              <tr><td colSpan={7} className="muted">No users match that search.</td></tr>
             )}
           </tbody>
         </table>
