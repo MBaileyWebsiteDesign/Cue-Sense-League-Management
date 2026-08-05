@@ -135,6 +135,16 @@ export function readDb() {
     if (division.status === undefined) division.status = 'active';
     if (division.completedAt === undefined) division.completedAt = null;
     if (division.completedBy === undefined) division.completedBy = null;
+    // Match length (raceTo) used to live on the league, shared by every
+    // division under it. Now each division carries its own, so a division
+    // created before this migration falls back to whatever race-to its own
+    // league used to have (or 6, the old universal default, if even that's
+    // missing) - existing fixtures are unaffected either way, this only
+    // matters for fixtures generated after the migration.
+    if (division.raceTo === undefined) {
+      const owningLeague = state.leagues.find((l) => l.id === division.leagueId);
+      division.raceTo = (owningLeague && owningLeague.format && owningLeague.format.raceTo) || 6;
+    }
   }
   for (const fixture of state.fixtures) {
     // Set only on a fixture that was force-completed 0-0 by close-early

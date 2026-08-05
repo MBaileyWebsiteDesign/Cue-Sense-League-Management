@@ -413,7 +413,7 @@ app.get('/api/leagues', requireAuth, asyncRoute((req, res) => {
 }));
 
 app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
-  const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment, managerUserIds } = req.body;
+  const { name, sport = 'English 8-Ball Pool', scheduling = 'round_robin_single', payment, managerUserIds } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'League name is required');
 
   const db = readDb();
@@ -436,7 +436,11 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
     id: uuid(),
     name: name.trim(),
     sport,
-    format: { matchFormat, raceTo, scheduling },
+    // Race-to lives on each division now (see POST /api/leagues/:leagueId/divisions
+    // below) so different divisions in the same league can use different
+    // match lengths - a league itself only still carries a scheduling
+    // default new divisions can start from.
+    format: { scheduling },
     startDate: null,
     endDate: null,
     createdAt: new Date().toISOString(),
@@ -708,7 +712,7 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
 //   robin but a separate cup division as a knockout.
 
 app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, res) => {
-  const { name, order = 0, entryType = 'singles', legsPerMatch = 5, pairingSize = 2 } = req.body;
+  const { name, order = 0, entryType = 'singles', legsPerMatch = 5, pairingSize = 2, raceTo = 6 } = req.body;
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.leagueId);
   if (!league) throw new ApiError(404, 'League not found');
@@ -728,6 +732,9 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
   if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
     throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
   }
+  if (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1) {
+    throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+  }
 
   const division = {
     id: uuid(),
@@ -736,6 +743,14 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
     order,
     entryType,
     scheduling,
+    // Match length - each division sets its own rather than inheriting one
+    // fixed value from the league, since a league often runs a main
+    // division at one length (e.g. race to 7) and a shorter side division
+    // (e.g. a plate/consolation event) at another. Every fixture this
+    // division ever generates reads it from here (see makeSinglesFixture/
+    // makeTeamFixture) - changing it after fixtures already exist has no
+    // effect on fixtures already created, only ones generated after.
+    raceTo: Number(raceTo),
     playerIds: [],
     teamIds: [],
     pairingIds: [],
@@ -1877,7 +1892,7 @@ function makeSinglesFixture({ league, division, round }) {
     shotClock: { durationSeconds: 60, startedAt: null, running: false },
     homePlayerId: null,
     awayPlayerId: null,
-    raceTo: league.format.raceTo,
+    raceTo: division.raceTo,
     frames: [],
     homeFrameScore: 0,
     awayFrameScore: 0,
@@ -1905,7 +1920,7 @@ function makeTeamFixture({ league, division, round }) {
     legNumber: i + 1,
     homePlayerId: null,
     awayPlayerId: null,
-    raceTo: league.format.raceTo,
+    raceTo: division.raceTo,
     frames: [],
     homeFrameScore: 0,
     awayFrameScore: 0,
@@ -4095,7 +4110,9 @@ app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
     id: uuid(),
     name: name.trim(),
     sport: 'English 8-Ball Pool',
-    format: { matchFormat: 'singles', raceTo: 6, scheduling: 'round_robin_single' },
+    // Match format now lives on each division (see POST /api/leagues/:leagueId/divisions) -
+    // the wizard just gives every division it creates the default race to 6 below.
+    format: { scheduling: 'round_robin_single' },
     startDate: null,
     endDate: null,
     createdAt: new Date().toISOString(),
@@ -4113,6 +4130,7 @@ app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
       order: i,
       entryType: 'singles',
       scheduling: 'round_robin_single',
+      raceTo: 6,
       playerIds: [],
       teamIds: [],
       legsPerMatch: null,

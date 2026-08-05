@@ -422,6 +422,11 @@ export default function LeagueDetail() {
   const [legsPerMatch, setLegsPerMatch] = useState(5);
   const [pairingSize, setPairingSize] = useState(2);
   const [scheduling, setScheduling] = useState('round_robin_single');
+  // Match length for this division - see LeagueList.jsx's old create-league
+  // form (removed) for why raceTo/bestOf are offered as two ways to express
+  // the same underlying number; only the resulting raceTo is ever sent.
+  const [formatMode, setFormatMode] = useState('raceTo');
+  const [formatValue, setFormatValue] = useState(6);
   const [showForm, setShowForm] = useState(false);
 
   useSetBreadcrumbs(
@@ -440,12 +445,28 @@ export default function LeagueDetail() {
   const onAddDivision = async (e) => {
     e.preventDefault();
     setError('');
+    const numericFormatValue = Number(formatValue);
+    let raceTo;
+    if (formatMode === 'bestOf') {
+      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
+        setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
+        return;
+      }
+      raceTo = (numericFormatValue + 1) / 2;
+    } else {
+      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1) {
+        setError('Race to (frames) must be a whole number of 1 or more');
+        return;
+      }
+      raceTo = numericFormatValue;
+    }
     try {
       await api.createDivision(leagueId, {
         name,
         order: league.divisions.length,
         entryType,
         scheduling,
+        raceTo,
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
       });
@@ -454,6 +475,8 @@ export default function LeagueDetail() {
       setLegsPerMatch(5);
       setPairingSize(2);
       setScheduling('round_robin_single');
+      setFormatMode('raceTo');
+      setFormatValue(6);
       setShowForm(false);
       load();
     } catch (err) {
@@ -472,7 +495,7 @@ export default function LeagueDetail() {
         <div>
           <h1>{league.name}</h1>
           <p className="muted">
-            {league.sport} · {league.format.matchFormat}, race to {league.format.raceTo}, single round robin
+            {league.sport}
           </p>
         </div>
         {canManage && (
@@ -517,6 +540,41 @@ export default function LeagueDetail() {
               </select>
             </label>
           )}
+          <label>
+            Match format
+            <select
+              value={formatMode}
+              onChange={(e) => setFormatMode(e.target.value)}
+            >
+              <option value="raceTo">Race to (frames)</option>
+              <option value="bestOf">Best of (frames)</option>
+            </select>
+          </label>
+          <label>
+            {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
+            <input
+              type="number"
+              min="1"
+              step={formatMode === 'bestOf' ? 2 : 1}
+              value={formatValue}
+              onChange={(e) => setFormatValue(e.target.value)}
+              required
+            />
+            {formatMode === 'bestOf' && (() => {
+              const v = Number(formatValue);
+              if (!Number.isInteger(v) || v < 1) return null;
+              return v % 2 === 0 ? (
+                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                  Best of must be an odd number, so it can't end level.
+                </span>
+              ) : (
+                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                  = Race to {(v + 1) / 2} - first to {(v + 1) / 2} frame{(v + 1) / 2 === 1 ? '' : 's'} wins the
+                  match; any frames that can no longer affect the result aren't played.
+                </span>
+              );
+            })()}
+          </label>
           <label>
             Format
             <select value={scheduling} onChange={(e) => setScheduling(e.target.value)}>
