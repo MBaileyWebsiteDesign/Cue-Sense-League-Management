@@ -241,6 +241,51 @@ function ManageLeaguePanel({ league, isAdmin, canCloseEarly, onChange, setError 
   const [confirmName, setConfirmName] = useState('');
   const [deleting, setDeleting] = useState(false);
 
+  // League Manager assignment (Overall-Admin-only, see below) - candidates
+  // are only fetched once this panel is opened, same lazy-load pattern as
+  // the rest of this collapsible card.
+  const [candidates, setCandidates] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [managerBusy, setManagerBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open || !isAdmin) return;
+    api.adminListUsers().then(setCandidates).catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isAdmin]);
+
+  const managers = candidates.filter((u) => (league.managerUserIds || []).includes(u.id));
+  const eligible = candidates.filter((u) => u.isLeagueManager && !(league.managerUserIds || []).includes(u.id));
+
+  const onAddManager = async (e) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    setManagerBusy(true);
+    setError('');
+    try {
+      await api.addLeagueManager(league.id, selectedUserId);
+      setSelectedUserId('');
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setManagerBusy(false);
+    }
+  };
+
+  const onRemoveManager = async (userId) => {
+    setManagerBusy(true);
+    setError('');
+    try {
+      await api.removeLeagueManager(league.id, userId);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setManagerBusy(false);
+    }
+  };
+
   const onCloseEarly = async () => {
     setClosing(true);
     setError('');
@@ -292,6 +337,49 @@ function ManageLeaguePanel({ league, isAdmin, canCloseEarly, onChange, setError 
           )}
 
           {isAdmin && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.25rem' }}>League Managers</h3>
+              <p className="muted">
+                League Managers get the same day-to-day access as an Overall Admin for this one league
+                (entrants, tables, payments, fixtures, closing it early) - but can never delete the league or
+                manage who else has access. Grant the League Manager flag on an account's profile first (Admin
+                Portal &rarr; Users) before assigning them here.
+              </p>
+              {managers.length === 0 ? (
+                <p className="muted">No League Managers assigned to this league yet.</p>
+              ) : (
+                <ul className="fixture-list">
+                  {managers.map((m) => (
+                    <li key={m.id}>
+                      <span>{m.firstName} {m.lastName} <span className="muted">({m.email})</span></span>
+                      <button className="btn" type="button" disabled={managerBusy} onClick={() => onRemoveManager(m.id)}>
+                        Remove access
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <form className="inline-form" onSubmit={onAddManager}>
+                <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
+                  <option value="">Select a League Manager to add…</option>
+                  {eligible.map((u) => (
+                    <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
+                  ))}
+                </select>
+                <button className="btn btn-primary" type="submit" disabled={managerBusy || !selectedUserId}>
+                  Grant access
+                </button>
+              </form>
+              {eligible.length === 0 && candidates.length > 0 && (
+                <p className="muted">
+                  Nobody is flagged as a League Manager yet - grant that flag on an account first from Admin
+                  Portal &rarr; Users.
+                </p>
+              )}
+            </div>
+          )}
+
+          {isAdmin && (
             <div>
               <h3 style={{ marginBottom: '0.25rem' }}>Delete League</h3>
               <p className="muted">
@@ -317,110 +405,6 @@ function ManageLeaguePanel({ league, isAdmin, canCloseEarly, onChange, setError 
                 {deleting ? 'Deleting…' : 'Delete this league permanently'}
               </button>
             </div>
-          )}
-        </>
-      )}
-    </section>
-  );
-}
-
-// Overall-Admin-only: assign/remove which accounts (already flagged
-// isLeagueManager on their user profile - see AdminUserEdit) have League
-// Manager access to this specific league. A League Manager can do almost
-// everything else here (see ManageLeaguePanel/TablesPanel/PaymentsPanel
-// above), but never this - see server/src/index.js's POST/DELETE
-// /api/leagues/:id/managers, which is deliberately requireAdmin rather than
-// requireAnyAdmin.
-function LeagueManagersPanel({ league, onChange, setError }) {
-  const [open, setOpen] = useState(false);
-  const [candidates, setCandidates] = useState([]);
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    api.adminListUsers().then(setCandidates).catch((e) => setError(e.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const managers = candidates.filter((u) => (league.managerUserIds || []).includes(u.id));
-  const eligible = candidates.filter((u) => u.isLeagueManager && !(league.managerUserIds || []).includes(u.id));
-
-  const onAdd = async (e) => {
-    e.preventDefault();
-    if (!selectedUserId) return;
-    setBusy(true);
-    setError('');
-    try {
-      await api.addLeagueManager(league.id, selectedUserId);
-      setSelectedUserId('');
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onRemove = async (userId) => {
-    setBusy(true);
-    setError('');
-    try {
-      await api.removeLeagueManager(league.id, userId);
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="card">
-      <div className="page-header">
-        <h2 style={{ margin: 0 }}>Admin: League Managers</h2>
-        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
-          {open ? 'Hide' : 'Show'}
-        </button>
-      </div>
-      {open && (
-        <>
-          <p className="muted">
-            League Managers get the same day-to-day access as an Overall Admin for this one league
-            (entrants, tables, payments, fixtures, closing it early) - but can never delete the league or
-            manage who else has access. Grant the League Manager flag on an account's profile first (Admin
-            Portal &rarr; Users) before assigning them here.
-          </p>
-          {managers.length === 0 ? (
-            <p className="muted">No League Managers assigned to this league yet.</p>
-          ) : (
-            <ul className="fixture-list">
-              {managers.map((m) => (
-                <li key={m.id}>
-                  <span>{m.firstName} {m.lastName} <span className="muted">({m.email})</span></span>
-                  <button className="btn" type="button" disabled={busy} onClick={() => onRemove(m.id)}>
-                    Remove access
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <form className="inline-form" onSubmit={onAdd}>
-            <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
-              <option value="">Select a League Manager to add…</option>
-              {eligible.map((u) => (
-                <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
-              ))}
-            </select>
-            <button className="btn btn-primary" type="submit" disabled={busy || !selectedUserId}>
-              Grant access
-            </button>
-          </form>
-          {eligible.length === 0 && candidates.length > 0 && (
-            <p className="muted">
-              Nobody is flagged as a League Manager yet - grant that flag on an account first from Admin
-              Portal &rarr; Users.
-            </p>
           )}
         </>
       )}
@@ -550,11 +534,10 @@ export default function LeagueDetail() {
 
       {error && <p className="error">{error}</p>}
 
-      <p><Link to={`/arena/${league.id}`}>View Arena display &rarr;</Link></p>
-      <p>
-        <Link to={`/public/leagues/${league.id}/table`}>View public League Table &rarr;</Link>
-        {' · '}
-        <Link to={`/public/leagues/${league.id}/fixtures`}>View public League Fixtures &rarr;</Link>
+      <p style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <Link className="btn btn-primary" to={`/arena/${league.id}`}>View Arena display &rarr;</Link>
+        <Link className="btn btn-primary" to={`/public/leagues/${league.id}/table`}>View public League Table &rarr;</Link>
+        <Link className="btn btn-primary" to={`/public/leagues/${league.id}/fixtures`}>View public League Fixtures &rarr;</Link>
       </p>
       {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
@@ -577,8 +560,6 @@ export default function LeagueDetail() {
           setError={setError}
         />
       )}
-
-      {isAdmin && <LeagueManagersPanel league={league} onChange={load} setError={setError} />}
 
       <div className="card-grid">
         {league.divisions.map((division) => (

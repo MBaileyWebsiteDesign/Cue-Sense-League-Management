@@ -227,6 +227,7 @@ export default function AdminSeasonWizard() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [gapDays, setGapDays] = useState(7);
+  const [visibleByDefault, setVisibleByDefault] = useState(false);
   const [generateResult, setGenerateResult] = useState(null);
 
   // Step 1 -> 2 is purely local state; the season isn't created until step 2
@@ -307,7 +308,7 @@ export default function AdminSeasonWizard() {
     setError('');
     setSubmitting(true);
     try {
-      const result = await api.adminGenerateSeason(league.id, { startDate, endDate, gapDays: Number(gapDays) });
+      const result = await api.adminGenerateSeason(league.id, { startDate, endDate, gapDays: Number(gapDays), visibleByDefault });
       setGenerateResult(result);
     } catch (err) {
       setError(err.message);
@@ -488,6 +489,11 @@ export default function AdminSeasonWizard() {
           <label>
             Days between rounds
             <input type="number" min="1" value={gapDays} onChange={(e) => setGapDays(e.target.value)} style={{ maxWidth: 120 }} />
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <input type="checkbox" checked={visibleByDefault} onChange={(e) => setVisibleByDefault(e.target.checked)} />
+            Make all fixtures visible to players immediately (skip releasing rounds one at a time)
           </label>
 
           {!generateResult ? (

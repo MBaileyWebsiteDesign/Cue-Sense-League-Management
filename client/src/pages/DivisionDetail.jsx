@@ -13,6 +13,45 @@ function generateFixturesLabel(division) {
   return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
 
+// Shared by SinglesRoster/TeamRoster/PairingRoster below - asks up front
+// whether the fixtures about to be generated should start visible to
+// players immediately (skipping the normal per-round release from Manage
+// Fixtures entirely) or hidden as usual, since that choice has to be made
+// at generation time - see markAllRoundsVisible in server/src/index.js.
+function GenerateFixturesButton({ division, disabled, title, onChange, setError }) {
+  const [visibleByDefault, setVisibleByDefault] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  const onGenerate = async () => {
+    setError('');
+    setGenerating(true);
+    try {
+      await api.generateFixtures(division.id, { visibleByDefault });
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 'normal', marginBottom: 8 }}>
+        <input
+          type="checkbox"
+          checked={visibleByDefault}
+          onChange={(e) => setVisibleByDefault(e.target.checked)}
+        />
+        Make all fixtures visible to players immediately (skip releasing rounds one at a time)
+      </label>
+      <button className="btn btn-primary" disabled={disabled || generating} onClick={onGenerate} title={title}>
+        {generating ? 'Generating…' : generateFixturesLabel(division)}
+      </button>
+    </div>
+  );
+}
+
 function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin }) {
   const [playerId, setPlayerId] = useState('');
   const [quickFirstName, setQuickFirstName] = useState('');
@@ -37,12 +76,12 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
 
   const onQuickAdd = async (e) => {
     e.preventDefault();
-    if (!quickFirstName.trim() || !quickLastName.trim()) return;
+    if (!quickFirstName.trim()) return;
     setError('');
     setQuickResult('');
     setQuickAdding(true);
     try {
-      const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim());
+      const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null);
       setQuickFirstName('');
       setQuickLastName('');
       const methodLabel = {
@@ -118,22 +157,24 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           <form className="inline-form" onSubmit={onQuickAdd}>
             <input
               type="text"
-              placeholder="First name"
+              placeholder="First name *"
+              aria-label="First name (required)"
               value={quickFirstName}
               onChange={(e) => setQuickFirstName(e.target.value)}
               required
             />
             <input
               type="text"
-              placeholder="Last name"
+              placeholder="Last name (optional)"
+              aria-label="Last name (optional)"
               value={quickLastName}
               onChange={(e) => setQuickLastName(e.target.value)}
-              required
             />
-            <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim() || !quickLastName.trim()}>
+            <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
               {quickAdding ? 'Adding…' : 'Quick Add'}
             </button>
           </form>
+          <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
           {quickResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{quickResult}</p>}
         </>
       )}
@@ -156,14 +197,13 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       </ul>
 
       {!division.fixturesGenerated ? (
-        <button
-          className="btn btn-primary"
+        <GenerateFixturesButton
+          division={division}
           disabled={division.players.length < 2}
-          onClick={() => api.generateFixtures(division.id).then(onChange).catch((e) => setError(e.message))}
           title={division.players.length < 2 ? 'Add at least 2 players first' : ''}
-        >
-          {generateFixturesLabel(division)}
-        </button>
+          onChange={onChange}
+          setError={setError}
+        />
       ) : (
         <p className="muted">Fixtures generated - the regular roster is locked, but Quick Add above can still work a late arrival in.</p>
       )}
@@ -429,14 +469,13 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
       </div>
 
       {!division.fixturesGenerated ? (
-        <button
-          className="btn btn-primary"
+        <GenerateFixturesButton
+          division={division}
           disabled={!canGenerate}
-          onClick={() => api.generateFixtures(division.id).then(onChange).catch((e) => setError(e.message))}
           title={!canGenerate ? 'Add at least 2 teams, each with at least 1 player' : ''}
-        >
-          {generateFixturesLabel(division)}
-        </button>
+          onChange={onChange}
+          setError={setError}
+        />
       ) : (
         <p className="muted">Fixtures generated — team rosters are locked.</p>
       )}
@@ -594,14 +633,13 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
       </div>
 
       {!division.fixturesGenerated ? (
-        <button
-          className="btn btn-primary"
+        <GenerateFixturesButton
+          division={division}
           disabled={!canGenerate}
-          onClick={() => api.generateFixtures(division.id).then(onChange).catch((e) => setError(e.message))}
           title={!canGenerate ? `Add at least 2 pairings, each with exactly ${division.pairingSize} players` : ''}
-        >
-          {generateFixturesLabel(division)}
-        </button>
+          onChange={onChange}
+          setError={setError}
+        />
       ) : (
         <p className="muted">Fixtures generated — pairings are locked.</p>
       )}
@@ -911,6 +949,10 @@ export default function DivisionDetail() {
         </p>
       )}
 
+      {canManage && division.fixturesGenerated && division.status !== 'completed' && (
+        <CloseDivisionEarlyPanel division={division} onChange={load} setError={setError} />
+      )}
+
       {isTeams ? (
         <TeamRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       ) : isDoubles ? (
@@ -921,10 +963,6 @@ export default function DivisionDetail() {
 
       {canManage && !division.fixturesGenerated && (
         <SeedFromGroupsPanel division={division} onChange={load} setError={setError} />
-      )}
-
-      {canManage && division.fixturesGenerated && division.status !== 'completed' && (
-        <CloseDivisionEarlyPanel division={division} onChange={load} setError={setError} />
       )}
 
       {canManage && !isTeams && !isDoubles && division.fixturesGenerated && (
@@ -985,10 +1023,9 @@ export default function DivisionDetail() {
         </table>
       </section>
 
-      <p>
-        <Link to={`/public/divisions/${division.id}/table`}>View public Division Table &rarr;</Link>
-        {' · '}
-        <Link to={`/public/divisions/${division.id}/fixtures`}>View public Division Fixtures &rarr;</Link>
+      <p style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <Link className="btn btn-primary" to={`/public/divisions/${division.id}/table`}>View public Division Table &rarr;</Link>
+        <Link className="btn btn-primary" to={`/public/divisions/${division.id}/fixtures`}>View public Division Fixtures &rarr;</Link>
       </p>
       {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>

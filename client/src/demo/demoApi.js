@@ -165,7 +165,10 @@ function op(fn) {
 // ---------- account creation / profile helpers (ported from server/src/index.js) ----------
 
 function createUserAccount(fields) {
-  const fullName = `${fields.firstName} ${fields.lastName}`;
+  // Tolerates an empty/omitted lastName (e.g. a first-name-only Quick Add
+  // walk-in) without leaving a stray trailing space in the linked player's
+  // display name - mirrors server/src/index.js's createUserAccount.
+  const fullName = `${fields.firstName} ${fields.lastName || ''}`.replace(/\s+/g, ' ').trim();
   let linkedPlayer = db.players.find((p) => p.name.toLowerCase() === fullName.toLowerCase());
   if (!linkedPlayer) {
     linkedPlayer = { id: uuid(), name: fullName };
@@ -194,7 +197,7 @@ function createUserAccount(fields) {
 function syncLinkedPlayerName(user) {
   if (!user.playerId) return;
   const player = db.players.find((p) => p.id === user.playerId);
-  if (player) player.name = `${user.firstName} ${user.lastName}`;
+  if (player) player.name = `${user.firstName} ${user.lastName || ''}`.replace(/\s+/g, ' ').trim();
 }
 
 function applyProfileFields(user, fields) {
@@ -389,6 +392,17 @@ function closeOutstandingFixtures(division, actorLabel) {
   }
 
   return outstanding.length;
+}
+
+// Round visibility: normally every round starts hidden, released one at a
+// time from Manage Fixtures - but generating fixtures asks up front whether
+// to skip that entirely and make the whole season visible immediately.
+// Mirrors server/src/index.js's markAllRoundsVisible. Shared by both
+// generateFixtures (one division) and adminGenerateSeason (every division
+// in a league at once) below.
+function markAllRoundsVisible(division) {
+  const rounds = new Set(db.fixtures.filter((f) => f.divisionId === division.id).map((f) => f.round));
+  division.visibleRounds = Array.from(rounds).sort((a, b) => a - b);
 }
 
 // Ported from server/src/index.js's buildOverlayFixture - normalizes
@@ -1570,7 +1584,7 @@ export const demoApi = {
   }),
 
   adminGenerateSeason: op((leagueId, data) => {
-    const { startDate, endDate, gapDays } = data;
+    const { startDate, endDate, gapDays, visibleByDefault } = data;
     if (!startDate) throw new ApiError(400, 'startDate is required');
     if (!endDate) throw new ApiError(400, 'endDate is required');
     if (!Number.isInteger(Number(gapDays)) || Number(gapDays) < 1) {
@@ -1598,6 +1612,7 @@ export const demoApi = {
       generateRoundRobinFixtures({ league, division, entrantIds: division.playerIds });
       division.gapDays = Number(gapDays);
       assignScheduledDates(division, startDate, gapDays);
+      if (visibleByDefault) markAllRoundsVisible(division);
       division.fixturesGenerated = true;
       const divisionFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
       const lastRound = Math.max(...divisionFixtures.map((f) => f.round));
@@ -1866,16 +1881,37 @@ export const demoApi = {
   getLeagues: op(() => db.leagues),
 
   createLeague: op((data) => {
-    const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment } = data;
+    const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment, managerUserIds } = data;
     if (!name || !name.trim()) throw new ApiError(400, 'League name is required');
+    // Optional: assign League Manager(s) at creation - mirrors
+    // server/src/index.js's POST /api/leagues, same eligibility rule
+    // (must already be flagged isLeagueManager on their account).
+    let assignedManagerIds = [];
+    if (Array.isArray(managerUserIds) && managerUserIds.length > 0) {
+      for (const userId of managerUserIds) {
+        const user = db.users.find((u) => u.id === userId);
+        if (user && user.isLeagueManager) assignedManagerIds.push(userId);
+      }
+      assignedManagerIds = [...new Set(assignedManagerIds)];
+    }
     const league = {
       id: uuid(), name: name.trim(), sport, format: { matchFormat, raceTo, scheduling },
       startDate: null, endDate: null, createdAt: new Date().toISOString(),
       tables: [],
       payment: normalizePaymentConfig(payment),
-      managerUserIds: [],
+      managerUserIds: assignedManagerIds,
     };
     db.leagues.push(league);
+    if (assignedManagerIds.length > 0) {
+      const names = assignedManagerIds
+        .map((id) => db.users.find((u) => u.id === id))
+        .filter(Boolean)
+        .map((u) => `${u.firstName} ${u.lastName}`);
+      recordAudit(db, {
+        actor: adminLabel(), action: 'league.manager_added', targetType: 'league', targetId: league.id,
+        details: `Gave ${names.join(', ')} League Manager access to "${league.name}" at creation`,
+      });
+    }
     return league;
   }),
 
@@ -2177,7 +2213,6 @@ export const demoApi = {
   // Mirrors server/src/index.js's POST /api/divisions/:id/quick-add-player.
   quickAddPlayer: op((divisionId, firstName, lastName) => {
     if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
-    if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
     const division = db.divisions.find((d) => d.id === divisionId);
     if (!division) throw new ApiError(404, 'Division not found');
     if (division.entryType !== 'singles') {
@@ -2187,7 +2222,7 @@ export const demoApi = {
 
     const user = createUserAccount({
       firstName: firstName.trim(),
-      lastName: lastName.trim(),
+      lastName: lastName ? lastName.trim() : '',
       email: `walkin-${uuid()}@no-login.cuesense`,
       teamName: 'Unassigned',
     });
@@ -2370,7 +2405,7 @@ export const demoApi = {
   }),
 
   generateFixtures: op((divisionId, data = {}) => {
-    const { startDate, gapDays } = data;
+    const { startDate, gapDays, visibleByDefault } = data;
     const division = db.divisions.find((d) => d.id === divisionId);
     if (!division) throw new ApiError(404, 'Division not found');
     const league = db.leagues.find((l) => l.id === division.leagueId);
@@ -2411,6 +2446,7 @@ export const demoApi = {
       division.gapDays = Number(gapDays);
       assignScheduledDates(division, startDate, gapDays);
     }
+    if (visibleByDefault) markAllRoundsVisible(division);
     division.fixturesGenerated = true;
     return hydrateDivision(division);
   }),

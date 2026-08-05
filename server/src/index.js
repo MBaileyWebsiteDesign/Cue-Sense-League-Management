@@ -173,7 +173,9 @@ app.get('/api/users/me/leagues', requireAuth, asyncRoute((req, res) => {
 // wizard's "add a player manually" step. Doesn't write to disk - caller
 // batches the writeDb() once all rows in a request are processed.
 function createUserAccount(db, fields) {
-  const fullName = `${fields.firstName} ${fields.lastName}`;
+  // Quick Add (walk-in) only requires a first name, so lastName can be
+  // empty here - tolerate that without leaving a stray trailing space.
+  const fullName = `${fields.firstName} ${fields.lastName || ''}`.replace(/\s+/g, ' ').trim();
   let linkedPlayer = db.players.find((p) => p.name.toLowerCase() === fullName.toLowerCase());
   if (!linkedPlayer) {
     linkedPlayer = { id: uuid(), name: fullName };
@@ -204,7 +206,7 @@ function createUserAccount(db, fields) {
 function syncLinkedPlayerName(db, user) {
   if (!user.playerId) return;
   const player = db.players.find((p) => p.id === user.playerId);
-  if (player) player.name = `${user.firstName} ${user.lastName}`;
+  if (player) player.name = `${user.firstName} ${user.lastName || ''}`.replace(/\s+/g, ' ').trim();
 }
 
 function applyProfileFields(db, user, fields) {
@@ -410,10 +412,25 @@ app.get('/api/leagues', requireAuth, asyncRoute((req, res) => {
 }));
 
 app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
-  const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment } = req.body;
+  const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment, managerUserIds } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'League name is required');
 
   const db = readDb();
+
+  // Optional: grant League Manager access to one or more already-flagged
+  // users at creation time, same as POST /api/leagues/:id/managers would -
+  // saves a second trip for the common "I already know who's running this
+  // league" case. Silently ignores any id that isn't isLeagueManager-flagged
+  // or doesn't exist, rather than erroring the whole league creation.
+  let assignedManagerIds = [];
+  if (Array.isArray(managerUserIds) && managerUserIds.length > 0) {
+    for (const userId of managerUserIds) {
+      const user = db.users.find((u) => u.id === userId);
+      if (user && user.isLeagueManager) assignedManagerIds.push(userId);
+    }
+    assignedManagerIds = [...new Set(assignedManagerIds)];
+  }
+
   const league = {
     id: uuid(),
     name: name.trim(),
@@ -427,8 +444,24 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
     tables: [],
     // Payment wall - see normalizePaymentConfig/assertPaymentCleared below.
     payment: normalizePaymentConfig(payment),
+    managerUserIds: assignedManagerIds,
   };
   db.leagues.push(league);
+
+  if (assignedManagerIds.length > 0) {
+    const names = assignedManagerIds.map((id) => {
+      const u = db.users.find((user) => user.id === id);
+      return u ? `${u.firstName} ${u.lastName}` : id;
+    });
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'league.manager_added',
+      targetType: 'league',
+      targetId: league.id,
+      details: `Gave ${names.join(', ')} League Manager access to "${league.name}" at creation`,
+    });
+  }
+
   writeDb(db);
   res.status(201).json(league);
 }));
@@ -1305,7 +1338,6 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
 app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req, res) => {
   const { firstName, lastName } = req.body || {};
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
-  if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
 
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
@@ -1320,7 +1352,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
   const user = createUserAccount(db, {
     firstName: firstName.trim(),
-    lastName: lastName.trim(),
+    lastName: lastName ? lastName.trim() : '',
     email: syntheticEmail,
     passwordHash: hashPassword(tempPassword),
     teamName: 'Unassigned',
@@ -2155,8 +2187,13 @@ app.post('/api/divisions/:id/seed-from-groups', requireAnyAdmin, asyncRoute((req
   res.status(201).json({ ...hydrateDivision(db, division), seedSummary });
 }));
 
+function markAllRoundsVisible(db, division) {
+  const rounds = new Set(db.fixtures.filter((f) => f.divisionId === division.id).map((f) => f.round));
+  division.visibleRounds = Array.from(rounds).sort((a, b) => a - b);
+}
+
 app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
-  const { startDate, gapDays } = req.body || {};
+  const { startDate, gapDays, visibleByDefault } = req.body || {};
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
@@ -2206,6 +2243,7 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
     assignScheduledDates(db, division, startDate, gapDays);
   }
 
+  if (visibleByDefault) markAllRoundsVisible(db, division);
   division.fixturesGenerated = true;
   writeDb(db);
   res.status(201).json(hydrateDivision(db, division));
@@ -4052,7 +4090,7 @@ app.post('/api/admin/seasons/:leagueId/import-players', requireAnyAdmin, asyncRo
 // `gapDays` apart starting at `startDate`. Also stamps the season's
 // start/end dates onto the League record itself.
 app.post('/api/admin/seasons/:leagueId/generate', requireAnyAdmin, asyncRoute((req, res) => {
-  const { startDate, endDate, gapDays } = req.body;
+  const { startDate, endDate, gapDays, visibleByDefault } = req.body;
   if (!startDate) throw new ApiError(400, 'startDate is required');
   if (!endDate) throw new ApiError(400, 'endDate is required');
   if (!Number.isInteger(Number(gapDays)) || Number(gapDays) < 1) {
@@ -4085,6 +4123,7 @@ app.post('/api/admin/seasons/:leagueId/generate', requireAnyAdmin, asyncRoute((r
     generateRoundRobinFixtures({ db, league, division, entrantIds: division.playerIds });
     division.gapDays = Number(gapDays);
     assignScheduledDates(db, division, startDate, gapDays);
+    if (visibleByDefault) markAllRoundsVisible(db, division);
     division.fixturesGenerated = true;
 
     const divisionFixtures = db.fixtures.filter((f) => f.divisionId === division.id);

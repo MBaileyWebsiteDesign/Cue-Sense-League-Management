@@ -30,12 +30,24 @@ export default function LeagueList() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentWindowStart, setPaymentWindowStart] = useState('');
   const [paymentWindowEnd, setPaymentWindowEnd] = useState('');
+  // League Manager assignment at creation time - see LeagueDetail.jsx's own
+  // "Admin: League Managers" panel for assigning/removing these after the
+  // league already exists. Only accounts already flagged isLeagueManager
+  // (Admin Portal -> Users) are eligible to appear here.
+  const [managerCandidates, setManagerCandidates] = useState([]);
+  const [selectedManagerIds, setSelectedManagerIds] = useState([]);
 
   const load = () => api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
 
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.adminListUsers().then((users) => setManagerCandidates(users.filter((u) => u.isLeagueManager))).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -72,12 +84,14 @@ export default function LeagueList() {
               windowEnd: paymentWindowEnd || null,
             }
           : { required: false },
+        managerUserIds: selectedManagerIds,
       });
       setForm({ name: '', formatMode: 'raceTo', formatValue: 6 });
       setPaymentRequired(false);
       setPaymentAmount('');
       setPaymentWindowStart('');
       setPaymentWindowEnd('');
+      setSelectedManagerIds([]);
       setShowForm(false);
       load();
     } catch (err) {
@@ -186,6 +200,30 @@ export default function LeagueList() {
               </p>
             </>
           )}
+          <label>
+            League Manager(s) <span className="muted">(optional)</span>
+            <select
+              multiple
+              value={selectedManagerIds}
+              onChange={(e) => setSelectedManagerIds(Array.from(e.target.selectedOptions, (o) => o.value))}
+              style={{ minHeight: 80 }}
+            >
+              {managerCandidates.map((u) => (
+                <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
+              ))}
+            </select>
+            {managerCandidates.length === 0 ? (
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                Nobody is flagged as a League Manager yet - grant that flag on an account first from Admin
+                Portal &rarr; Users. This league can still be created without one and assigned a manager later.
+              </span>
+            ) : (
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                Hold Cmd/Ctrl (or tap each on mobile) to select more than one. They'll get the same
+                day-to-day access an Overall Admin has for this league.
+              </span>
+            )}
+          </label>
           <button className="btn btn-primary" type="submit">
             Create League
           </button>

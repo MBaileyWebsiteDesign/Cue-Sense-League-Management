@@ -27,6 +27,7 @@ import Breadcrumbs from './components/Breadcrumbs.jsx';
 // of these pages is a good trade for that.
 const GameAdjustments = lazy(() => import('./pages/GameAdjustments.jsx'));
 const CaptainPortal = lazy(() => import('./pages/CaptainPortal.jsx'));
+const LeagueManagerPortal = lazy(() => import('./pages/LeagueManagerPortal.jsx'));
 const AdminPortal = lazy(() => import('./pages/AdminPortal.jsx'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers.jsx'));
 const AdminUserEdit = lazy(() => import('./pages/AdminUserEdit.jsx'));
@@ -101,7 +102,7 @@ function RequireCaptain({ children }) {
 // hamburger button is display:none and .header-accounts just renders as
 // the same inline row it always did - nothing changes for desktop/tablet.
 function HeaderNav() {
-  const { isLoggedIn, isAdmin, isCaptain, logout } = useAuth();
+  const { isLoggedIn, isAdmin, isCaptain, isLeagueManager, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -132,6 +133,11 @@ function HeaderNav() {
         {isAdmin && (
           <Link to="/admin" className="header-link" onClick={closeMenu}>
             Admin Portal
+          </Link>
+        )}
+        {isLeagueManager && !isAdmin && (
+          <Link to="/league-manager" className="header-link" onClick={closeMenu}>
+            League Manager Portal
           </Link>
         )}
         {(isAdmin || isCaptain) && (
@@ -188,6 +194,7 @@ function AppShell() {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
+            <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
             <Route path="/admin" element={<RequireAdmin><AdminPortal /></RequireAdmin>} />
             <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
             <Route path="/admin/users/:userId" element={<RequireAdmin><AdminUserEdit /></RequireAdmin>} />

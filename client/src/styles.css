@@ -27,10 +27,11 @@ body {
 
 .app-header {
   background: var(--primary);
-  padding: 32px 48px;
+  padding: 24px 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .brand {
@@ -38,14 +39,16 @@ body {
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 15px;
+  min-width: 0;
 }
 
 .brand-logo {
-  height: 80px;
-  width: 80px;
+  height: 60px;
+  width: 60px;
   object-fit: contain;
   display: block;
+  flex-shrink: 0;
 }
 
 .brand-text {
@@ -55,12 +58,12 @@ body {
 }
 
 .brand-name {
-  font-size: 2.5rem;
+  font-size: 1.875rem;
   font-weight: 700;
 }
 
 .brand-tagline {
-  font-size: 1.4rem;
+  font-size: 1.05rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -71,7 +74,7 @@ body {
 .header-link {
   color: white;
   text-decoration: none;
-  font-size: 1.8rem;
+  font-size: 1.35rem;
   font-weight: 600;
   opacity: 0.9;
 }
@@ -88,22 +91,22 @@ body {
 .header-admin {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 18px;
 }
 
 .header-accounts {
   display: flex;
   align-items: center;
-  gap: 40px;
+  gap: 30px;
 }
 
 .admin-badge {
   background: rgba(255, 255, 255, 0.2);
   color: white;
-  font-size: 1.5rem;
+  font-size: 1.125rem;
   font-weight: 700;
   text-transform: uppercase;
-  padding: 6px 20px;
+  padding: 4.5px 15px;
   border-radius: 999px;
 }
 
@@ -388,9 +391,9 @@ h2 { margin-top: 0; }
   display: none;
   flex-direction: column;
   justify-content: center;
-  gap: 10px;
-  width: 68px;
-  height: 68px;
+  gap: 7px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: none;
   background: none;
@@ -400,7 +403,7 @@ h2 { margin-top: 0; }
 
 .hamburger-btn span {
   display: block;
-  height: 4px;
+  height: 3px;
   width: 100%;
   background: white;
   border-radius: 1px;
@@ -416,16 +419,22 @@ h2 { margin-top: 0; }
    scoreboard) - nothing here changes desktop/tablet rendering. */
 @media (max-width: 640px) {
   .app-header {
-    padding: 24px 32px;
+    padding: 14px 16px;
+    gap: 10px;
     position: relative;
   }
 
-  .brand { gap: 16px; }
-  .brand-logo { height: 64px; width: 64px; }
-  .brand-name { font-size: 2.1rem; }
-  .brand-tagline { font-size: 1.2rem; }
+  .brand { gap: 10px; }
+  .brand-logo { height: 40px; width: 40px; }
+  .brand-name { font-size: 1.2rem; }
+  .brand-tagline { font-size: 0.7rem; }
 
-  .hamburger-btn { display: flex; }
+  .hamburger-btn {
+    display: flex;
+    width: 36px;
+    height: 36px;
+    gap: 5px;
+  }
 
   /* Collapses into a dropdown panel anchored under the header, toggled by
      HeaderNav's menuOpen state (App.jsx) rather than always showing inline
