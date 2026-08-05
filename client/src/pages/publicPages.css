@@ -184,7 +184,7 @@
 
 .public-footer {
   text-align: center;
-  font-size: 0.7rem;
+  font-size: 20px;
   color: var(--muted, #6b7280);
   margin-top: 8px;
 }
