@@ -1,519 +1,553 @@
-)) return true;
-    if (myPairingIds.includes(f.homePlayerId) || myPairingIds.includes(f.awayPlayerId)) return true;
-    if (f.legs) return f.legs.some((l) => l.homePlayerId === playerId || l.awayPlayerId === playerId);
-    return false;
-  });
-
-  const enriched = fixtures.map((f) => {
-    const division = db.divisions.find((d) => d.id === f.divisionId);
-    const league = db.leagues.find((l) => l.id === f.leagueId);
-    const isTeams = !!f.legs;
-    const isDoubles = division?.entryType === 'doubles';
-    const opponentId = isTeams
-      ? (myTeamIds.includes(f.homeTeamId) ? f.awayTeamId : f.homeTeamId)
-      : isDoubles
-        ? (myPairingIds.includes(f.homePlayerId) ? f.awayPlayerId : f.homePlayerId)
-        : (f.homePlayerId === playerId ? f.awayPlayerId : f.homePlayerId);
-    const opponentName = isTeams
-      ? db.teams.find((t) => t.id === opponentId)?.name
-      : isDoubles
-        ? db.pairings.find((p) => p.id === opponentId)?.name
-        : db.players.find((p) => p.id === opponentId)?.name;
-    return {
-      id: f.id,
-      leagueName: league?.name,
-      divisionName: division?.name,
-      round: f.round,
-      status: f.status,
-      scoreLabel: isTeams ? `${f.homeLegsWon}-${f.awayLegsWon} legs` : `${f.homeFrameScore}-${f.awayFrameScore} frames`,
-      scheduledDate: f.scheduledDate || null,
-      opponentName: opponentName || 'TBD',
-    };
-  });
-
-  enriched.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || b.round - a.round);
-  res.json(enriched);
-}));
-
-// Powers the Game Adjustments page's "Needs Attention" list - every
-// pending_confirmation/disputed result across the whole app, so an admin can
-// jump straight to resolving one without first knowing (and searching for)
-// which player it involves. Scans both fixture-level status (singles/
-// doubles) and leg-level status (team fixtures, since an individual leg can
-// be disputed while the overall team match is still in_progress).
-app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, res) => {
-  const db = readDb();
-  const NEEDS_ATTENTION = ['pending_confirmation', 'disputed'];
-  const results = [];
-
-  for (const f of db.fixtures) {
-    const division = db.divisions.find((d) => d.id === f.divisionId);
-    const league = db.leagues.find((l) => l.id === f.leagueId);
-
-    if (f.legs) {
-      const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
-      const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
-      for (const leg of f.legs) {
-        if (!NEEDS_ATTENTION.includes(leg.status)) continue;
-        results.push({
-          fixtureId: f.id,
-          legNumber: leg.legNumber,
-          leagueName: league?.name,
-          divisionName: division?.name,
-          round: f.round,
-          status: leg.status,
-          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
-          scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
-          disputeReason: leg.disputeReason || null,
-          noShowClaim: leg.noShowClaim || null,
-        });
-      }
-      continue;
-    }
-
-    if (!NEEDS_ATTENTION.includes(f.status)) continue;
-    const isDoubles = division?.entryType === 'doubles';
-    const homeName = isDoubles
-      ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
-      : db.players.find((p) => p.id === f.homePlayerId)?.name;
-    const awayName = isDoubles
-      ? db.pairings.find((p) => p.id === f.awayPlayerId)?.name
-      : db.players.find((p) => p.id === f.awayPlayerId)?.name;
-    results.push({
-      fixtureId: f.id,
-      legNumber: null,
-      leagueName: league?.name,
-      divisionName: division?.name,
-      round: f.round,
-      status: f.status,
-      label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
-      scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
-      disputeReason: f.disputeReason || null,
-      noShowClaim: f.noShowClaim || null,
-    });
-  }
-
-  const STATUS_ORDER = { disputed: 0, pending_confirmation: 1 };
-  results.sort((a, b) =>
-    STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
-    (a.leagueName || '').localeCompare(b.leagueName || '') ||
-    a.round - b.round
-  );
-  res.json(results);
-}));
-
-app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
-  const { playerId } = req.body;
-  if (!playerId) throw new ApiError(400, 'playerId is required');
+;
+  if (!name || !name.trim()) throw new ApiError(400, 'Team name is required');
 
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  if (division.entryType !== 'singles') {
-    throw new ApiError(400, `This is a ${division.entryType} division - add players to a ${division.entryType === 'teams' ? 'team' : 'pairing'} instead`);
-  }
+  if (division.entryType !== 'teams') throw new ApiError(400, 'This is a singles division - add players directly instead');
   if (division.fixturesGenerated) {
-    throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    throw new ApiError(400, 'Cannot add teams after fixtures have been generated for this division');
+  }
+
+  const team = { id: uuid(), divisionId: division.id, name: name.trim(), playerIds: [] };
+  db.teams.push(team);
+  division.teamIds.push(team.id);
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+app.delete('/api/divisions/:id/teams/:teamId', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove teams after fixtures have been generated for this division');
+  }
+  division.teamIds = division.teamIds.filter((id) => id !== req.params.teamId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+app.post('/api/teams/:teamId/players', asyncRoute((req, res) => {
+  const { playerId } = req.body;
+  if (!playerId) throw new ApiError(400, 'playerId is required');
+
+  const db = readDb();
+  const team = db.teams.find((t) => t.id === req.params.teamId);
+  if (!team) throw new ApiError(404, 'Team not found');
+  const division = db.divisions.find((d) => d.id === team.divisionId);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players once fixtures have been generated for this division');
   }
 
   const player = registeredPlayers(db).find((p) => p.id === playerId);
   if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
   assertPaymentCleared(db, division, player.id);
-  if (!division.playerIds.includes(player.id)) {
-    division.playerIds.push(player.id);
+  if (!team.playerIds.includes(player.id)) {
+    team.playerIds.push(player.id);
   }
   writeDb(db);
   res.status(201).json(hydrateDivision(db, division));
 }));
 
-app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
+app.delete('/api/teams/:teamId/players/:playerId', asyncRoute((req, res) => {
   const db = readDb();
-  const division = db.divisions.find((d) => d.id === req.params.id);
-  if (!division) throw new ApiError(404, 'Division not found');
+  const team = db.teams.find((t) => t.id === req.params.teamId);
+  if (!team) throw new ApiError(404, 'Team not found');
+  const division = db.divisions.find((d) => d.id === team.divisionId);
   if (division.fixturesGenerated) {
-    throw new ApiError(400, 'Cannot remove players after fixtures have been generated for this division');
+    throw new ApiError(400, 'Cannot remove players once fixtures have been generated for this division');
   }
-  division.playerIds = division.playerIds.filter((id) => id !== req.params.playerId);
+  team.playerIds = team.playerIds.filter((id) => id !== req.params.playerId);
   writeDb(db);
   res.json(hydrateDivision(db, division));
 }));
 
-// ---- Teams (team divisions only) ----
+// ---- Pairings (doubles/triples divisions only) ----
+// A Pairing is 2 (doubles) or 3 (triples) named registered players who
+// register together as one side - structurally the same idea as a Team (a
+// named group of players), but a pairing's fixtures are scored exactly like
+// a singles fixture (one continuous frame race, no legs), since
+// alternate-shot doesn't split a match into separate player-vs-player
+// mini-matches the way a team leg does.
 
-// Admin-only "quick add" for a walk-in who's never used CueSense before -
-// a front-desk-friendly alternative to POST /api/divisions/:id/players,
-// which only accepts an existing registered playerId. Takes just a name,
-// creates a minimal account behind the scenes (synthetic, unguessable
-// email + random password - this person never needs to log in; an admin
-// can turn it into a real account later from Admin > Users if they want
-// one), and adds them to the division.
-//
-// Unlike the ordinary add-player route, this one also works AFTER fixtures
-// have been generated for a singles knockout division - see
-// insertLateEntrantIntoKnockout below for exactly what that does and does
-// not attempt, and insertLateEntrantIntoRoundRobin for the (much simpler)
-// round-robin case. Team and doubles divisions aren't supported here yet -
-// only singles.
-app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req, res) => {
-  const { firstName, lastName, override } = req.body || {};
-  if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
+app.post('/api/divisions/:id/pairings', asyncRoute((req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) throw new ApiError(400, 'Pairing name is required');
 
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  if (division.entryType !== 'singles') {
-    throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
-  }
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
-
-  const tempPassword = generateTempPassword();
-  const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
-  const user = createUserAccount(db, {
-    firstName: firstName.trim(),
-    lastName: lastName ? lastName.trim() : '',
-    email: syntheticEmail,
-    passwordHash: hashPassword(tempPassword),
-    teamName: 'Unassigned',
-  });
-  const newPlayerId = user.playerId;
-
-  let outcome = { method: 'added' };
-
-  if (!division.fixturesGenerated) {
-    if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
-  } else if (division.scheduling === 'round_robin_single' || division.scheduling === 'round_robin_double') {
-    outcome = insertLateEntrantIntoRoundRobin({ db, league, division, newPlayerId });
-    division.playerIds.push(newPlayerId);
-  } else if (division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim') {
-    outcome = insertLateEntrantIntoKnockout({ db, league, division, newPlayerId, override: !!override });
-  } else {
-    throw new ApiError(400, `Quick-add doesn't support the "${division.scheduling}" scheduling type yet`);
+  if (division.entryType !== 'doubles') throw new ApiError(400, 'This is not a doubles/triples division');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add pairings after fixtures have been generated for this division');
   }
 
-  // Same "don't hard-block, just flag it" approach as the season wizard's
-  // CSV import (see POST /api/admin/seasons/:leagueId/import-players) - a
-  // walk-in who hasn't paid yet shouldn't be refused a spot in the draw,
-  // but the league's Payments tab needs to know they owe the entry fee.
-  if (league && league.payment && league.payment.required) {
-    const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
-    if (!existing) {
-      db.leaguePayments.push({
-        id: uuid(),
-        leagueId: league.id,
-        playerId: newPlayerId,
-        status: 'unpaid',
-        amount: league.payment.amount,
-        currency: league.payment.currency,
-        confirmedBy: null,
-        confirmedAt: null,
-        notes: '',
-      });
-    }
-  }
-
-  recordAudit(db, {
-    actor: req.adminSession.label,
-    action: 'division.quick_add_player',
-    targetType: 'division',
-    targetId: division.id,
-    details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}" (${outcome.method})`,
-  });
-
+  const pairing = { id: uuid(), divisionId: division.id, name: name.trim(), playerIds: [] };
+  db.pairings.push(pairing);
+  division.pairingIds.push(pairing.id);
   writeDb(db);
-  res.status(201).json({ division: hydrateDivision(db, division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` }, outcome });
+  res.status(201).json(hydrateDivision(db, division));
 }));
 
-// Round-robin late entrant: nothing here is a wired tree the way a
-// knockout bracket is, so there's no structural risk - just create one new
-// fixture (two, for a double round-robin's home/away legs) pairing the
-// newcomer against every entrant who was already in the division, and
-// leave every existing fixture completely untouched. New fixtures land in
-// a fresh round number after whatever's already there, rather than being
-// interleaved into existing rounds, so per-round visibility toggles (see
-// POST /api/divisions/:id/rounds/:round/visibility) keep behaving
-// predictably for the rounds that existed before this call.
-function insertLateEntrantIntoRoundRobin({ db, league, division, newPlayerId }) {
-  const makeFixture = makeSinglesFixture;
-  const existingFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
-  const maxRound = existingFixtures.reduce((max, f) => Math.max(max, f.round), 0);
-  const existingPlayerIds = [...division.playerIds];
-  const isDouble = division.scheduling === 'round_robin_double';
+app.delete('/api/divisions/:id/pairings/:pairingId', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove pairings after fixtures have been generated for this division');
+  }
+  division.pairingIds = division.pairingIds.filter((id) => id !== req.params.pairingId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
 
-  const legOne = existingPlayerIds.map((opponentId) => {
-    const fixture = makeFixture({ league, division, round: maxRound + 1 });
-    fixture.homePlayerId = newPlayerId;
-    fixture.awayPlayerId = opponentId;
-    return fixture;
-  });
-  legOne.forEach((f) => db.fixtures.push(f));
+app.post('/api/pairings/:pairingId/players', asyncRoute((req, res) => {
+  const { playerId } = req.body;
+  if (!playerId) throw new ApiError(400, 'playerId is required');
 
-  if (isDouble) {
-    const legTwo = existingPlayerIds.map((opponentId) => {
-      const fixture = makeFixture({ league, division, round: maxRound + 2 });
-      fixture.homePlayerId = opponentId;
-      fixture.awayPlayerId = newPlayerId;
-      return fixture;
+  const db = readDb();
+  const pairing = db.pairings.find((p) => p.id === req.params.pairingId);
+  if (!pairing) throw new ApiError(404, 'Pairing not found');
+  const division = db.divisions.find((d) => d.id === pairing.divisionId);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players once fixtures have been generated for this division');
+  }
+  if (pairing.playerIds.length >= division.pairingSize) {
+    throw new ApiError(400, `This pairing already has the maximum of ${division.pairingSize} player(s)`);
+  }
+
+  const player = registeredPlayers(db).find((p) => p.id === playerId);
+  if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, player.id);
+  if (!pairing.playerIds.includes(player.id)) {
+    pairing.playerIds.push(player.id);
+  }
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+app.delete('/api/pairings/:pairingId/players/:playerId', asyncRoute((req, res) => {
+  const db = readDb();
+  const pairing = db.pairings.find((p) => p.id === req.params.pairingId);
+  if (!pairing) throw new ApiError(404, 'Pairing not found');
+  const division = db.divisions.find((d) => d.id === pairing.divisionId);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove players once fixtures have been generated for this division');
+  }
+  pairing.playerIds = pairing.playerIds.filter((id) => id !== req.params.playerId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// Manual seed ordering: buildBracketRounds/buildDoubleElimBracket pair
+// entrants in whatever order division.playerIds/teamIds/pairingIds happens
+// to be in (see services/bracket.js - "no real seeding... sort entrantIds
+// before calling this"), so reordering that array *is* how a knockout
+// bracket's seeding is actually controlled. Seed-from-groups (above)
+// already produces a sensible order automatically (top finishers per
+// feeder group, group by group); this lets an admin fine-tune that order,
+// or set entirely manual seeding for a standalone knockout built by adding
+// entrants directly - before fixtures are generated. Works for any entry
+// type (singles/teams/doubles), since it's just reordering whichever ID
+// array the division uses.
+app.post('/api/divisions/:id/reorder-entrants', requireAnyAdmin, asyncRoute((req, res) => {
+  const { order } = req.body || {};
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot reorder entrants after fixtures have been generated for this division');
+  }
+  if (!Array.isArray(order) || order.length === 0) {
+    throw new ApiError(400, 'order must be a non-empty array of entrant IDs');
+  }
+
+  const field = division.entryType === 'teams' ? 'teamIds' : division.entryType === 'doubles' ? 'pairingIds' : 'playerIds';
+  const current = division[field];
+  const sameMembers =
+    order.length === current.length &&
+    new Set(order).size === current.length &&
+    order.every((id) => current.includes(id));
+  if (!sameMembers) {
+    throw new ApiError(400, 'order must contain exactly the same entrants the division currently has, each exactly once');
+  }
+
+  division[field] = order;
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// ---- Fixture generation (branches on entryType x scheduling) ----
+
+function makeSinglesFixture({ league, division, round }) {
+  return {
+    id: uuid(),
+    leagueId: league.id,
+    divisionId: division.id,
+    round,
+    scheduledDate: null,
+    // Table scheduling (see POST /api/fixtures/:id/schedule) - tableId
+    // refers to an entry in the league's own `tables` list.
+    tableId: null,
+    scheduledTime: null,
+    // Match timer (elapsed running clock, see /timer/start|pause|reset) and
+    // shot clock (per-shot countdown, see /shot-clock/start|stop) - both
+    // idle until a captain/admin starts them during live play.
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
+    homePlayerId: null,
+    awayPlayerId: null,
+    raceTo: division.raceTo,
+    frames: [],
+    homeFrameScore: 0,
+    awayFrameScore: 0,
+    status: 'scheduled', // scheduled -> in_progress -> completed
+    winnerPlayerId: null,
+    nextFixtureId: null,
+    nextFixtureSlot: null,
+    // Knockout only: set to 'home' or 'away' when this fixture structurally
+    // can never receive an entrant on that side (a bye, from a round whose
+    // survivor count was odd - see buildBracketRounds/generateKnockoutFixtures).
+    // null for every non-knockout fixture and every genuine two-sided
+    // knockout fixture.
+    byeSlot: null,
+    // Double-elimination winners-bracket round 1 only: true for one of the
+    // always-added reserved slots (see buildDoubleElimBracket's
+    // reservedPairCount) until a real entrant takes it over - see
+    // generateDoubleElimFixtures and insertLateEntrantIntoKnockout.
+    reserved: false,
+    // Double-elimination only (bracketRole stays 'single' for round robin and
+    // single-elimination fixtures, which don't use any of the fields below).
+    bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
+    loserNextFixtureId: null, // where this fixture's LOSER drops to in the losers bracket (winners-bracket fixtures only)
+    loserNextFixtureSlot: null,
+    resetFixtureId: null, // set on a completed grand_final fixture once a bracket-reset decider has been created
+  };
+}
+
+function makeTeamFixture({ league, division, round }) {
+  const legs = Array.from({ length: division.legsPerMatch }, (_, i) => ({
+    legNumber: i + 1,
+    homePlayerId: null,
+    awayPlayerId: null,
+    raceTo: division.raceTo,
+    frames: [],
+    homeFrameScore: 0,
+    awayFrameScore: 0,
+    status: 'pending', // pending (not nominated) -> scheduled -> in_progress -> completed
+    winnerPlayerId: null,
+  }));
+  return {
+    id: uuid(),
+    leagueId: league.id,
+    divisionId: division.id,
+    round,
+    scheduledDate: null,
+    tableId: null,
+    scheduledTime: null,
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
+    homeTeamId: null,
+    awayTeamId: null,
+    legs,
+    homeLegsWon: 0,
+    awayLegsWon: 0,
+    status: 'scheduled', // scheduled -> in_progress -> completed
+    winnerTeamId: null,
+    nextFixtureId: null,
+    nextFixtureSlot: null,
+    // See makeSinglesFixture's byeSlot comment - same meaning here.
+    byeSlot: null,
+    reserved: false,
+    bracketRole: 'single',
+    loserNextFixtureId: null,
+    loserNextFixtureSlot: null,
+    resetFixtureId: null,
+  };
+}
+
+function generateRoundRobinFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const rounds = division.scheduling === 'round_robin_double'
+    ? generateRoundRobinDouble(entrantIds)
+    : generateRoundRobin(entrantIds);
+  rounds.forEach((pairs, roundIndex) => {
+    pairs.forEach(([a, b]) => {
+      const fixture = makeFixture({ league, division, round: roundIndex + 1 });
+      if (division.entryType === 'teams') {
+        fixture.homeTeamId = a;
+        fixture.awayTeamId = b;
+      } else {
+        fixture.homePlayerId = a;
+        fixture.awayPlayerId = b;
+      }
+      db.fixtures.push(fixture);
     });
-    legTwo.forEach((f) => db.fixtures.push(f));
-  }
-
-  return { method: 'round-robin-extra-round', fixturesAdded: legOne.length * (isDouble ? 2 : 1) };
+  });
 }
 
-// Knockout late entrant. Two safe paths only - anything riskier than these
-// is refused with a clear error rather than attempted:
-//
-// 1. Bye reclaim: a round-1 bye auto-resolves the instant fixtures are
-//    generated (see resolveByeIfNeeded) - its occupant is immediately
-//    marked the winner and advanced into round 2. If that round-2 fixture
-//    hasn't started yet (and isn't itself another bye - a cascade more
-//    than one level deep is refused, to keep the revert logic simple and
-//    safe rather than chasing a chain of auto-resolved winners), the bye
-//    can be "reclaimed": the newcomer fills the empty bye slot, the round-1
-//    fixture becomes a real match again, and the round-2 slot that was
-//    prematurely filled by the walkover is cleared back to pending -
-//    exactly mirroring how that slot would look if round 1 just hadn't
-//    finished yet. Nothing that's actually been played is touched.
-//
-// 2. Full regenerate: only if literally no fixture in the whole division
-//    has started or completed - i.e. fixtures were generated but the event
-//    hasn't actually begun yet. In that case every fixture is thrown away
-//    and the bracket is rebuilt from scratch with the newcomer included,
-//    using the exact same generator as a fresh division - safe because no
-//    real result exists anywhere yet to lose.
-//
-// If neither applies (the bracket is genuinely underway and has no open
-// bye to use), this throws rather than attempting to splice a new branch
-// into an already-live bracket tree - see the quick-add-player route's
-// caller for the resulting error message.
-function insertLateEntrantIntoKnockout({ db, league, division, newPlayerId, override }) {
-  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
-
-  // Reserved slots (double-elim only - see DOUBLE_ELIM_RESERVED_PAIR_COUNT
-  // in generateDoubleElimFixtures) are always-available capacity baked into
-  // the bracket tree at generation time, checked before anything else since
-  // this is the cleanest possible outcome: the newcomer takes a genuine
-  // seed and plays forward through the real bracket exactly like anyone
-  // else - no bye-reclaim, no full regenerate, no branch/decider needed.
-  // Only a fixture where NEITHER side has been touched yet counts - the
-  // moment either side is filled it's immediately resolved as a bye below
-  // (see the round1Byes reclaim loop, which then handles it exactly like
-  // any other bye), so there's never a lingering half-filled reserved
-  // fixture to find here.
-  const openReserved = fixtures.find(
-    (f) => f.round === 1 && f.reserved && f.homePlayerId === null && f.awayPlayerId === null
-  );
-  if (openReserved) {
-    openReserved.homePlayerId = newPlayerId;
-    openReserved.byeSlot = 'away';
-    openReserved.reserved = false;
-    division.playerIds.push(newPlayerId);
-    resolveByeIfNeeded(db, division, openReserved);
-    return { method: 'reserved-slot', fixtureId: openReserved.id };
-  }
-
-  const round1Byes = fixtures.filter(
-    (f) => f.round === 1 && f.byeSlot && f.status === 'completed' &&
-      (division.scheduling !== 'knockout_double_elim' || f.bracketRole === 'winners')
-  );
-  for (const bye of round1Byes) {
-    if (!bye.nextFixtureId) continue;
-    const next = fixtures.find((f) => f.id === bye.nextFixtureId);
-    // A bye whose next fixture is a late-entry decider (see
-    // appendLateEntrantBranch) is a synthetic bye created by a *previous*
-    // late-arrival override, not a genuine round-1 bye from the original
-    // bracket - it only exists because there was nobody to pair that
-    // entrant against. Reclaiming it here would silently reopen an
-    // already-resolved branch match and null out the decider's homePlayerId
-    // with nothing left to ever fill it back in, corrupting that decider.
-    // Route this newcomer through the override branch path instead (below).
-    // A genuine round-1 bye's next fixture always shares its own bracketRole
-    // (winners->winners) - that's how the generator wires it (see
-    // generateKnockoutFixtures/generateDoubleElimFixtures). Anything else can
-    // only be a synthetic bridge fixture created by a *previous* late-arrival
-    // override (appendLateEntrantBranch below tags those 'late_entry_decider'
-    // for single-elimination, 'losers' for double-elimination) - reclaiming
-    // one of those would reopen an already-resolved branch match and corrupt
-    // whatever it feeds, so skip it and let this newcomer fall through to the
-    // override branch path instead.
-    if (!next || next.byeSlot || next.status !== 'scheduled' || next.bracketRole !== bye.bracketRole) continue;
-
-    if (bye.nextFixtureSlot === 'home') next.homePlayerId = null;
-    else next.awayPlayerId = null;
-
-    if (bye.byeSlot === 'home') bye.homePlayerId = newPlayerId;
-    else bye.awayPlayerId = newPlayerId;
-    bye.byeSlot = null;
-    bye.status = 'scheduled';
-    bye.winnerPlayerId = null;
-
-    division.playerIds.push(newPlayerId);
-    return { method: 'bye-reclaim', fixtureId: bye.id };
-  }
-
-  const anyStarted = fixtures.some((f) => f.status === 'in_progress' || f.status === 'completed');
-  if (!anyStarted) {
-    db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
-    division.playerIds.push(newPlayerId);
-    const entrantIds = [...division.playerIds];
-    if (division.scheduling === 'knockout_single_elim') {
-      generateKnockoutFixtures({ db, league, division, entrantIds });
-    } else {
-      generateDoubleElimFixtures({ db, league, division, entrantIds });
-    }
-    // A full regenerate replaces every fixture with brand new ones, so the
-    // round numbers this bracket now uses (and how many rounds it has) can
-    // be completely different from before - e.g. adding a 9th entrant to an
-    // 8-entrant double-elim bracket adds a whole extra winners round, which
-    // pushes the Grand Final (and the last losers-bracket round) out to
-    // round numbers that didn't exist previously. The old visibleRounds
-    // array is stale the moment that happens: it was computed for the old
-    // fixture set, and only coincidentally still matches the new bracket's
-    // early rounds by number - anything past the old bracket's old last
-    // round (most visibly the new Grand Final) silently drops out of the
-    // public/embed bracket page's isRoundVisible filter, even though the
-    // fixture genuinely exists. Recompute it the same way a fresh
-    // "Generate Fixtures" with visibleByDefault does, so every round of
-    // the regenerated bracket is visible again.
-    markAllRoundsVisible(db, division);
-    return { method: 'bracket-regenerated' };
-  }
-
-  // Admin override: rather than refusing outright, splice the late entrant
-  // in as a brand new round-1 branch - see appendLateEntrantBranch.
-  if (override) {
-    return appendLateEntrantBranch({ db, league, division, newPlayerId, fixtures });
-  }
-
-  throw new ApiError(
-    400,
-    "This bracket has already started and has no open bye to slot a new player into right now - it can't be safely expanded without disturbing a match that's already underway. They can still be registered for next time from here, or added anyway as a new branch that plays off against the eventual champion."
-  );
-}
-
-// Admin override for a knockout bracket that's already underway with no
-// open bye to reclaim (see insertLateEntrantIntoKnockout above). Rather
-// than refusing the late entrant outright, gives them their own new
-// round-1 box - a bye, since there's nobody left to pair them against -
-// and carries that bye forward into a single decider match: one life, one
-// elimination, decided by exactly one result.
-//
-// Single-elimination has no losers bracket to speak of, so there's nothing
-// fairer on offer than a decider against the tournament's eventual champion
-// directly - created one round past whatever's currently the last round,
-// with the current final pointed at it instead of staying terminal.
-//
-// Double-elimination instead drops the late entrant into the LOSERS side,
-// not a shortcut straight to the title: their one decider is against
-// whoever currently feeds the Grand Final's away slot - the real
-// losers-bracket leader right now, whether that's the original LB Final or
-// a previous late entrant's own still-unplayed decider - and is tagged
-// bracketRole 'losers' so it renders as a genuine part of the Losers
-// Bracket (DoubleElimBracketChart already knows how to draw any 'losers'
-// fixture - see that component) rather than a bolt-on appendage. Lose it
-// and they're eliminated outright, no second life, unlike everyone who
-// legitimately dropped from the winners bracket with one still in hand.
-// Win it, and they only take that spot: they still have to beat the
-// winners-bracket champion in the real Grand Final (potentially twice, if
-// a bracket-reset gets forced - see checkGrandFinalReset) to actually take
-// the division, exactly like anyone who came up through the losers side.
-//
-// Known limitation: if the Grand Final has already been completed (the
-// division's already fully decided), this refuses outright rather than
-// reopening an already-confirmed result and everything that depends on it.
-function appendLateEntrantBranch({ db, league, division, newPlayerId, fixtures }) {
-  const isDoubleElim = division.scheduling === 'knockout_double_elim';
-
-  const branchFixture = makeSinglesFixture({ league, division, round: 1 });
-  branchFixture.bracketRole = isDoubleElim ? 'winners' : 'single';
-  branchFixture.homePlayerId = newPlayerId;
-  branchFixture.byeSlot = 'away';
-
-  let decider;
-
-  if (isDoubleElim) {
-    const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
-    if (!grandFinal) throw new ApiError(500, "This division's Grand Final fixture is missing - can't work out who a late arrival should play.");
-    if (grandFinal.status === 'completed') {
-      throw new ApiError(
-        400,
-        "This division's Grand Final has already been played - a late arrival can no longer be worked into the losers bracket this way."
-      );
-    }
-    const lbLeader = fixtures.find((f) => f.nextFixtureId === grandFinal.id && f.nextFixtureSlot === 'away');
-    if (!lbLeader) throw new ApiError(500, "Couldn't find the current losers-bracket leader - this bracket may be in an unexpected state.");
-
-    decider = makeSinglesFixture({ league, division, round: Math.max(...fixtures.map((f) => f.round)) + 1 });
-    decider.bracketRole = 'losers';
-    decider.nextFixtureId = grandFinal.id;
-    decider.nextFixtureSlot = 'away';
-
-    branchFixture.nextFixtureId = decider.id;
-    branchFixture.nextFixtureSlot = 'home';
-
-    db.fixtures.push(branchFixture);
-    db.fixtures.push(decider);
-    division.playerIds.push(newPlayerId);
-
-    if (lbLeader.status === 'completed') {
-      // Already decided - propagateWinner won't fire again on its own, so
-      // wire that winner in directly as the one this late entrant has to
-      // beat. That result already advanced into Grand Final's away slot
-      // when it was confirmed - reopen that slot now that it's about to be
-      // challenged by the decider instead of standing unopposed.
-      decider.awayPlayerId = lbLeader.winnerPlayerId;
-      grandFinal.awayPlayerId = null;
-    } else {
-      // Still to be played - redirect it at the new decider instead of
-      // Grand Final, so whichever route eventually completes it carries
-      // its winner forward into the decider the normal way.
-      lbLeader.nextFixtureId = decider.id;
-      lbLeader.nextFixtureSlot = 'away';
-    }
+// Marks a bye fixture (one side missing) as an automatic win, and propagates
+// the winner into the next round straight away.
+function resolveByeIfNeeded(db, division, fixture) {
+  if (division.entryType === 'teams') {
+    if (fixture.homeTeamId && fixture.awayTeamId) return;
+    const winnerTeamId = fixture.homeTeamId || fixture.awayTeamId;
+    if (!winnerTeamId) return; // shouldn't happen, but don't crash on a fully-empty fixture
+    fixture.status = 'completed';
+    fixture.winnerTeamId = winnerTeamId;
+    propagateWinner(db, division, fixture, winnerTeamId);
   } else {
-    const terminalFixtures = fixtures.filter((f) => !f.nextFixtureId);
-    const currentFinal = terminalFixtures.reduce(
-      (latest, f) => (!latest || f.round > latest.round ? f : latest),
-      null
-    );
+    if (fixture.homePlayerId && fixture.awayPlayerId) return;
+    const winnerPlayerId = fixture.homePlayerId || fixture.awayPlayerId;
+    if (!winnerPlayerId) return;
+    fixture.status = 'completed';
+    fixture.winnerPlayerId = winnerPlayerId;
+    propagateWinner(db, division, fixture, winnerPlayerId);
+  }
+}
 
-    decider = makeSinglesFixture({ league, division, round: currentFinal.round + 1 });
-    decider.bracketRole = 'late_entry_decider';
+function propagateWinner(db, division, fixture, winnerId) {
+  if (!fixture.nextFixtureId) return;
+  const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
+  if (!next) return;
+  if (division.entryType === 'teams') {
+    if (fixture.nextFixtureSlot === 'home') next.homeTeamId = winnerId;
+    else next.awayTeamId = winnerId;
+  } else if (fixture.nextFixtureSlot === 'home') {
+    next.homePlayerId = winnerId;
+  } else {
+    next.awayPlayerId = winnerId;
+  }
+  // `next` might structurally never receive a second entrant - see
+  // generateKnockoutFixtures, which marks byeSlot on any fixture created
+  // from a round whose survivor count was odd (so its last box only ever
+  // gets one real feeder). If so, the slot we just filled is next's only
+  // real entrant, so it's already decided - resolve it immediately and
+  // keep propagating, rather than waiting for a match that will never be
+  // played. A genuine two-sided fixture (byeSlot left null) is left alone
+  // here: an empty side there just means "the other semi-final hasn't been
+  // played yet", not a bye - filling one side of a real fixture must never
+  // auto-declare a winner.
+  if (next.byeSlot) resolveByeIfNeeded(db, division, next);
+}
 
-    branchFixture.nextFixtureId = decider.id;
-    branchFixture.nextFixtureSlot = 'home';
+// Double-elimination only: sends the LOSER of a winners-bracket fixture down
+// into its assigned losers-bracket slot. Mirrors propagateWinner, but writes
+// loserNextFixtureId/loserNextFixtureSlot instead, and is a no-op for
+// anything that isn't a winners-bracket fixture (losers-bracket fixtures
+// eliminate their loser outright - there's nowhere further for them to go).
+function propagateLoser(db, division, fixture, loserId) {
+  if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
+  const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
+  if (!dest) return;
+  if (division.entryType === 'teams') {
+    if (fixture.loserNextFixtureSlot === 'home') dest.homeTeamId = loserId;
+    else dest.awayTeamId = loserId;
+  } else if (fixture.loserNextFixtureSlot === 'home') {
+    dest.homePlayerId = loserId;
+  } else {
+    dest.awayPlayerId = loserId;
+  }
+  // See propagateWinner's byeSlot comment - the losers-bracket destination
+  // might structurally never receive a second entrant either (a losers
+  // bracket round can have its own bye box when its real-match count is
+  // odd - see buildDoubleElimBracket/generateDoubleElimFixtures). Resolve
+  // it immediately and keep the chain going if so.
+  if (dest.byeSlot) resolveByeIfNeeded(db, division, dest);
+}
 
-    db.fixtures.push(branchFixture);
-    db.fixtures.push(decider);
-    division.playerIds.push(newPlayerId);
+// Double-elimination only: the losers-bracket champion enters the Grand
+// Final with one life already spent, while the winners-bracket champion has
+// none - so if the losers-bracket entrant (always seeded into the "away"
+// slot - see generateDoubleElimFixtures) wins the Grand Final, the two
+// entrants are level (one loss each) and must play a single decider
+// ("bracket reset") to settle the title. If the winners-bracket entrant
+// (home) wins outright, the tournament is over. Safe to call after any
+// completion of a grand_final fixture - it's a no-op once a reset has
+// already been created, or if the home side won.
+function checkGrandFinalReset(db, division, fixture) {
+  if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
+  const isTeams = division.entryType === 'teams';
+  const winnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
+  const awayId = isTeams ? fixture.awayTeamId : fixture.awayPlayerId;
+  if (!winnerId || winnerId !== awayId) return; // home (winners-bracket side) won outright, or no winner yet
 
-    if (currentFinal.status === 'completed') {
-      decider.awayPlayerId = currentFinal.winnerPlayerId;
-    } else {
-      currentFinal.nextFixtureId = decider.id;
-      currentFinal.nextFixtureSlot = 'away';
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  const makeFixture = isTeams ? makeTeamFixture : makeSinglesFixture;
+  const reset = makeFixture({ league, division, round: fixture.round + 1 });
+  reset.bracketRole = 'grand_final_reset';
+  if (isTeams) {
+    reset.homeTeamId = fixture.homeTeamId;
+    reset.awayTeamId = fixture.awayTeamId;
+  } else {
+    reset.homePlayerId = fixture.homePlayerId;
+    reset.awayPlayerId = fixture.awayPlayerId;
+  }
+  db.fixtures.push(reset);
+  fixture.resetFixtureId = reset.id;
+}
+
+function generateKnockoutFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const bracketRounds = buildBracketRounds(entrantIds); // rounds[0] has real entrants (nulls = byes); later rounds are just counts
+
+  const fixturesByRound = bracketRounds.map((pairs, roundIndex) =>
+    pairs.map(() => makeFixture({ league, division, round: roundIndex + 1 }))
+  );
+
+  // Link each fixture to the one its winner advances to. When a round has
+  // an odd number of boxes, its last box (index count-1, always even)
+  // maps alone into the next round's last box's 'home' slot - nothing ever
+  // maps to that box's 'away' slot, so it's marked byeSlot: 'away' below
+  // and resolves itself automatically the moment its one real feeder
+  // concludes (see propagateWinner).
+  for (let round = 0; round < fixturesByRound.length - 1; round++) {
+    const thisRound = fixturesByRound[round];
+    const nextRound = fixturesByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
     }
   }
 
-  // The decider's round number is brand new (one past whatever round was
-  // previously last) and was never part of division.visibleRounds, which is
-  // only populated once at original fixture-generation time - without this,
-  // the public/embed bracket page (GET /api/public/divisions/:id/bracket,
-  // which filters fixtures through isRoundVisible) silently drops the decider
-  // while still handing out branchFixture's nextFixtureId pointing at it,
-  // leaving that chart with a dangling reference to a match it never receives.
-  if (!Array.isArray(division.visibleRounds)) division.visibleRounds = [];
-  if (!division.visibleRounds.includes(decider.round)) division.visibleRounds.push(decider.round);
+  // Seed round 1 with the real entrants (marking its own bye box, if any -
+  // same byeSlot field every later round uses, so propagateWinner only
+  // needs one code path regardless of which round a bye falls in).
+  bracketRounds[0].forEach(([a, b], i) => {
+    const fixture = fixturesByRound[0][i];
+    if (b === null) fixture.byeSlot = 'away';
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = b;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = b;
+    }
+  });
 
-  // Resolves branchFixture's bye immediately (nothing to wait on) and
-  // propagates the win straight into decider.homePlayerId.
-  resolveByeIfNeeded(db, division, branchFixture);
-
-  return { method: 'late-branch', fixtureId: branchFixture.id, deciderFixtureId: decider.id };
+  const allFixtures = fixturesByRound.flat();
+  allFixtures.forEach((f) => db.fixtures.push(f));
+  // Resolve any byes now that every fixture (and its next-round link) exists.
+  fixturesByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
-// ---- Teams (team divisions only) ----
+// Double-elimination fixture generation. Builds three pieces - a winners
+// bracket (identical construction to generateKnockoutFixtures, since
+// buildDoubleElimBracket requires a power-of-two entrant count so there are
+// never any byes to resolve), a losers bracket that receives each winners
+// round's losers via loserNextFixtureId/loserNextFixtureSlot, and a Grand
+// Final between the two brackets' champions. A potential bracket-reset
+// decider is NOT created here - see checkGrandFinalReset, which creates it
+// on demand once the Grand Final result is known.
+// Always reserved on top of the real entrants - 2 pairs (4 slots total),
+// baked into the bracket tree itself at generation time so a late arrival
+// or day-of walk-in substitution can take a genuine seed and play forward
+// through the real bracket, no override/decider/regenerate needed. See
+// buildDoubleElimBracket's reservedPairCount and insertLateEntrantIntoKnockout.
+const DOUBLE_ELIM_RESERVED_PAIR_COUNT = 2;
 
-app.post('/api/divisions/:id/teams', asyncRoute((req, res) => {
-  const { name } = req.body
+function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, {
+    reservedPairCount: DOUBLE_ELIM_RESERVED_PAIR_COUNT,
+  });
+
+  // ---- Winners bracket ----
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  // Same linking as generateKnockoutFixtures - a non-power-of-two field can
+  // still give the winners bracket a bye in a round after the first (see
+  // buildBracketRounds), so mark byeSlot the same way here too.
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    if (a === RESERVED_SLOT && b === RESERVED_SLOT) {
+      // Neither side is a real entrant yet - nothing to play by default, so
+      // this box starts already resolved with no result. Left completely
+      // untouched (still both null) it's permanently inert; the moment a
+      // real entrant takes one side over (see insertLateEntrantIntoKnockout)
+      // it's reopened and resolved as a genuine bye for them, exactly like
+      // any other round-1 bye.
+      fixture.reserved = true;
+      fixture.status = 'completed';
+      return;
+    }
+    if (b === null) fixture.byeSlot = 'away';
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = b;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = b;
+    }
+  });
+
+  // ---- Losers bracket ----
+  // "LB round" here is numbered separately from winners-bracket rounds - the
+  // frontend labels these distinctly (see DivisionDetail.jsx) rather than
+  // conflating them with the `round` number, which is only used for the
+  // date-spacing logic below.
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  // A round with an odd real-match count leaves one box with only ever one
+  // real feeder (whichever winners-bracket loser or losers-bracket survivor
+  // ends up wired to it below) - mark it byeSlot the same way winners-
+  // bracket byes are marked, always the round's last box.
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  // Link each losers-bracket round's winner forward to the next LB round.
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        // 1:1 - this survivor takes the "home" slot of its own next-round
+        // fixture; the "away" slot is filled by a fresh winners-bracket
+        // loser (wired below).
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        // Pure consolidation - pairs of adjacent survivors play each other.
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  // Wire each winners round's losers into their losers-bracket destination.
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    // A bye box in the source winners round never produces a loser (nobody
+    // played), so it's excluded here - only real-match boxes feed the
+    // losers bracket.
+    const wbSourceFixtur
