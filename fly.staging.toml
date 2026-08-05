@@ -11,7 +11,7 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 
 app = 'cuesense-pool-manager-staging'
-primary_region = 'iad'
+primary_region = 'lhr'
 
 [build]
 
