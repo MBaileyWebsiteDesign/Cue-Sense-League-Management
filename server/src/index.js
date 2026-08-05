@@ -1,568 +1,561 @@
- ? db.teams.find((t) => t.id === fixture.awayTeamId) : null;
-    home = { name: homeTeam ? homeTeam.name : 'TBD', subLabel: null, score: fixture.homeLegsWon };
-    away = { name: awayTeam ? awayTeam.name : 'TBD', subLabel: null, score: fixture.awayLegsWon };
-    legsTotal = fixture.legs.length;
-    bothEntrantsKnown = !!(fixture.homeTeamId && fixture.awayTeamId);
-    if (fixture.status === 'completed') {
-      winner = fixture.winnerTeamId === null ? 'draw' : (fixture.winnerTeamId === fixture.homeTeamId ? 'home' : 'away');
-    }
-  } else if (isDoubles) {
-    const nameOfPairing = (pairing) => (pairing
-      ? { name: pairing.name, subLabel: db.players.filter((p) => pairing.playerIds.includes(p.id)).map((p) => p.name).join(' & ') }
-      : { name: 'TBD', subLabel: null });
-    const homePairing = fixture.homePlayerId ? db.pairings.find((p) => p.id === fixture.homePlayerId) : null;
-    const awayPairing = fixture.awayPlayerId ? db.pairings.find((p) => p.id === fixture.awayPlayerId) : null;
-    home = { ...nameOfPairing(homePairing), score: fixture.homeFrameScore };
-    away = { ...nameOfPairing(awayPairing), score: fixture.awayFrameScore };
-    raceTo = fixture.raceTo;
-    bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
-    if (fixture.status === 'completed') {
-      // null means the fixture was force-completed 0-0 by an admin closing
-      // the division/league early (closeOutstandingFixtures) rather than
-      // actually decided.
-      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
-    }
-  } else {
-    const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
-    const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
-    home = { name: homePlayer ? homePlayer.name : 'TBD', subLabel: null, score: fixture.homeFrameScore };
-    away = { name: awayPlayer ? awayPlayer.name : 'TBD', subLabel: null, score: fixture.awayFrameScore };
-    raceTo = fixture.raceTo;
-    bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
-    if (fixture.status === 'completed') {
-      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
-    }
+sers;
+  if (q) {
+    users = users.filter((u) =>
+      `${u.firstName} ${u.lastName}`.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      u.teamName.toLowerCase().includes(q)
+    );
   }
-
-  return {
-    fixtureId: fixture.id,
-    leagueName: league ? league.name : null,
-    divisionName: division ? division.name : null,
-    roundLabel,
-    entryType: division.entryType,
-    status: fixture.status,
-    bothEntrantsKnown,
-    home,
-    away,
-    raceTo,
-    legsTotal,
-    winner,
-  };
-}
-
-app.get('/api/overlay/fixtures/:id', asyncRoute((req, res) => {
-  const db = readDb();
-  const fixture = db.fixtures.find((f) => f.id === req.params.id);
-  if (!fixture) throw new ApiError(404, 'Fixture not found');
-  const division = db.divisions.find((d) => d.id === fixture.divisionId);
-  const league = db.leagues.find((l) => l.id === fixture.leagueId);
-  res.json(buildOverlayFixture(db, division, league, fixture));
+  users = [...users].sort((a, b) => a.lastName.localeCompare(b.lastName));
+  res.json(users.map(publicUser));
 }));
 
-// ---------- Public: Arena big-display view ----------
-// A read-only, unauthenticated board meant for a TV/monitor at the venue -
-// same "no login token available" reasoning as the OBS overlay above, just
-// showing the whole league's table schedule for today instead of one
-// fixture. Groups today's fixtures by table (using buildOverlayFixture for
-// each one, so the shapes stay consistent with the OBS overlay), plus a
-// short list of the most recently completed results.
-app.get('/api/overlay/leagues/:id/arena', asyncRoute((req, res) => {
+app.get('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
   const db = readDb();
-  const league = db.leagues.find((l) => l.id === req.params.id);
-  if (!league) throw new ApiError(404, 'League not found');
-
-  const today = new Date().toISOString().slice(0, 10);
-  const leagueFixtures = db.fixtures.filter((f) => f.leagueId === league.id);
-  const divisionsById = new Map(db.divisions.map((d) => [d.id, d]));
-
-  const withOverlay = (fixture) => {
-    const division = divisionsById.get(fixture.divisionId);
-    if (!division) return null;
-    return {
-      ...buildOverlayFixture(db, division, league, fixture),
-      tableId: fixture.tableId,
-      scheduledDate: fixture.scheduledDate,
-      scheduledTime: fixture.scheduledTime,
-    };
-  };
-
-  const todaysFixtures = leagueFixtures
-    .filter((f) => f.status !== 'completed' && (f.scheduledDate === today || f.status === 'in_progress'))
-    .map(withOverlay)
-    .filter(Boolean);
-
-  const recentResults = leagueFixtures
-    .filter((f) => f.status === 'completed')
-    .sort((a, b) => new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0))
-    .slice(0, 8)
-    .map(withOverlay)
-    .filter(Boolean);
-
-  const tables = league.tables.map((table) => ({
-    ...table,
-    fixture: todaysFixtures.find((f) => f.tableId === table.id) || null,
-  }));
-  const unscheduled = todaysFixtures.filter((f) => !f.tableId);
-
-  res.json({
-    leagueId: league.id,
-    leagueName: league.name,
-    generatedAt: new Date().toISOString(),
-    tables,
-    unscheduled,
-    recentResults,
-  });
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  res.json(publicUser(user));
 }));
 
-// ---------- Public: League Table & League Fixtures (embeddable pages) ----------
-// Two more read-only, unauthenticated endpoints, same reasoning as the OBS
-// overlay and Arena board above (no login available to the visitor), but
-// aimed at being embedded (e.g. an <iframe>) on another site rather than an
-// OBS scene or a venue TV - a running "League Table" and "League Fixtures"
-// view of a whole league. Standings reuse hydrateDivision unmodified (same
-// numbers a logged-in player would see - standings aren't gated by round
-// visibility, see the comment on GET /api/divisions/:id above), but the
-// fixture list *is* filtered by isRoundVisible, same as a non-admin account
-// gets on the division page - a public embed must never show a round before
-// an admin has released it, or "Manage Fixtures" round-release stops
-// meaning anything.
-
-app.get('/api/public/leagues/:id/table', asyncRoute((req, res) => {
+// Looks up the registered account (if any) linked to a Player roster entry -
+// backs the admin "edit this player's account" panel on the player profile
+// page (PlayerProfile.jsx), which needs to go from a `playerId` (the profile
+// being viewed) to the `User` record that actually owns name/email/phone/etc.
+// Not every Player has a linked account (older seed/demo data can have bare
+// Player rows with no registered user) - `user: null` signals that case so
+// the frontend can show "no registered account" instead of an edit form.
+app.get('/api/admin/users/by-player/:playerId', requireAdmin, asyncRoute((req, res) => {
   const db = readDb();
-  const league = db.leagues.find((l) => l.id === req.params.id);
-  if (!league) throw new ApiError(404, 'League not found');
-
-  const divisions = db.divisions
-    .filter((d) => d.leagueId === league.id)
-    .sort((a, b) => a.order - b.order)
-    .map((division) => {
-      const hydrated = hydrateDivision(db, division);
-      return {
-        divisionId: division.id,
-        divisionName: division.name,
-        entryType: division.entryType,
-        scheduling: division.scheduling,
-        status: division.status || 'active',
-        standings: hydrated.standings,
-      };
-    });
-
-  res.json({
-    leagueId: league.id,
-    leagueName: league.name,
-    generatedAt: new Date().toISOString(),
-    divisions,
-  });
+  const user = db.users.find((u) => u.playerId === req.params.playerId) || null;
+  res.json({ user: publicUser(user) });
 }));
 
-function buildPublicFixture(db, division, league, fixture) {
-  if (!division) return null;
-  return {
-    ...buildOverlayFixture(db, division, league, fixture),
-    divisionId: division.id,
-    round: fixture.round,
-    scheduledDate: fixture.scheduledDate,
-    scheduledTime: fixture.scheduledTime,
-  };
-}
-
-app.get('/api/public/leagues/:id/fixtures', asyncRoute((req, res) => {
+app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
   const db = readDb();
-  const league = db.leagues.find((l) => l.id === req.params.id);
-  if (!league) throw new ApiError(404, 'League not found');
-
-  const divisionsById = new Map(db.divisions.filter((d) => d.leagueId === league.id).map((d) => [d.id, d]));
-
-  const fixtures = db.fixtures
-    .filter((f) => f.leagueId === league.id)
-    .filter((f) => isRoundVisible(divisionsById.get(f.divisionId), f.round))
-    .map((f) => buildPublicFixture(db, divisionsById.get(f.divisionId), league, f))
-    .filter(Boolean)
-    .sort((a, b) => {
-      // Anything still to be decided sorts first (soonest scheduled date
-      // first, unscheduled fixtures last within that group); completed
-      // fixtures (including ones force-completed 0-0 by close-early - see
-      // fixture.closedEarly) sort after, most recent first.
-      const aDone = a.status === 'completed';
-      const bDone = b.status === 'completed';
-      if (aDone !== bDone) return aDone ? 1 : -1;
-      if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
-      if (!a.scheduledDate && !b.scheduledDate) return 0;
-      if (!a.scheduledDate) return 1;
-      if (!b.scheduledDate) return -1;
-      return new Date(a.scheduledDate) - new Date(b.scheduledDate);
-    });
-
-  res.json({
-    leagueId: league.id,
-    leagueName: league.name,
-    generatedAt: new Date().toISOString(),
-    fixtures,
-  });
-}));
-
-// ---------- Public: Division Table & Division Fixtures (embeddable pages) ----------
-// Same reasoning/pattern as the League Table/Fixtures endpoints above, but
-// scoped to a single division rather than every division in a league - for
-// embedding one division's standings/fixtures on its own page elsewhere
-// (e.g. a dedicated "Division 3" page on another site), rather than a whole
-// league's worth of divisions on one embed.
-
-app.get('/api/public/divisions/:id/table', asyncRoute((req, res) => {
-  const db = readDb();
-  const division = db.divisions.find((d) => d.id === req.params.id);
-  if (!division) throw new ApiError(404, 'Division not found');
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  const hydrated = hydrateDivision(db, division);
-
-  res.json({
-    divisionId: division.id,
-    divisionName: division.name,
-    leagueId: division.leagueId,
-    leagueName: league ? league.name : null,
-    entryType: division.entryType,
-    scheduling: division.scheduling,
-    status: division.status || 'active',
-    generatedAt: new Date().toISOString(),
-    standings: hydrated.standings,
-  });
-}));
-
-app.get('/api/public/divisions/:id/fixtures', asyncRoute((req, res) => {
-  const db = readDb();
-  const division = db.divisions.find((d) => d.id === req.params.id);
-  if (!division) throw new ApiError(404, 'Division not found');
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-
-  const fixtures = db.fixtures
-    .filter((f) => f.divisionId === division.id)
-    .filter((f) => isRoundVisible(division, f.round))
-    .map((f) => buildPublicFixture(db, division, league, f))
-    .filter(Boolean)
-    .sort((a, b) => {
-      const aDone = a.status === 'completed';
-      const bDone = b.status === 'completed';
-      if (aDone !== bDone) return aDone ? 1 : -1;
-      if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
-      if (!a.scheduledDate && !b.scheduledDate) return 0;
-      if (!a.scheduledDate) return 1;
-      if (!b.scheduledDate) return -1;
-      return new Date(a.scheduledDate) - new Date(b.scheduledDate);
-    });
-
-  res.json({
-    divisionId: division.id,
-    divisionName: division.name,
-    leagueId: division.leagueId,
-    leagueName: league ? league.name : null,
-    generatedAt: new Date().toISOString(),
-    fixtures,
-  });
-}));
-
-// ---------- Public: Division Bracket (embeddable page) ----------
-// A read-only, unauthenticated view of one single-elimination knockout
-// division's bracket - same "no login available to an embedded page"
-// reasoning as the League Table/Fixtures endpoints above, and built the
-// same way: reuse buildOverlayFixture (already computes entrant names,
-// scores, bothEntrantsKnown and who won) rather than re-deriving any of
-// that, and respect isRoundVisible so an embed can never show a round
-// before an admin has released it. Supports both single- and
-// double-elimination knockout divisions (round robin's flat standings
-// table doesn't fit either chart shape, so anything else still gets a 400)
-// - which shape the client should render is told apart by the `scheduling`
-// field in the response, since single-elimination's chart needs `matches`
-// grouped by a flat `round` plus `totalRounds`, while double-elimination's
-// needs each match's `bracketRole`/`nextFixtureId`/`loserNextFixtureId`/
-// `resetFixtureId` links instead (see DoubleElimBracketChart.jsx - unlike
-// the authenticated division page, this is the only place that chart is
-// ever handed those links without also being logged in, so they're
-// deliberately included here even though the rest of this endpoint is
-// otherwise a deliberately trimmed-down public view).
-function buildPublicBracketMatch(db, division, league, fixture) {
-  const overlay = buildOverlayFixture(db, division, league, fixture);
-  return {
-    id: fixture.id,
-    round: fixture.round,
-    home: overlay.home,
-    away: overlay.away,
-    status: overlay.status,
-    bothEntrantsKnown: overlay.bothEntrantsKnown,
-    winnerSide: overlay.winner === 'home' || overlay.winner === 'away' ? overlay.winner : null,
-    closedEarly: !!fixture.closedEarly,
-  };
-}
-
-function buildPublicDoubleElimMatch(db, division, league, fixture) {
-  return {
-    ...buildPublicBracketMatch(db, division, league, fixture),
-    bracketRole: fixture.bracketRole,
-    nextFixtureId: fixture.nextFixtureId || null,
-    loserNextFixtureId: fixture.loserNextFixtureId || null,
-    resetFixtureId: fixture.resetFixtureId || null,
-  };
-}
-
-app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
-  const db = readDb();
-  const division = db.divisions.find((d) => d.id === req.params.id);
-  if (!division) throw new ApiError(404, 'Division not found');
-  const isDoubleElim = division.scheduling === 'knockout_double_elim';
-  if (division.scheduling !== 'knockout_single_elim' && !isDoubleElim) {
-    throw new ApiError(400, 'This endpoint only supports single- or double-elimination knockout divisions');
-  }
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  const hydrated = hydrateDivision(db, division);
-
-  const visibleFixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
-  const matches = isDoubleElim
-    ? visibleFixtures.map((f) => buildPublicDoubleElimMatch(db, division, league, f))
-    : visibleFixtures.map((f) => buildPublicBracketMatch(db, division, league, f));
-
-  res.json({
-    divisionId: division.id,
-    divisionName: division.name,
-    leagueId: division.leagueId,
-    leagueName: league ? league.name : null,
-    entryType: division.entryType,
-    scheduling: division.scheduling,
-    status: division.status || 'active',
-    totalRounds: isDoubleElim ? null : hydrated.totalRounds,
-    generatedAt: new Date().toISOString(),
-    matches,
-  });
-}));
-
-// ---------- Admin score/game override ----------
-// Lets an admin directly set a fixture's final score to correct a
-// mis-recorded result, bypassing the normal frame-by-frame flow entirely.
-// Deliberately blunt: it replaces the recorded frames/legs with just the
-// final tally (tagged `adminOverride` so the UI can show it was hand-set
-// rather than played out), rather than trying to reconstruct a plausible
-// frame history. Re-propagates into the next knockout round if the winner
-// changed, but refuses if that would silently overwrite a match that's
-// already been played - the admin has to fix the downstream fixture first,
-// so a correction can never quietly erase someone else's recorded result.
-app.post('/api/fixtures/:id/override', requireAnyAdmin, asyncRoute((req, res) => {
-  const { homeScore, awayScore } = req.body;
-  const db = readDb();
-  const fixture = db.fixtures.find((f) => f.id === req.params.id);
-  if (!fixture) throw new ApiError(404, 'Fixture not found');
-  const division = db.divisions.find((d) => d.id === fixture.divisionId);
-  const league = db.leagues.find((l) => l.id === fixture.leagueId);
-  assertLeagueAccess(req, league);
-  const isTeams = division.entryType === 'teams';
-
-  if (isTeams) {
-    if (!fixture.homeTeamId || !fixture.awayTeamId) {
-      throw new ApiError(400, 'Both teams for this fixture are not yet known');
-    }
-  } else if (!fixture.homePlayerId || !fixture.awayPlayerId) {
-    throw new ApiError(400, 'Both players for this fixture are not yet known');
-  }
-  if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore) || homeScore < 0 || awayScore < 0) {
-    throw new ApiError(400, 'homeScore and awayScore must be non-negative whole numbers');
-  }
-  if (!isTeams && homeScore === awayScore) {
-    throw new ApiError(400, 'This match cannot end level - set different scores for home and away');
-  }
-
-  const oldWinnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
-  const newWinnerId = homeScore === awayScore
-    ? null
-    : homeScore > awayScore
-      ? (isTeams ? fixture.homeTeamId : fixture.homePlayerId)
-      : (isTeams ? fixture.awayTeamId : fixture.awayPlayerId);
-
-  if (fixture.nextFixtureId && oldWinnerId && newWinnerId !== oldWinnerId) {
-    const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
-    const nextHasStarted = next && (isTeams ? next.legs.some((l) => l.status !== 'pending') : next.frames.length > 0);
-    if (nextHasStarted) {
-      throw new ApiError(409, 'This result has already progressed to a fixture that has started - override or reset that fixture first');
-    }
-  }
-
-  if (isTeams) {
-    fixture.homeLegsWon = homeScore;
-    fixture.awayLegsWon = awayScore;
-    fixture.winnerTeamId = newWinnerId;
-    fixture.legs = fixture.legs.map((leg) => ({
-      ...leg,
-      homePlayerId: null,
-      awayPlayerId: null,
-      frames: [],
-      homeFrameScore: 0,
-      awayFrameScore: 0,
-      status: 'pending',
-      winnerPlayerId: null,
-    }));
-  } else {
-    fixture.homeFrameScore = homeScore;
-    fixture.awayFrameScore = awayScore;
-    fixture.frames = [];
-    fixture.winnerPlayerId = newWinnerId;
-  }
-  fixture.status = 'completed';
-  fixture.adminOverride = { at: new Date().toISOString(), by: req.adminSession.label };
-  fixture.disputeReason = null;
-
-  if (fixture.nextFixtureId && newWinnerId && newWinnerId !== oldWinnerId) {
-    propagateWinner(db, division, fixture, newWinnerId);
-  }
-  if (newWinnerId && newWinnerId !== oldWinnerId) {
-    const newLoserId = newWinnerId === (isTeams ? fixture.homeTeamId : fixture.homePlayerId)
-      ? (isTeams ? fixture.awayTeamId : fixture.awayPlayerId)
-      : (isTeams ? fixture.homeTeamId : fixture.homePlayerId);
-    propagateLoser(db, division, fixture, newLoserId);
-  }
-  checkGrandFinalReset(db, division, fixture);
-
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  applyProfileFields(db, user, req.body);
   recordAudit(db, {
     actor: req.adminSession.label,
-    action: 'fixture.override',
-    targetType: 'fixture',
-    targetId: fixture.id,
-    details: `Set final score to ${homeScore}-${awayScore}`,
+    action: 'user.edit',
+    targetType: 'user',
+    targetId: user.id,
+    details: `Edited profile for ${user.firstName} ${user.lastName}`,
   });
-
   writeDb(db);
-  res.json(fixture);
+  res.json(publicUser(user));
 }));
 
-// ---------- Admin: mid-season player substitution ----------
-// Lets an admin swap a player out for a replacement in a singles division
-// when someone drops out. The incoming player takes over every fixture that
-// hasn't been played yet at all (status 'scheduled'); anything already
-// completed, or already partway through (status 'in_progress' - some frames
-// recorded), is left exactly as it is so history/stats aren't disturbed -
-// those in-progress fixtures are reported back separately so the admin
-// knows they still reference the outgoing player and need to be finished or
-// overridden first if they should change hands too.
-//
-// `reason` distinguishes two situations that reassign fixtures identically
-// but differ in one way: whether the outgoing player still belongs on the
-// division's roster afterwards.
-//   - 'substitution' (default): a like-for-like swap - the outgoing player
-//     stays on the roster (their played-so-far record keeps showing in the
-//     League Table and their profile); the incoming player is added
-//     alongside them, not swapped in for them, since their history is a
-//     separate thing.
-//   - 'retirement': the outgoing player is leaving the league, not being
-//     temporarily covered for. Their remaining fixtures are handed over
-//     exactly the same way, but they're also removed from
-//     division.playerIds, so their row disappears from the League Table
-//     going forward. Matches they already completed are untouched, so
-//     opponents' won/lost/frame counts from those games still stand -
-//     computeStandings derives every row purely from that row's own
-//     fixtures, so removing the retiree from playerIds only removes their
-//     own row, it doesn't touch anyone else's numbers. Their full match
-//     history still shows on their own player profile page regardless.
-// There's no "reset scores and start the incoming player from zero" option
-// yet - that's a bigger, separate feature if it's ever needed.
-app.post('/api/divisions/:id/substitute-player', requireAnyAdmin, asyncRoute((req, res) => {
-  const { outgoingPlayerId, incomingPlayerId, reason = 'substitution' } = req.body;
-  if (!outgoingPlayerId || !incomingPlayerId) {
-    throw new ApiError(400, 'outgoingPlayerId and incomingPlayerId are required');
-  }
-  if (outgoingPlayerId === incomingPlayerId) {
-    throw new ApiError(400, 'The replacement must be a different player from the one dropping out');
-  }
-  if (!['substitution', 'retirement'].includes(reason)) {
-    throw new ApiError(400, "reason must be 'substitution' or 'retirement'");
-  }
-
+// Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
+// toggle now that an account can be both, either or neither.
+app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
+  const { isAdmin, isCaptain, isLeagueManager } = req.body;
   const db = readDb();
-  const division = db.divisions.find((d) => d.id === req.params.id);
-  if (!division) throw new ApiError(404, 'Division not found');
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
-  if (division.entryType !== 'singles') {
-    throw new ApiError(400, 'Player substitution is only available for singles divisions right now');
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  const changes = [];
+  if (isAdmin !== undefined && !!isAdmin !== user.isAdmin) {
+    user.isAdmin = !!isAdmin;
+    changes.push(user.isAdmin ? 'granted admin' : 'revoked admin');
   }
-  if (!division.playerIds.includes(outgoingPlayerId)) {
-    throw new ApiError(400, 'That player is not registered in this division');
+  if (isCaptain !== undefined && !!isCaptain !== user.isCaptain) {
+    user.isCaptain = !!isCaptain;
+    changes.push(user.isCaptain ? 'marked as captain' : 'unmarked as captain');
   }
-  if (division.playerIds.includes(incomingPlayerId)) {
-    throw new ApiError(400, 'That replacement is already registered in this division');
-  }
-
-  const incoming = registeredPlayers(db).find((p) => p.id === incomingPlayerId);
-  if (!incoming) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
-  assertPaymentCleared(db, division, incoming.id);
-  const outgoing = db.players.find((p) => p.id === outgoingPlayerId);
-
-  const divisionFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
-  const swapped = [];
-  const blockedInProgress = [];
-
-  for (const fixture of divisionFixtures) {
-    const isHome = fixture.homePlayerId === outgoingPlayerId;
-    const isAway = fixture.awayPlayerId === outgoingPlayerId;
-    if (!isHome && !isAway) continue;
-
-    if (fixture.status === 'completed') continue; // already played - history stays as-is
-    if (fixture.status === 'in_progress') {
-      blockedInProgress.push({ fixtureId: fixture.id, round: fixture.round });
-      continue; // has frames already recorded against the outgoing player
+  // Revoking League Manager also strips their access to every league they
+  // were assigned to, rather than leaving orphaned entries in
+  // league.managerUserIds that a re-grant would silently reactivate.
+  if (isLeagueManager !== undefined && !!isLeagueManager !== user.isLeagueManager) {
+    user.isLeagueManager = !!isLeagueManager;
+    changes.push(user.isLeagueManager ? 'granted League Manager' : 'revoked League Manager');
+    if (!user.isLeagueManager) {
+      for (const league of db.leagues) {
+        if (Array.isArray(league.managerUserIds) && league.managerUserIds.includes(user.id)) {
+          league.managerUserIds = league.managerUserIds.filter((id) => id !== user.id);
+        }
+      }
     }
-    // status === 'scheduled': nobody has played this yet, safe to hand over
-    if (isHome) fixture.homePlayerId = incomingPlayerId;
-    else fixture.awayPlayerId = incomingPlayerId;
-    swapped.push({ fixtureId: fixture.id, round: fixture.round });
   }
+  if (changes.length > 0) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.permissions',
+      targetType: 'user',
+      targetId: user.id,
+      details: `${user.firstName} ${user.lastName}: ${changes.join(', ')}`,
+    });
+  }
+  writeDb(db);
+  res.json(publicUser(user));
+}));
 
-  division.playerIds.push(incomingPlayerId);
-  if (reason === 'retirement') {
-    division.playerIds = division.playerIds.filter((id) => id !== outgoingPlayerId);
+app.post('/api/admin/users/:id/status', requireAdmin, asyncRoute((req, res) => {
+  const { status } = req.body;
+  if (!STATUSES.includes(status)) throw new ApiError(400, `status must be one of: ${STATUSES.join(', ')}`);
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  user.status = status;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.status',
+    targetType: 'user',
+    targetId: user.id,
+    details: `Set status of ${user.firstName} ${user.lastName} to ${status}`,
+  });
+  writeDb(db);
+  res.json(publicUser(user));
+}));
+
+app.post('/api/admin/users/:id/reset-password', requireAdmin, asyncRoute((req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 8) {
+    throw new ApiError(400, 'New password must be at least 8 characters');
   }
-  if (!division.substitutions) division.substitutions = [];
-  division.substitutions.push({
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  user.passwordHash = hashPassword(newPassword);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.reset_password',
+    targetType: 'user',
+    targetId: user.id,
+    details: `Force-reset password for ${user.firstName} ${user.lastName}`,
+  });
+  writeDb(db);
+  res.json({ ok: true });
+}));
+
+// Generates a one-time password-reset link for a user and hands it straight
+// back to the admin (no SMTP/email-sending is wired up in this self-hosted
+// v1 - see the README roadmap), rather than silently setting a new password
+// the way "Force Password Reset" above does. The admin is expected to relay
+// the link to the player themselves (text, email, WhatsApp, whatever) - the
+// link is also logged server-side as a fallback if it gets lost before it's
+// sent on. Tokens are single-use and expire after 1 hour; visiting the link
+// takes the player to POST /api/auth/reset-password/:token, which is public
+// since a lost-password player isn't logged in to prove who they are any
+// other way.
+app.post('/api/admin/users/:id/send-reset-link', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
+  db.passwordResets.push({
     id: uuid(),
-    outgoingPlayerId,
-    outgoingPlayerName: outgoing ? outgoing.name : 'Unknown player',
-    incomingPlayerId,
-    incomingPlayerName: incoming.name,
-    reason,
-    at: new Date().toISOString(),
-    by: req.adminSession.label,
-    fixturesSwapped: swapped.length,
+    userId: user.id,
+    token,
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    usedAt: null,
   });
+
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const resetLink = `${origin}/reset-password?token=${token}`;
 
   recordAudit(db, {
     actor: req.adminSession.label,
-    action: 'division.substitute_player',
-    targetType: 'division',
-    targetId: division.id,
-    details: reason === 'retirement'
-      ? `${outgoing ? outgoing.name : 'A player'} retired from "${division.name}" - removed from the League Table, ${incoming.name} took over ${swapped.length} remaining fixture(s)`
-      : `Swapped ${outgoing ? outgoing.name : 'a player'} out for ${incoming.name} in "${division.name}" (${swapped.length} remaining fixture(s) reassigned)`,
+    action: 'user.send_reset_link',
+    targetType: 'user',
+    targetId: user.id,
+    details: `Generated a password reset link for ${user.firstName} ${user.lastName} (${user.email})`,
+  });
+  writeDb(db);
+
+  // Stand-in for actually emailing the link - see README "Password reset
+  // links" for why. Printed here so it's recoverable from server logs even
+  // if the admin closes the tab before copying it.
+  console.log(`[password reset] ${user.email}: ${resetLink}`);
+
+  res.json({ resetLink, expiresAt, email: user.email });
+}));
+
+// Whether a user account has ever actually been used anywhere in the data -
+// added to a division roster, put on a team/pairing, played in a fixture
+// (singles or as a leg player on a team fixture), captured in Roll of
+// Honour, or assigned as a league manager. An account that's clean on every
+// one of these can be hard-deleted with nothing left dangling; one that
+// isn't can't, since removing it would leave fixtures/results/roll of
+// honour entries pointing at a player id that no longer resolves to
+// anyone - the account should be suspended (see POST .../status) instead.
+function userInUse(db, userId) {
+  if (db.divisions.some((d) => d.playerIds.includes(userId))) return true;
+  if (db.teams.some((t) => t.playerIds.includes(userId))) return true;
+  if (db.pairings.some((p) => p.playerIds.includes(userId))) return true;
+  if (db.fixtures.some((f) => {
+    if (f.homePlayerId === userId || f.awayPlayerId === userId) return true;
+    if (Array.isArray(f.legs) && f.legs.some((leg) => leg.homePlayerId === userId || leg.awayPlayerId === userId)) return true;
+    return false;
+  })) return true;
+  if (db.rollOfHonour.some((r) => r.championId === userId)) return true;
+  if (db.leagues.some((l) => Array.isArray(l.managerUserIds) && l.managerUserIds.includes(userId))) return true;
+  return false;
+}
+
+// Bulk-deletes user accounts straight from Manage Users' tick-box selection.
+// Each requested id is checked independently with userInUse above - accounts
+// with any league/match history are skipped (reported back so the admin
+// knows why) rather than silently ignored or force-deleted, since force-
+// deleting one would leave a fixture, team roster, or Roll of Honour entry
+// referencing a player id that no longer exists. Genuinely unused accounts
+// (created by mistake, a duplicate, or someone who registered but was never
+// added to anything) are removed outright - this is the one place a user
+// account can be permanently deleted rather than just suspended.
+app.post('/api/admin/users/bulk-delete', requireAdmin, asyncRoute((req, res) => {
+  const { userIds } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    throw new ApiError(400, 'userIds must be a non-empty array');
+  }
+  const db = readDb();
+  const deleted = [];
+  const blocked = [];
+
+  for (const userId of userIds) {
+    const user = db.users.find((u) => u.id === userId);
+    if (!user) {
+      blocked.push({ id: userId, name: 'Unknown', reason: 'Account not found (already deleted?)' });
+      continue;
+    }
+    if (userInUse(db, userId)) {
+      blocked.push({
+        id: userId,
+        name: `${user.firstName} ${user.lastName}`,
+        reason: 'Has league/match history - suspend the account instead of deleting it',
+      });
+      continue;
+    }
+    deleted.push({ id: userId, name: `${user.firstName} ${user.lastName}`, email: user.email });
+  }
+
+  if (deleted.length > 0) {
+    const deletedIds = new Set(deleted.map((d) => d.id));
+    db.users = db.users.filter((u) => !deletedIds.has(u.id));
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.bulk_delete',
+      targetType: 'user',
+      targetId: deleted.map((d) => d.id).join(','),
+      details: `Deleted ${deleted.length} account(s): ${deleted.map((d) => `${d.name} (${d.email})`).join(', ')}`,
+    });
+    writeDb(db);
+  }
+
+  res.json({ deleted, blocked });
+}));
+
+// Bulk-imports user accounts straight from Manage Users, independent of any
+// season or division - each row becomes a full account (generated temporary
+// password handed back once, same as the Season Setup Wizard's import) with
+// no roster assignment; add people to a specific division/team afterwards
+// from that division's own roster page. A row whose email already matches
+// an existing account is skipped (reported back, not treated as an error)
+// rather than silently overwriting that account. Shares createUserAccount
+// with the wizard's per-season import
+// (POST /api/admin/seasons/:leagueId/import-players) - this is just a second
+// entry point into the same account-creation logic for when there's no
+// season context, e.g. onboarding a batch of players before deciding which
+// league they'll go in.
+app.post('/api/admin/users/import', requireAdmin, asyncRoute((req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(400, 'rows must be a non-empty array');
+
+  const db = readDb();
+  const created = [];
+  const skipped = [];
+  const errors = [];
+
+  rows.forEach((row, index) => {
+    const rowNum = index + 1;
+    try {
+      const firstName = (row.firstName || '').trim();
+      const lastName = (row.lastName || '').trim();
+      const email = (row.email || '').trim();
+      const teamName = (row.teamName || '').trim() || 'Unassigned';
+      const classification = (row.classification || '').trim().toUpperCase() || null;
+      const isAdminFlag = row.isAdmin === true || String(row.isAdmin).trim().toLowerCase() === 'true' || String(row.isAdmin).trim() === '1';
+      const isCaptain = row.isCaptain === true || String(row.isCaptain).trim().toLowerCase() === 'true' || String(row.isCaptain).trim() === '1';
+      const isLeagueManagerFlag = row.isLeagueManager === true || String(row.isLeagueManager).trim().toLowerCase() === 'true' || String(row.isLeagueManager).trim() === '1';
+
+      if (!firstName) throw new Error('firstName is required');
+      if (!lastName) throw new Error('lastName is required');
+      if (!email) throw new Error('email is required');
+      if (classification && !CLASSIFICATIONS.includes(classification)) {
+        throw new Error(`classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
+      }
+
+      const normalizedEmail = email.toLowerCase();
+      const existing = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+      if (existing) {
+        skipped.push({ row: rowNum, name: `${existing.firstName} ${existing.lastName}`, email, reason: 'an account with this email already exists' });
+        return;
+      }
+
+      const tempPassword = generateTempPassword();
+      const user = createUserAccount(db, {
+        firstName, lastName, email, passwordHash: hashPassword(tempPassword),
+        phone: (row.phone || '').trim(), teamName, classification,
+        isAdmin: isAdminFlag, isCaptain, isLeagueManager: isLeagueManagerFlag,
+      });
+      created.push({ row: rowNum, name: `${firstName} ${lastName}`, email, tempPassword });
+    } catch (err) {
+      errors.push({ row: rowNum, reason: err.message });
+    }
+  });
+
+  if (created.length > 0) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.bulk_import',
+      targetType: 'user',
+      targetId: null,
+      details: `Bulk-imported ${created.length} user account(s) from Manage Users`,
+    });
+  }
+
+  writeDb(db);
+  // Note: a 400 here used to fire whenever every row failed validation (e.g.
+  // all 14 rows missing a required column) - even though the request itself
+  // was well-formed. That tripped the client's generic error handler, which
+  // throws "Request failed: 400" and swallows the detailed per-row reasons
+  // in `errors`/`skipped`, leaving the admin with a useless message. A
+  // structurally invalid request (no rows array) is already rejected above;
+  // per-row failures are a normal, successful response, not an error.
+  res.status(created.length > 0 ? 201 : 200).json({ created, skipped, errors });
+}));
+
+app.get('/api/admin/audit-log', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const entries = [...db.auditLog].reverse().slice(0, 200);
+  res.json(entries);
+}));
+
+// ---------- Admin: season setup wizard ----------
+// Backs the 5-step "New Season" wizard in the admin portal:
+//   1. name the season            -> POST /api/admin/seasons
+//   2. how many leagues/players   -> (same call - leagueCount/playersPerLeague)
+//   3. CSV/Excel or manual add    -> POST /api/admin/seasons/:leagueId/import-players
+//   4. start/end date             -> (passed straight into step 5's call)
+//   5. generate fixtures + gaps   -> POST /api/admin/seasons/:leagueId/generate
+//
+// A "season" isn't a new top-level entity - it reuses League (the season)
+// and Division (each of the N "leagues" within it) so it gets standings,
+// fixtures and scoring for free from the existing engine. CSV/Excel parsing
+// itself happens client-side (see client/src/pages/AdminSeasonWizard.jsx);
+// the server just receives plain row objects either way.
+
+app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
+  const { name, leagueCount, playersPerLeague, payment } = req.body;
+  if (!name || !name.trim()) throw new ApiError(400, 'Season name is required');
+  const count = Number(leagueCount);
+  const perLeague = Number(playersPerLeague);
+  if (!Number.isInteger(count) || count < 1 || count > 50) {
+    throw new ApiError(400, 'Number of leagues must be a whole number between 1 and 50');
+  }
+  if (!Number.isInteger(perLeague) || perLeague < 2 || perLeague > 200) {
+    throw new ApiError(400, 'Players per league must be a whole number between 2 and 200');
+  }
+
+  const db = readDb();
+  const league = {
+    id: uuid(),
+    name: name.trim(),
+    sport: 'English 8-Ball Pool',
+    // Match format now lives on each division (see POST /api/leagues/:leagueId/divisions) -
+    // the wizard just gives every division it creates the default race to 6 below.
+    format: { scheduling: 'round_robin_single' },
+    startDate: null,
+    endDate: null,
+    createdAt: new Date().toISOString(),
+    // Payment wall - see normalizePaymentConfig/assertPaymentCleared above.
+    payment: normalizePaymentConfig(payment),
+  };
+  db.leagues.push(league);
+
+  const divisions = [];
+  for (let i = 0; i < count; i++) {
+    const division = {
+      id: uuid(),
+      leagueId: league.id,
+      name: `League ${i + 1}`,
+      order: i,
+      entryType: 'singles',
+      scheduling: 'round_robin_single',
+      raceTo: 6,
+      playerIds: [],
+      teamIds: [],
+      legsPerMatch: null,
+      gapDays: null,
+      targetPlayerCount: perLeague,
+      fixturesGenerated: false,
+    };
+    db.divisions.push(division);
+    divisions.push(division);
+  }
+
+  writeDb(db);
+  res.status(201).json({ ...league, divisions });
+}));
+
+// Bulk-imports players into one season's divisions - used both for a real
+// CSV/Excel upload (client parses the file, posts an array of row objects)
+// and for the wizard's "add a player manually" step (posts a single-row
+// array). Each row creates a brand-new account (with a generated temporary
+// password handed back to the admin) unless the email already matches an
+// existing account, in which case that person is just added to the
+// requested division instead of being duplicated.
+//
+// Deliberately NOT hard-gated by assertPaymentCleared like the other four
+// entrant-adding routes: a brand-new player has no leaguePayments record at
+// all yet (there's nothing to have confirmed before their account exists),
+// so a hard block here would make it impossible to bulk-import a fresh
+// roster into a paid season in one step - the entire point of this wizard
+// stage. Instead, anyone imported into a paid league who doesn't already
+// have a confirmed/waived record gets an 'unpaid' one created for them (so
+// they show up on the league's Payments tab) and is returned in
+// `pendingPayment` below, rather than being silently skipped or blocking
+// the whole import.
+app.post('/api/admin/seasons/:leagueId/import-players', requireAnyAdmin, asyncRoute((req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(400, 'rows must be a non-empty array');
+
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.leagueId);
+  if (!league) throw new ApiError(404, 'Season not found');
+  assertLeagueAccess(req, league);
+  const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+  const divisionByName = new Map(divisions.map((d) => [d.name.trim().toLowerCase(), d]));
+
+  const created = [];
+  const linkedExisting = [];
+  const errors = [];
+  const pendingPayment = [];
+
+  rows.forEach((row, index) => {
+    const rowNum = index + 1;
+    try {
+      const firstName = (row.firstName || '').trim();
+      const lastName = (row.lastName || '').trim();
+      const email = (row.email || '').trim();
+      const teamName = (row.teamName || '').trim() || 'Unassigned';
+      const classification = (row.classification || '').trim().toUpperCase() || null;
+      const divisionName = (row.division || '').trim();
+      const isCaptain = row.isCaptain === true || String(row.isCaptain).trim().toLowerCase() === 'true' || String(row.isCaptain).trim() === '1';
+
+      if (!firstName) throw new Error('firstName is required');
+      if (!lastName) throw new Error('lastName is required');
+      if (!email) throw new Error('email is required');
+      if (!divisionName) throw new Error('division is required');
+      if (classification && !CLASSIFICATIONS.includes(classification)) {
+        throw new Error(`classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
+      }
+      const division = divisionByName.get(divisionName.toLowerCase());
+      if (!division) {
+        throw new Error(`division "${divisionName}" doesn't match any league in this season (expected one of: ${divisions.map((d) => d.name).join(', ')})`);
+      }
+      if (division.fixturesGenerated) {
+        throw new Error(`fixtures have already been generated for "${division.name}" - can't add more players`);
+      }
+
+      const normalizedEmail = email.toLowerCase();
+      let user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+      let tempPassword = null;
+
+      if (!user) {
+        tempPassword = generateTempPassword();
+        user = createUserAccount(db, {
+          firstName, lastName, email, passwordHash: hashPassword(tempPassword),
+          phone: (row.phone || '').trim(), teamName, classification, isCaptain,
+        });
+        created.push({ row: rowNum, name: `${firstName} ${lastName}`, email, division: division.name, tempPassword });
+      } else {
+        if (isCaptain && !user.isCaptain) user.isCaptain = true;
+        linkedExisting.push({ row: rowNum, name: `${user.firstName} ${user.lastName}`, email, division: division.name });
+      }
+
+      if (!division.playerIds.includes(user.playerId)) {
+        division.playerIds.push(user.playerId);
+      }
+
+      if (league.payment.required) {
+        const existingPayment = db.leaguePayments.find(
+          (p) => p.leagueId === league.id && p.playerId === user.playerId
+        );
+        if (existingPayment && ['confirmed', 'waived'].includes(existingPayment.status)) {
+          // already cleared from an earlier season/import - nothing to do.
+        } else if (!existingPayment) {
+          db.leaguePayments.push({
+            id: uuid(),
+            leagueId: league.id,
+            playerId: user.playerId,
+            status: 'unpaid',
+            amount: league.payment.amount,
+            currency: league.payment.currency,
+            confirmedBy: null,
+            confirmedAt: null,
+            notes: '',
+          });
+          pendingPayment.push({ row: rowNum, name: `${user.firstName} ${user.lastName}`, email: user.email, division: division.name });
+        } else {
+          pendingPayment.push({ row: rowNum, name: `${user.firstName} ${user.lastName}`, email: user.email, division: division.name });
+        }
+      }
+    } catch (err) {
+      errors.push({ row: rowNum, reason: err.message });
+    }
   });
 
   writeDb(db);
-  res.json({ division: hydrateDivision(db, division), swapped, blockedInProgress, reason });
+  // Same fix as the standalone bulk-user import above: don't return 400 just
+  // because every row failed validation (e.g. a division name that doesn't
+  // match this season, or a missing column) - that's a normal response with
+  // zero successes, not a malformed request, and a 400 here makes the client
+  // throw a generic "Request failed: 400" instead of showing the real
+  // per-row reasons in `errors`.
+  res.status(created.length + linkedExisting.length > 0 ? 201 : 200).json({ created, linkedExisting, errors, pendingPayment });
 }));
 
-// ---------- Players ----------
+// Generates round-robin fixtures for every division in the season that has
+// at least 2 players and hasn't been generated yet, spacing rounds
+// `gapDays` apart starting at `startDate`. Also stamps the season's
+// start/end dates onto the League record itself.
+app.post('/api/admin/seasons/:leagueId/generate', requireAnyAdmin, asyncRoute((req, res) => {
+  const { startDate, endDate, gapDays, visibleByDefault } = req.body;
+  if (!startDate) throw new ApiError(400, 'startDate is required');
+  if (!endDate) throw new ApiError(400, 'endDate is required');
+  if (!Number.isInteger(Number(gapDays)) || Number(gapDays) < 1) {
+    throw new ApiError(400, 'gapDays must be a positive whole number of days between rounds');
+  }
+  if (new Date(endDate) < new Date(startDate)) {
+    throw new ApiError(400, 'endDate cannot be before startDate');
+  }
 
-app.get('/api/players', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
-  res.json(db.players);
-}));
+  const league = db.leagues.find((l) => l.id === req.params.leagueId);
+  if (!league) throw new ApiError(404, 'Season not found');
+  assertLeagueAccess(req, league);
+  league.startDate = startDate;
+  league.endDate = endDate;
 
-app.get('/api/players/:id', requireAuth, asyncRoute((req, res) => {
-  const db = readDb();
-  const profile = buildPlayerProfile(db, req.params.id);
-  if (!profile) throw new ApiError(404, 'Player not found');
-  res.json(profile);
-}));
+  const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+  const generated = [];
+  const skipped = [];
 
-// ---------- Admin: user management ----------
-// Everything here requires requireAdmin (isAdmin: true on the account).
-// There's no protection against an admin demoting/suspending themselves in
-// this v1 - keep at least one other working admin account around if you're
-// experimenting with permissions.
+  for (const division of divisions) {
+    if (division.fixturesGenerated) {
+      skipped.push({ division: division.name, reason: 'fixtures already generated' });
+      continue;
+    }
+    if (division.playerIds.length < 2) {
+      skipped.push({ division: division.name, reason: `only ${division.playerIds.length} player(s) - needs at least 2` });
+      continue;
+    }
+    generateRoundRobinFixtures({ db, league, division, entrantIds: division.playerIds });
+    division.gapDays = Number(gapDays);
+    assignScheduledDates(db, division, startDate, gapDays);
+    if (visibleByDefault) markAllRoundsVisible(db, division);
+    division.fixturesGenerated = true;
 
-app.get('/api/admin/users', requireAdmin, asyncRoute((req, res) => {
-  const db = readDb();
-  const q = (req.query.q || '').trim().toLowerCase();
-  let users = db.u
+    const divisionFixture
