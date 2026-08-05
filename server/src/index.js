@@ -1479,7 +1479,15 @@ function insertLateEntrantIntoKnockout({ db, league, division, newPlayerId, over
   for (const bye of round1Byes) {
     if (!bye.nextFixtureId) continue;
     const next = fixtures.find((f) => f.id === bye.nextFixtureId);
-    if (!next || next.byeSlot || next.status !== 'scheduled') continue;
+    // A bye whose next fixture is a late-entry decider (see
+    // appendLateEntrantBranch) is a synthetic bye created by a *previous*
+    // late-arrival override, not a genuine round-1 bye from the original
+    // bracket - it only exists because there was nobody to pair that
+    // entrant against. Reclaiming it here would silently reopen an
+    // already-resolved branch match and null out the decider's homePlayerId
+    // with nothing left to ever fill it back in, corrupting that decider.
+    // Route this newcomer through the override branch path instead (below).
+    if (!next || next.byeSlot || next.status !== 'scheduled' || next.bracketRole === 'late_entry_decider') continue;
 
     if (bye.nextFixtureSlot === 'home') next.homePlayerId = null;
     else next.awayPlayerId = null;
