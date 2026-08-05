@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for cuesense-pool-manager-staging on 2026-08-05T06:41:30Z
+# fly.toml app configuration file generated for cuesense-pool-manager-staging on 2026-08-05T07:06:42Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -11,7 +11,7 @@ primary_region = 'lhr'
 [http_service]
   internal_port = 4000
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
@@ -21,3 +21,8 @@ primary_region = 'lhr'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
+
+[[restart]]
+  policy = 'always'
+  processes = ['app']
+  retries = 10
