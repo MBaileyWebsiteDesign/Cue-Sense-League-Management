@@ -1487,7 +1487,16 @@ function insertLateEntrantIntoKnockout({ db, league, division, newPlayerId, over
     // already-resolved branch match and null out the decider's homePlayerId
     // with nothing left to ever fill it back in, corrupting that decider.
     // Route this newcomer through the override branch path instead (below).
-    if (!next || next.byeSlot || next.status !== 'scheduled' || next.bracketRole === 'late_entry_decider') continue;
+    // A genuine round-1 bye's next fixture always shares its own bracketRole
+    // (winners->winners) - that's how the generator wires it (see
+    // generateKnockoutFixtures/generateDoubleElimFixtures). Anything else can
+    // only be a synthetic bridge fixture created by a *previous* late-arrival
+    // override (appendLateEntrantBranch below tags those 'late_entry_decider'
+    // for single-elimination, 'losers' for double-elimination) - reclaiming
+    // one of those would reopen an already-resolved branch match and corrupt
+    // whatever it feeds, so skip it and let this newcomer fall through to the
+    // override branch path instead.
+    if (!next || next.byeSlot || next.status !== 'scheduled' || next.bracketRole !== bye.bracketRole) continue;
 
     if (bye.nextFixtureSlot === 'home') next.homePlayerId = null;
     else next.awayPlayerId = null;
@@ -1546,49 +1555,105 @@ function insertLateEntrantIntoKnockout({ db, league, division, newPlayerId, over
 // open bye to reclaim (see insertLateEntrantIntoKnockout above). Rather
 // than refusing the late entrant outright, gives them their own new
 // round-1 box - a bye, since there's nobody left to pair them against -
-// and carries that bye forward directly into a brand new "decider" fixture
-// created one round past whatever is currently the last round, where they
-// play off against the tournament's eventual champion. Every existing
-// fixture is left untouched except the current final/Grand Final, which
-// gets pointed at the new decider instead of staying terminal.
+// and carries that bye forward into a single decider match: one life, one
+// elimination, decided by exactly one result.
 //
-// Known limitation (double-elimination only): if this is used before the
-// Grand Final has been played, and that Grand Final result later triggers
-// a bracket-reset decider (see checkGrandFinalReset), the late entrant's
-// decider will already be wired to the Grand Final's immediate winner
-// rather than waiting for the reset - a genuinely rare double-edge-case
-// this override doesn't attempt to chase.
+// Single-elimination has no losers bracket to speak of, so there's nothing
+// fairer on offer than a decider against the tournament's eventual champion
+// directly - created one round past whatever's currently the last round,
+// with the current final pointed at it instead of staying terminal.
+//
+// Double-elimination instead drops the late entrant into the LOSERS side,
+// not a shortcut straight to the title: their one decider is against
+// whoever currently feeds the Grand Final's away slot - the real
+// losers-bracket leader right now, whether that's the original LB Final or
+// a previous late entrant's own still-unplayed decider - and is tagged
+// bracketRole 'losers' so it renders as a genuine part of the Losers
+// Bracket (DoubleElimBracketChart already knows how to draw any 'losers'
+// fixture - see that component) rather than a bolt-on appendage. Lose it
+// and they're eliminated outright, no second life, unlike everyone who
+// legitimately dropped from the winners bracket with one still in hand.
+// Win it, and they only take that spot: they still have to beat the
+// winners-bracket champion in the real Grand Final (potentially twice, if
+// a bracket-reset gets forced - see checkGrandFinalReset) to actually take
+// the division, exactly like anyone who came up through the losers side.
+//
+// Known limitation: if the Grand Final has already been completed (the
+// division's already fully decided), this refuses outright rather than
+// reopening an already-confirmed result and everything that depends on it.
 function appendLateEntrantBranch({ db, league, division, newPlayerId, fixtures }) {
   const isDoubleElim = division.scheduling === 'knockout_double_elim';
-  // A late entrant only ever joins on the winners side - there's no
-  // sensible way to drop them into an already-running losers bracket, so
-  // their decider plays off against the tournament's overall champion
-  // instead, whichever bracket that ends up coming from.
-  const mainFixtures = isDoubleElim
-    ? fixtures.filter((f) => ['winners', 'grand_final', 'grand_final_reset', 'late_entry_decider'].includes(f.bracketRole))
-    : fixtures;
-
-  // The current final: whichever fixture nothing else feeds into yet.
-  const terminalFixtures = mainFixtures.filter((f) => !f.nextFixtureId);
-  const currentFinal = terminalFixtures.reduce(
-    (latest, f) => (!latest || f.round > latest.round ? f : latest),
-    null
-  );
 
   const branchFixture = makeSinglesFixture({ league, division, round: 1 });
   branchFixture.bracketRole = isDoubleElim ? 'winners' : 'single';
   branchFixture.homePlayerId = newPlayerId;
   branchFixture.byeSlot = 'away';
 
-  const decider = makeSinglesFixture({ league, division, round: currentFinal.round + 1 });
-  decider.bracketRole = 'late_entry_decider';
+  let decider;
 
-  branchFixture.nextFixtureId = decider.id;
-  branchFixture.nextFixtureSlot = 'home';
+  if (isDoubleElim) {
+    const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
+    if (!grandFinal) throw new ApiError(500, "This division's Grand Final fixture is missing - can't work out who a late arrival should play.");
+    if (grandFinal.status === 'completed') {
+      throw new ApiError(
+        400,
+        "This division's Grand Final has already been played - a late arrival can no longer be worked into the losers bracket this way."
+      );
+    }
+    const lbLeader = fixtures.find((f) => f.nextFixtureId === grandFinal.id && f.nextFixtureSlot === 'away');
+    if (!lbLeader) throw new ApiError(500, "Couldn't find the current losers-bracket leader - this bracket may be in an unexpected state.");
 
-  db.fixtures.push(branchFixture);
-  db.fixtures.push(decider);
-  division.playerIds.push(newPlayerId);
+    decider = makeSinglesFixture({ league, division, round: Math.max(...fixtures.map((f) => f.round)) + 1 });
+    decider.bracketRole = 'losers';
+    decider.nextFixtureId = grandFinal.id;
+    decider.nextFixtureSlot = 'away';
+
+    branchFixture.nextFixtureId = decider.id;
+    branchFixture.nextFixtureSlot = 'home';
+
+    db.fixtures.push(branchFixture);
+    db.fixtures.push(decider);
+    division.playerIds.push(newPlayerId);
+
+    if (lbLeader.status === 'completed') {
+      // Already decided - propagateWinner won't fire again on its own, so
+      // wire that winner in directly as the one this late entrant has to
+      // beat. That result already advanced into Grand Final's away slot
+      // when it was confirmed - reopen that slot now that it's about to be
+      // challenged by the decider instead of standing unopposed.
+      decider.awayPlayerId = lbLeader.winnerPlayerId;
+      grandFinal.awayPlayerId = null;
+    } else {
+      // Still to be played - redirect it at the new decider instead of
+      // Grand Final, so whichever route eventually completes it carries
+      // its winner forward into the decider the normal way.
+      lbLeader.nextFixtureId = decider.id;
+      lbLeader.nextFixtureSlot = 'away';
+    }
+  } else {
+    const terminalFixtures = fixtures.filter((f) => !f.nextFixtureId);
+    const currentFinal = terminalFixtures.reduce(
+      (latest, f) => (!latest || f.round > latest.round ? f : latest),
+      null
+    );
+
+    decider = makeSinglesFixture({ league, division, round: currentFinal.round + 1 });
+    decider.bracketRole = 'late_entry_decider';
+
+    branchFixture.nextFixtureId = decider.id;
+    branchFixture.nextFixtureSlot = 'home';
+
+    db.fixtures.push(branchFixture);
+    db.fixtures.push(decider);
+    division.playerIds.push(newPlayerId);
+
+    if (currentFinal.status === 'completed') {
+      decider.awayPlayerId = currentFinal.winnerPlayerId;
+    } else {
+      currentFinal.nextFixtureId = decider.id;
+      currentFinal.nextFixtureSlot = 'away';
+    }
+  }
 
   // The decider's round number is brand new (one past whatever round was
   // previously last) and was never part of division.visibleRounds, which is
@@ -1603,20 +1668,6 @@ function appendLateEntrantBranch({ db, league, division, newPlayerId, fixtures }
   // Resolves branchFixture's bye immediately (nothing to wait on) and
   // propagates the win straight into decider.homePlayerId.
   resolveByeIfNeeded(db, division, branchFixture);
-
-  if (currentFinal.status === 'completed') {
-    // Already decided - propagateWinner won't fire again on its own, so
-    // wire the champion in directly. decider is now a genuine two-sided
-    // match (byeSlot stays null), ready to be scheduled and played.
-    decider.awayPlayerId = currentFinal.winnerPlayerId;
-  } else {
-    // Still to be played - point it at the new decider instead of
-    // leaving it terminal, so whichever route eventually completes it
-    // (result confirmation, admin override/edit) carries the champion
-    // forward the normal way.
-    currentFinal.nextFixtureId = decider.id;
-    currentFinal.nextFixtureSlot = 'away';
-  }
 
   return { method: 'late-branch', fixtureId: branchFixture.id, deciderFixtureId: decider.id };
 }
