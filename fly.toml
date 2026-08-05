@@ -1,7 +1,6 @@
-# fly.toml app configuration file generated for cuesense-pool-manager-staging on 2026-08-05T06:04:28Z
+# fly.toml app configuration file for the LIVE (production) app.
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
 
 app = 'cuesense-pool-manager-staging'
 primary_region = 'lhr'
