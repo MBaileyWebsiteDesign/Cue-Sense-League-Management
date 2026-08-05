@@ -1512,6 +1512,21 @@ function insertLateEntrantIntoKnockout({ db, league, division, newPlayerId, over
     } else {
       generateDoubleElimFixtures({ db, league, division, entrantIds });
     }
+    // A full regenerate replaces every fixture with brand new ones, so the
+    // round numbers this bracket now uses (and how many rounds it has) can
+    // be completely different from before - e.g. adding a 9th entrant to an
+    // 8-entrant double-elim bracket adds a whole extra winners round, which
+    // pushes the Grand Final (and the last losers-bracket round) out to
+    // round numbers that didn't exist previously. The old visibleRounds
+    // array is stale the moment that happens: it was computed for the old
+    // fixture set, and only coincidentally still matches the new bracket's
+    // early rounds by number - anything past the old bracket's old last
+    // round (most visibly the new Grand Final) silently drops out of the
+    // public/embed bracket page's isRoundVisible filter, even though the
+    // fixture genuinely exists. Recompute it the same way a fresh
+    // "Generate Fixtures" with visibleByDefault does, so every round of
+    // the regenerated bracket is visible again.
+    markAllRoundsVisible(db, division);
     return { method: 'bracket-regenerated' };
   }
 
