@@ -92,7 +92,15 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         'bye-reclaim': 'Added - took the place of an open bye in round 1.',
         'bracket-regenerated': 'Added - the bracket was regenerated to include them (nothing had been played yet).',
         'round-robin-extra-round': 'Added - new fixtures were created against everyone already in the division.',
-        'late-branch': 'Added - given a new round 1 bye, and a decider match against the eventual champion once the bracket finishes.',
+        // Double-elimination: a losers-bracket decider, not a shortcut to the
+        // title - win it and they still have to beat the winners-bracket
+        // champion in the Grand Final, same as anyone from the losers side.
+        // Single-elimination has no losers bracket, so the decider there is
+        // against the eventual champion directly (see appendLateEntrantBranch,
+        // server/src/index.js, for why these differ).
+        'late-branch': division.scheduling === 'knockout_double_elim'
+          ? 'Added - given a new round 1 bye, and one decider match to fight into the losers bracket. Lose it and they\'re out; win it and they still have to beat the winners-bracket champion in the Grand Final.'
+          : 'Added - given a new round 1 bye, and a decider match against the eventual champion once the bracket finishes.',
       }[res.outcome?.method] || 'Added.';
       setQuickResult(`${res.player.name}: ${methodLabel}`);
       onChange();
@@ -188,8 +196,10 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           {bracketFullOverride && (
             <p className="banner banner-warning">
               This bracket's already underway with no open bye. Add {quickFirstName.trim() || 'them'} anyway as a
-              new round 1 branch - they'll get a bye now, then play off against the eventual champion once the
-              bracket finishes.{' '}
+              new round 1 branch - they'll get a bye now, then one decider match to fight for a spot:{' '}
+              {division.scheduling === 'knockout_double_elim'
+                ? 'against the current losers-bracket leader, dropping them into the losers bracket rather than handing them the title outright.'
+                : 'against the eventual champion once the bracket finishes.'}{' '}
               <button className="btn" type="button" disabled={quickAdding} onClick={() => onQuickAdd(null, true)}>
                 {quickAdding ? 'Adding…' : 'Add anyway'}
               </button>
