@@ -1542,7 +1542,7 @@ function appendLateEntrantBranch({ db, league, division, newPlayerId, fixtures }
   // their decider plays off against the tournament's overall champion
   // instead, whichever bracket that ends up coming from.
   const mainFixtures = isDoubleElim
-    ? fixtures.filter((f) => ['winners', 'grand_final', 'grand_final_reset'].includes(f.bracketRole))
+    ? fixtures.filter((f) => ['winners', 'grand_final', 'grand_final_reset', 'late_entry_decider'].includes(f.bracketRole))
     : fixtures;
 
   // The current final: whichever fixture nothing else feeds into yet.
@@ -1566,6 +1566,16 @@ function appendLateEntrantBranch({ db, league, division, newPlayerId, fixtures }
   db.fixtures.push(branchFixture);
   db.fixtures.push(decider);
   division.playerIds.push(newPlayerId);
+
+  // The decider's round number is brand new (one past whatever round was
+  // previously last) and was never part of division.visibleRounds, which is
+  // only populated once at original fixture-generation time - without this,
+  // the public/embed bracket page (GET /api/public/divisions/:id/bracket,
+  // which filters fixtures through isRoundVisible) silently drops the decider
+  // while still handing out branchFixture's nextFixtureId pointing at it,
+  // leaving that chart with a dangling reference to a match it never receives.
+  if (!Array.isArray(division.visibleRounds)) division.visibleRounds = [];
+  if (!division.visibleRounds.includes(decider.round)) division.visibleRounds.push(decider.round);
 
   // Resolves branchFixture's bye immediately (nothing to wait on) and
   // propagates the win straight into decider.homePlayerId.
