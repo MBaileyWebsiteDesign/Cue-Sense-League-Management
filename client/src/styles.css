@@ -1,1 +1,543 @@
-__PLACEHOLDER_STYLES__
+:root {
+  /* Brand palette. --green/--green-dark are kept as aliases to --primary/
+     --primary-dark so any old CSS/inline reference to the previous variable
+     names keeps working unchanged. */
+  --primary: #123d24;
+  --primary-dark: #0a2617;
+  --secondary: #3c9c48;
+  --secondary-dark: #2f7d39;
+  --cta: #d9a62a;
+  --cta-dark: #a67d1f;
+  --green: var(--primary);
+  --green-dark: var(--primary-dark);
+  --ink: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e2e5e9;
+  --bg: #f7f5f0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.app-header {
+  background: var(--primary);
+  padding: 24px 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand {
+  color: white;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  min-width: 0;
+}
+
+.brand-logo {
+  height: 60px;
+  width: 60px;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.brand-name {
+  font-size: 1.875rem;
+  font-weight: 700;
+}
+
+.brand-tagline {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cta);
+  opacity: 0.9;
+}
+
+.header-link {
+  color: white;
+  text-decoration: none;
+  font-size: 1.35rem;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.header-link:hover { opacity: 1; text-decoration: underline; }
+
+.header-link-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.header-admin {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.header-accounts {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}
+
+.admin-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 1.125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 4.5px 15px;
+  border-radius: 999px;
+}
+
+.breadcrumb-bar {
+  background: white;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 24px;
+  font-size: 0.85rem;
+}
+
+.breadcrumb-item a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.breadcrumb-item a:hover { color: var(--secondary-dark); text-decoration: underline; }
+
+.breadcrumb-sep {
+  color: var(--muted);
+  margin: 0 8px;
+}
+
+.breadcrumb-current { color: var(--muted); }
+
+.app-main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app-footer {
+  text-align: center;
+  padding: 20px 24px;
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+}
+
+.app-footer p {
+  margin: 0;
+  font-size: 20px;
+  color: var(--muted);
+}
+
+.app-footer a {
+  color: var(--secondary-dark);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.app-footer a:hover {
+  text-decoration: underline;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+h1 { margin: 0 0 4px; }
+h2 { margin-top: 0; }
+
+.muted { color: var(--muted); }
+
+.card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.card-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.card-link:hover {
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.form label, .inline-form input {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.form input, .form select, .inline-form input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.inline-form input { margin: 0; width: auto; flex: 1; }
+
+.form input:focus, .inline-form input:focus {
+  outline: 2px solid var(--secondary);
+  outline-offset: 1px;
+  border-color: var(--secondary);
+}
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--cta);
+  border-color: var(--cta);
+  color: var(--ink);
+}
+
+.btn-primary:hover:not(:disabled) { background: var(--cta-dark); }
+
+.btn-danger {
+  background: #fee2e2;
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.btn-danger:hover:not(:disabled) { background: #fecaca; }
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 0.8rem;
+  margin-left: 8px;
+  text-decoration: underline;
+}
+
+.error {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.player-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+.player-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.standings-table th, .standings-table td {
+  padding: 8px 6px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.standings-table th:nth-child(2), .standings-table td:nth-child(2) {
+  text-align: left;
+}
+
+.round-block { margin-bottom: 16px; }
+.round-block h3 { margin-bottom: 8px; font-size: 1rem; color: var(--muted); }
+
+.fixture-list { list-style: none; padding: 0; margin: 0; }
+
+.fixture-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.fixture-list a { color: var(--ink); text-decoration: none; }
+.fixture-list a:hover { text-decoration: underline; }
+
+.status {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.status-completed { background: #d1fae5; color: #065f46; }
+.status-in_progress { background: #fef3c7; color: #92400e; }
+.status-pending_confirmation { background: #dceafb; color: var(--secondary-dark); }
+.status-disputed { background: #fee2e2; color: #991b1b; }
+/* A knockout fixture waiting on an earlier round's winner - not yet
+   "scheduled" in any real sense, so it gets its own dashed, muted look
+   rather than looking identical to a match that's actually ready to play. */
+.status-awaiting { background: #f3f4f6; color: #6b7280; border: 1px dashed #9ca3af; }
+
+.scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  text-align: center;
+  gap: 16px;
+}
+
+.scoreboard-player .score {
+  font-size: 3rem;
+  font-weight: 800;
+  color: var(--primary);
+  margin: 8px 0;
+}
+
+.scoreboard-vs { color: var(--muted); font-weight: 700; }
+
+.scoreboard-player h2 a,
+.standings-table a,
+.player-list a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.scoreboard-player h2 a:hover,
+.standings-table a:hover,
+.player-list a:hover {
+  text-decoration: underline;
+}
+
+.banner {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+.banner-success { background: #d1fae5; color: #065f46; }
+.banner-warning { background: #fef3c7; color: #92400e; }
+
+.frame-history {
+  padding-left: 20px;
+  margin: 0;
+}
+
+/* ---------- Mobile hamburger nav (see App.jsx's HeaderNav) ---------- */
+/* Hidden by default (desktop/tablet); shown only inside the mobile media
+   query below. Three plain bars rather than an icon font/SVG, since this
+   app has no icon library loaded anywhere else. */
+.hamburger-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hamburger-btn span {
+  display: block;
+  height: 3px;
+  width: 100%;
+  background: white;
+  border-radius: 1px;
+}
+
+/* ---------- Mobile phone layout ---------- */
+/* One breakpoint covering phone widths (largest current phones are ~430px
+   wide in portrait; 640px leaves headroom without also kicking in for
+   tablets, where the existing flex/grid layouts already reflow fine on
+   their own). Everything below is either a tighter version of an existing
+   rule (padding, font-size) or a targeted fix for a layout that doesn't
+   hold up at phone width (the header nav, wide tables, the fixture
+   scoreboard) - nothing here changes desktop/tablet rendering. */
+@media (max-width: 640px) {
+  .app-header {
+    padding: 14px 16px;
+    gap: 10px;
+    position: relative;
+  }
+
+  .brand { gap: 10px; }
+  .brand-logo { height: 40px; width: 40px; }
+  .brand-name { font-size: 1.2rem; }
+  .brand-tagline { font-size: 0.7rem; }
+
+  .hamburger-btn {
+    display: flex;
+    width: 36px;
+    height: 36px;
+    gap: 5px;
+  }
+
+  /* Collapses into a dropdown panel anchored under the header, toggled by
+     HeaderNav's menuOpen state (App.jsx) rather than always showing inline
+     the way it does on desktop/tablet. */
+  .header-accounts {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--primary-dark);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+    z-index: 20;
+  }
+
+  .header-accounts.header-accounts-open { display: flex; }
+
+  .header-accounts .header-link,
+  .header-accounts .header-admin {
+    width: 100%;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .header-accounts .header-admin { margin: 0; }
+
+  .breadcrumb-bar { padding: 8px 16px; font-size: 0.8rem; }
+
+  .app-main { padding: 16px; }
+
+  .card { padding: 16px; }
+
+  .page-header { flex-wrap: wrap; }
+
+  .inline-form { flex-wrap: wrap; }
+
+  /* Responsive table without touching any page's markup: making the
+     <table> itself a block-level scroll container keeps its internal
+     thead/tbody/tr/td layout intact (they stay table-* display values)
+     while letting a wide table (standings, the admin user list, the
+     public League Table) scroll horizontally instead of squashing every
+     column unreadably thin. */
+  .standings-table,
+  .public-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  /* The fixture scoreboard (FixtureDetail) puts two entrants and a "vs" on
+     one row at up to 3rem font-size for the score - stack it instead of
+     letting long names/scores get cramped. */
+  .scoreboard {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .scoreboard-player .score { font-size: 2.25rem; margin: 4px 0; }
+
+  .fixture-list li {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+}
+
+/* ---- Knockout bracket chart (BracketChart.jsx) ---- */
+.bracket-chart-scroll {
+  overflow-x: auto;
+  padding: 24px 4px 8px;
+}
+.bracket-chart-single {
+  display: flex;
+  justify-content: center;
+  padding: 24px 4px;
+}
+.bracket-box { fill: #fff; stroke: var(--border); stroke-width: 1; }
+.bracket-box-final { stroke: var(--primary); stroke-width: 2; }
+.bracket-box-reserved { stroke: var(--muted); stroke-dasharray: 4 3; }
+.bracket-box-divider { stroke: var(--border); stroke-width: 1; }
+.bracket-round-label {
+  font-size: 10px;
+  fill: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bracket-entrant-name { font-size: 13px; fill: var(--ink); }
+.bracket-entrant-name.bracket-entrant-tbd { fill: var(--muted); font-style: italic; }
+.bracket-entrant-winner { font-weight: 700; }
+.bracket-entrant-score { font-size: 13px; fill: var(--ink); font-weight: 600; }
+.bracket-connector { stroke: var(--border); stroke-width: 1.5; }
+.bracket-closed-early { font-size: 9px; fill: var(--muted); }
+.bracket-box-link { cursor: pointer; }
+.bracket-box-link:hover .bracket-box { stroke: var(--secondary); }
+
+/* ---- Double-elimination bracket chart (DoubleElimBracketChart.jsx) ----
+   Reuses every class above (.bracket-box, .bracket-connector, etc.) - the
+   only double-elim-specific addition is a dashed variant for the "loser
+   drops from the winners bracket into the losers bracket" connectors, so
+   they read visually distinct from normal round-to-round advancement
+   lines. */
+.bracket-connector-cross { stroke-dasharray: 4 3; opacity: 0.7; }
