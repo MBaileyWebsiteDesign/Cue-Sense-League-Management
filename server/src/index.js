@@ -4399,6 +4399,43 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
+// ---------- Bootstrap admin ----------
+// Ensures the primary admin account exists every time the server boots
+// (a fresh deploy, a restart, a new environment) - idempotent, so once the
+// account exists this is just a cheap no-op read on every subsequent boot.
+// The temp password is only ever set at creation time - if the account
+// already exists, whatever password is on it (including one the owner has
+// since changed via the normal change-password flow) is left untouched, so
+// a redeploy can never silently reset a real password back to the default.
+function ensureBootstrapAdmin() {
+  const db = readDb();
+  const email = 'matt.bailey1985@gmail.com';
+  const normalizedEmail = email.toLowerCase();
+  let user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  if (user) {
+    if (!user.isAdmin) {
+      user.isAdmin = true;
+      writeDb(db);
+      console.log(`Bootstrap: granted admin to existing account ${email}`);
+    }
+    return;
+  }
+  user = createUserAccount(db, {
+    firstName: 'Matt',
+    lastName: 'Bailey',
+    email,
+    passwordHash: hashPassword('CueSense12!@'),
+    phone: '',
+    teamName: '',
+    classification: null,
+    isAdmin: true,
+    isCaptain: false,
+  });
+  writeDb(db);
+  console.log(`Bootstrap: created admin account ${email}`);
+}
+ensureBootstrapAdmin();
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Cue Sense API listening on http://localhost:${PORT}`);
