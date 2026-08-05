@@ -56,6 +56,10 @@ const networkApi = {
   adminResetPassword: (id, newPassword) =>
     request(`/admin/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
   adminSendResetLink: (id) => request(`/admin/users/${id}/send-reset-link`, { method: 'POST' }),
+  // Accounts with any league/match history are skipped server-side rather
+  // than deleted - see userInUse in server/src/index.js. Response is
+  // { deleted: [...], blocked: [...] } so the UI can report both.
+  adminBulkDeleteUsers: (userIds) => request('/admin/users/bulk-delete', { method: 'POST', body: JSON.stringify({ userIds }) }),
   adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),

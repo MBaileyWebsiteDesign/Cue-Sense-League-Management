@@ -3993,6 +3993,79 @@ app.post('/api/admin/users/:id/send-reset-link', requireAdmin, asyncRoute((req, 
   res.json({ resetLink, expiresAt, email: user.email });
 }));
 
+// Whether a user account has ever actually been used anywhere in the data -
+// added to a division roster, put on a team/pairing, played in a fixture
+// (singles or as a leg player on a team fixture), captured in Roll of
+// Honour, or assigned as a league manager. An account that's clean on every
+// one of these can be hard-deleted with nothing left dangling; one that
+// isn't can't, since removing it would leave fixtures/results/roll of
+// honour entries pointing at a player id that no longer resolves to
+// anyone - the account should be suspended (see POST .../status) instead.
+function userInUse(db, userId) {
+  if (db.divisions.some((d) => d.playerIds.includes(userId))) return true;
+  if (db.teams.some((t) => t.playerIds.includes(userId))) return true;
+  if (db.pairings.some((p) => p.playerIds.includes(userId))) return true;
+  if (db.fixtures.some((f) => {
+    if (f.homePlayerId === userId || f.awayPlayerId === userId) return true;
+    if (Array.isArray(f.legs) && f.legs.some((leg) => leg.homePlayerId === userId || leg.awayPlayerId === userId)) return true;
+    return false;
+  })) return true;
+  if (db.rollOfHonour.some((r) => r.championId === userId)) return true;
+  if (db.leagues.some((l) => Array.isArray(l.managerUserIds) && l.managerUserIds.includes(userId))) return true;
+  return false;
+}
+
+// Bulk-deletes user accounts straight from Manage Users' tick-box selection.
+// Each requested id is checked independently with userInUse above - accounts
+// with any league/match history are skipped (reported back so the admin
+// knows why) rather than silently ignored or force-deleted, since force-
+// deleting one would leave a fixture, team roster, or Roll of Honour entry
+// referencing a player id that no longer exists. Genuinely unused accounts
+// (created by mistake, a duplicate, or someone who registered but was never
+// added to anything) are removed outright - this is the one place a user
+// account can be permanently deleted rather than just suspended.
+app.post('/api/admin/users/bulk-delete', requireAdmin, asyncRoute((req, res) => {
+  const { userIds } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    throw new ApiError(400, 'userIds must be a non-empty array');
+  }
+  const db = readDb();
+  const deleted = [];
+  const blocked = [];
+
+  for (const userId of userIds) {
+    const user = db.users.find((u) => u.id === userId);
+    if (!user) {
+      blocked.push({ id: userId, name: 'Unknown', reason: 'Account not found (already deleted?)' });
+      continue;
+    }
+    if (userInUse(db, userId)) {
+      blocked.push({
+        id: userId,
+        name: `${user.firstName} ${user.lastName}`,
+        reason: 'Has league/match history - suspend the account instead of deleting it',
+      });
+      continue;
+    }
+    deleted.push({ id: userId, name: `${user.firstName} ${user.lastName}`, email: user.email });
+  }
+
+  if (deleted.length > 0) {
+    const deletedIds = new Set(deleted.map((d) => d.id));
+    db.users = db.users.filter((u) => !deletedIds.has(u.id));
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.bulk_delete',
+      targetType: 'user',
+      targetId: deleted.map((d) => d.id).join(','),
+      details: `Deleted ${deleted.length} account(s): ${deleted.map((d) => `${d.name} (${d.email})`).join(', ')}`,
+    });
+    writeDb(db);
+  }
+
+  res.json({ deleted, blocked });
+}));
+
 // Bulk-imports user accounts straight from Manage Users, independent of any
 // season or division - each row becomes a full account (generated temporary
 // password handed back once, same as the Season Setup Wizard's import) with
