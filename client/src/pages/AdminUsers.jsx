@@ -6,10 +6,10 @@ import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
-const TEMPLATE_COLUMNS = ['firstName', 'lastName', 'email', 'phone', 'teamName', 'classification', 'isCaptain', 'isAdmin'];
+const TEMPLATE_COLUMNS = ['firstName', 'lastName', 'email', 'phone', 'teamName', 'classification', 'isCaptain', 'isAdmin', 'isLeagueManager'];
 const TEMPLATE_EXAMPLE_ROW = {
   firstName: 'Jamie', lastName: 'Smith', email: 'jamie.smith@example.com', phone: '',
-  teamName: '', classification: '', isCaptain: '', isAdmin: '',
+  teamName: '', classification: '', isCaptain: '', isAdmin: '', isLeagueManager: '',
 };
 
 function downloadCsvTemplate() {
@@ -125,7 +125,7 @@ function ImportResultSummary({ result }) {
 function ManualAddForm({ onImported, setError }) {
   const emptyForm = {
     firstName: '', lastName: '', email: '', phone: '', teamName: '',
-    classification: '', isCaptain: false, isAdmin: false,
+    classification: '', isCaptain: false, isAdmin: false, isLeagueManager: false,
   };
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
@@ -168,6 +168,10 @@ function ManualAddForm({ onImported, setError }) {
       <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={form.isAdmin} onChange={(e) => setForm({ ...form, isAdmin: e.target.checked })} />
         Grant admin
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={form.isLeagueManager} onChange={(e) => setForm({ ...form, isLeagueManager: e.target.checked })} />
+        Grant League Manager
       </label>
       <button className="btn btn-primary" type="submit" disabled={submitting}>
         {submitting ? 'Adding…' : 'Add Player'}
@@ -345,7 +349,7 @@ export default function AdminUsers() {
                 <td style={{ textAlign: 'left' }}>{u.email}</td>
                 <td style={{ textAlign: 'left' }}>{u.teamName}</td>
                 <td>{u.classification || '—'}</td>
-                <td>{[u.isAdmin && 'Admin', u.isCaptain && 'Captain'].filter(Boolean).join(', ') || '—'}</td>
+                <td>{[u.isAdmin && 'Admin', u.isCaptain && 'Captain', u.isLeagueManager && 'League Manager'].filter(Boolean).join(', ') || '—'}</td>
                 <td>
                   <span className={`status ${u.status === 'suspended' ? '' : 'status-completed'}`}>{u.status}</span>
                 </td>

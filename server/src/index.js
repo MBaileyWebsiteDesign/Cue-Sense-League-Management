@@ -192,6 +192,7 @@ function createUserAccount(db, fields) {
     classification: fields.classification || null,
     isAdmin: !!fields.isAdmin,
     isCaptain: !!fields.isCaptain,
+    isLeagueManager: !!fields.isLeagueManager,
     status: 'active',
     playerId: linkedPlayer.id,
     createdAt: new Date().toISOString(),
@@ -3924,6 +3925,7 @@ app.post('/api/admin/users/import', requireAdmin, asyncRoute((req, res) => {
       const classification = (row.classification || '').trim().toUpperCase() || null;
       const isAdminFlag = row.isAdmin === true || String(row.isAdmin).trim().toLowerCase() === 'true' || String(row.isAdmin).trim() === '1';
       const isCaptain = row.isCaptain === true || String(row.isCaptain).trim().toLowerCase() === 'true' || String(row.isCaptain).trim() === '1';
+      const isLeagueManagerFlag = row.isLeagueManager === true || String(row.isLeagueManager).trim().toLowerCase() === 'true' || String(row.isLeagueManager).trim() === '1';
 
       if (!firstName) throw new Error('firstName is required');
       if (!lastName) throw new Error('lastName is required');
@@ -3943,7 +3945,7 @@ app.post('/api/admin/users/import', requireAdmin, asyncRoute((req, res) => {
       const user = createUserAccount(db, {
         firstName, lastName, email, passwordHash: hashPassword(tempPassword),
         phone: (row.phone || '').trim(), teamName, classification,
-        isAdmin: isAdminFlag, isCaptain,
+        isAdmin: isAdminFlag, isCaptain, isLeagueManager: isLeagueManagerFlag,
       });
       created.push({ row: rowNum, name: `${firstName} ${lastName}`, email, tempPassword });
     } catch (err) {
