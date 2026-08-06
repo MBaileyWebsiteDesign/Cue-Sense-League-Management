@@ -1,0 +1,49 @@
+--- a/client/src/pages/DivisionDetail.jsx
++++ b/client/src/pages/DivisionDetail.jsx
+@@ -1165,11 +1165,21 @@
+     const winnerId = isTeams ? f.winnerTeamId : f.winnerPlayerId;
+     const homeScore = isTeams ? f.homeLegsWon : f.homeFrameScore;
+     const awayScore = isTeams ? f.awayLegsWon : f.awayFrameScore;
++    const home = { name: homeId ? nameOf(homeId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? homeScore : undefined };
++    const away = { name: awayId ? nameOf(awayId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? awayScore : undefined };
+     return {
+       id: f.id,
+       round: f.round,
+-      home: { name: homeId ? nameOf(homeId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? homeScore : undefined },
+-      away: { name: awayId ? nameOf(awayId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? awayScore : undefined },
++      // Always-there round 1 slots (see SINGLE_ELIM_RESERVED_PAIR_COUNT /
++      // DOUBLE_ELIM_RESERVED_PAIR_COUNT, server/src/index.js) that no real
++      // entrant has claimed yet - shown as "Reserved" rather than the usual
++      // "TBD" so it reads as "kept open on purpose" instead of "waiting on
++      // an earlier round". Applies to both single- and double-elimination
++      // brackets, since both use this function (see buildDoubleElimMatches
++      // below, which layers its own extra fields on top of this).
++      reserved: !!f.reserved,
++      home: f.reserved ? { ...home, name: 'Reserved' } : home,
++      away: f.reserved ? { ...away, name: 'Reserved' } : away,
+       status: f.status,
+       bothEntrantsKnown: f.bothEntrantsKnown,
+       winnerSide: f.status === 'completed' && winnerId ? (winnerId === homeId ? 'home' : 'away') : null,
+@@ -1187,17 +1197,15 @@
+ // (see that component's header comment for why - it also has to render the
+// public embed, which never gets these link fields; this chart never does).
+function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
++  // reserved/home/away's "Reserved" labeling is already handled by
++  // buildBracketMatches above (shared with single-elimination) - this just
++  // layers on the extra link fields DoubleElimBracketChart needs to
++  // position and connect boxes by real fixture id rather than round
++  // number/array position (see that component's header comment for why).
+   return buildBracketMatches(fixtures, isTeams, nameOf).map((m, i) => {
+     const f = fixtures[i];
+     return {
+       ...m,
+-      // Always-there round 1 slots (see DOUBLE_ELIM_RESERVED_PAIR_COUNT,
+-      // server/src/index.js) that no real entrant has claimed yet - shown
+-      // as "Reserved" rather than the usual "TBD" so it reads as "kept
+-      // open on purpose" instead of "waiting on an earlier round".
+-      reserved: !!f.reserved,
+-      home: f.reserved ? { ...m.home, name: 'Reserved' } : m.home,
+-      away: f.reserved ? { ...m.away, name: 'Reserved' } : m.away,
+       bracketRole: f.bracketRole,
+       nextFixtureId: f.nextFixtureId || null,
+       loserNextFixtureId: f.loserNextFixtureId || null,
