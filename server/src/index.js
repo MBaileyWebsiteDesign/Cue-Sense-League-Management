@@ -35,8 +35,8 @@ const STATUSES = ['active', 'suspended'];
 // Always-there empty pairings baked into every double-elimination bracket's
 // round 1 at generation time (see RESERVED_SLOT, server/src/services/bracket.js),
 // reserved for a day-of walk-in - see insertLateEntrantIntoKnockout's reserved-slot
-// claim path below. 2 pairs = 4 reserved slots total.
-const DOUBLE_ELIM_RESERVED_PAIR_COUNT = 2;
+// claim path below. 1 pair = 2 reserved slots total.
+const DOUBLE_ELIM_RESERVED_PAIR_COUNT = 1;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
@@ -1532,32 +1532,33 @@ function insertLateEntrantIntoKnockout({ db, league, division, newPlayerId, over
     return { method: 'bye-reclaim', fixtureId: bye.id };
   }
 
-  const anyStarted = fixtures.some((f) => f.status === 'in_progress' || f.status === 'completed');
-
-  if (anyStarted) {
-    // Always-reserved round 1 slots (double-elimination only - see
-    // DOUBLE_ELIM_RESERVED_PAIR_COUNT and generateDoubleElimFixtures) exist
-    // for exactly this situation: a walk-in arriving after the bracket's
-    // already underway, with nowhere else safe to slot them in. Claiming
-    // one just fills a still-open placeholder pairing that's never had a
-    // real opponent (or a result) attached to it - just as safe as the
-    // bye-reclaim above, and simpler: the newcomer takes one side, and
-    // (since the other side is still empty) resolveByeIfNeeded immediately
-    // advances them into round 2 exactly like any other round-1 bye, no
-    // decider match involved.
-    const reservedFixture = fixtures.find(
-      (f) => f.round === 1 && f.reserved && f.bracketRole === 'winners'
-    );
-    if (reservedFixture) {
-      reservedFixture.homePlayerId = newPlayerId;
-      reservedFixture.byeSlot = 'away';
-      reservedFixture.reserved = false;
-      division.playerIds.push(newPlayerId);
-      resolveByeIfNeeded(db, division, reservedFixture);
-      return { method: 'reserved-slot', fixtureId: reservedFixture.id };
-    }
+  // Always-reserved round 1 slots (double-elimination only - see
+  // DOUBLE_ELIM_RESERVED_PAIR_COUNT and generateDoubleElimFixtures) - always
+  // checked before deciding whether to fully regenerate, regardless of
+  // whether the bracket has started yet. Claiming one just fills a still-open
+  // placeholder pairing that's never had a real opponent (or a result)
+  // attached to it - just as safe as the bye-reclaim above, and simpler: the
+  // newcomer takes one side, and (since the other side is still empty)
+  // resolveByeIfNeeded immediately advances them into round 2 exactly like
+  // any other round-1 bye, no decider match involved. Checking this ahead of
+  // the anyStarted/full-regenerate branch matters: a full regenerate always
+  // recreates the same DOUBLE_ELIM_RESERVED_PAIR_COUNT of fresh reserved
+  // slots, so a walk-in added before anything's been played would otherwise
+  // never actually consume one - it'd just keep getting seeded as a normal
+  // entrant while the reserved slots sat there untouched.
+  const reservedFixture = fixtures.find(
+    (f) => f.round === 1 && f.reserved && f.bracketRole === 'winners'
+  );
+  if (reservedFixture) {
+    reservedFixture.homePlayerId = newPlayerId;
+    reservedFixture.byeSlot = 'away';
+    reservedFixture.reserved = false;
+    division.playerIds.push(newPlayerId);
+    resolveByeIfNeeded(db, division, reservedFixture);
+    return { method: 'reserved-slot', fixtureId: reservedFixture.id };
   }
 
+  const anyStarted = fixtures.some((f) => f.status === 'in_progress' || f.status === 'completed');
   if (!anyStarted) {
     db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
     division.playerIds.push(newPlayerId);
