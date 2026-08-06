@@ -517,6 +517,7 @@ h2 { margin-top: 0; }
 }
 .bracket-box { fill: #fff; stroke: var(--border); stroke-width: 1; }
 .bracket-box-final { stroke: var(--primary); stroke-width: 2; }
+.bracket-box-reserved { stroke: var(--muted); stroke-dasharray: 4 3; }
 .bracket-box-divider { stroke: var(--border); stroke-width: 1; }
 .bracket-round-label {
   font-size: 10px;
@@ -540,4 +541,3 @@ h2 { margin-top: 0; }
    they read visually distinct from normal round-to-round advancement
    lines. */
 .bracket-connector-cross { stroke-dasharray: 4 3; opacity: 0.7; }
-

@@ -19,7 +19,7 @@ function generateFixturesLabel(division) {
 // Fixtures entirely) or hidden as usual, since that choice has to be made
 // at generation time - see markAllRoundsVisible in server/src/index.js.
 function GenerateFixturesButton({ division, disabled, title, onChange, setError }) {
-  const [visibleByDefault, setVisibleByDefault] = useState(false);
+  const [visibleByDefault, setVisibleByDefault] = useState(true);
   const [generating, setGenerating] = useState(false);
 
   const onGenerate = async () => {
@@ -90,6 +90,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       const methodLabel = {
         'added': 'Added.',
         'bye-reclaim': 'Added - took the place of an open bye in round 1.',
+        'reserved-slot': 'Added - took one of the bracket\'s always-reserved round 1 slots and now plays forward through the bracket like anyone else, no decider match involved.',
         'bracket-regenerated': 'Added - the bracket was regenerated to include them (nothing had been played yet).',
         'round-robin-extra-round': 'Added - new fixtures were created against everyone already in the division.',
         // Double-elimination: a losers-bracket decider, not a shortcut to the
@@ -195,7 +196,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
           {bracketFullOverride && (
             <p className="banner banner-warning">
-              This bracket's already underway with no open bye. Add {quickFirstName.trim() || 'them'} anyway as a
+              This bracket's already underway with no open bye or reserved slot. Add {quickFirstName.trim() || 'them'} anyway as a
               new round 1 branch - they'll get a bye now, then one decider match to fight for a spot:{' '}
               {division.scheduling === 'knockout_double_elim'
                 ? 'against the current losers-bracket leader, dropping them into the losers bracket rather than handing them the title outright.'
@@ -1190,6 +1191,13 @@ function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
     const f = fixtures[i];
     return {
       ...m,
+      // Always-there round 1 slots (see DOUBLE_ELIM_RESERVED_PAIR_COUNT,
+      // server/src/index.js) that no real entrant has claimed yet - shown
+      // as "Reserved" rather than the usual "TBD" so it reads as "kept
+      // open on purpose" instead of "waiting on an earlier round".
+      reserved: !!f.reserved,
+      home: f.reserved ? { ...m.home, name: 'Reserved' } : m.home,
+      away: f.reserved ? { ...m.away, name: 'Reserved' } : m.away,
       bracketRole: f.bracketRole,
       nextFixtureId: f.nextFixtureId || null,
       loserNextFixtureId: f.loserNextFixtureId || null,

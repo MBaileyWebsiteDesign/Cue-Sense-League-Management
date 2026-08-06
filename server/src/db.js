@@ -151,6 +151,10 @@ export function readDb() {
     // above, rather than actually played out - see closeOutstandingFixtures
     // in index.js.
     if (fixture.closedEarly === undefined) fixture.closedEarly = null;
+    // Double-elim reserved bye slots (see generateDoubleElimFixtures) post-
+    // date every fixture created before this feature existed, so none of
+    // them are one - same as a freshly-generated bracket's real matches.
+    if (fixture.reserved === undefined) fixture.reserved = false;
   }
   for (const user of state.users) {
     // Migrate the old single-value `role: 'player'|'admin'` field (from when
