@@ -19,7 +19,7 @@ function generateFixturesLabel(division) {
 // Fixtures entirely) or hidden as usual, since that choice has to be made
 // at generation time - see markAllRoundsVisible in server/src/index.js.
 function GenerateFixturesButton({ division, disabled, title, onChange, setError }) {
-  const [visibleByDefault, setVisibleByDefault] = useState(false);
+  const [visibleByDefault, setVisibleByDefault] = useState(true);
   const [generating, setGenerating] = useState(false);
 
   const onGenerate = async () => {
