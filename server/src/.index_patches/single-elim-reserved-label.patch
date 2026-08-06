@@ -26,8 +26,8 @@
        winnerSide: f.status === 'completed' && winnerId ? (winnerId === homeId ? 'home' : 'away') : null,
 @@ -1187,17 +1197,15 @@
  // (see that component's header comment for why - it also has to render the
-// public embed, which never gets these link fields; this chart never does).
-function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
+ // public embed, which never gets these link fields; this chart never does).
+ function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
 +  // reserved/home/away's "Reserved" labeling is already handled by
 +  // buildBracketMatches above (shared with single-elimination) - this just
 +  // layers on the extra link fields DoubleElimBracketChart needs to
