@@ -1,0 +1,37 @@
+name: Apply patch to index.js
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
+      - name: Apply patch(es)
+        run: |
+          set -e
+          shopt -s nullglob
+          patches=(server/src/.index_patches/*.patch)
+          if [ ${#patches[@]} -eq 0 ]; then
+            echo "No patch files found"
+            exit 1
+          fi
+          for p in "${patches[@]}"; do
+            echo "Applying $p"
+            git apply -p1 "$p"
+          done
+          node --check server/src/index.js
+          rm -rf server/src/.index_patches
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply reserved-slot patch to index.js" || echo "nothing to commit"
+          git push origin HEAD:staging
