@@ -1,6 +1,6 @@
-# Cue Sense - Pool Management
+# Rack Sense - Pool Management
 
-Live on GitHub: https://github.com/MBaileyWebsiteDesign/Cue-Sense-Pool-Management
+Live on GitHub: https://github.com/MBaileyWebsiteDesign/Rack-Sense-Pool-Management
 
 A self-hosted pool league management platform: admins create leagues, divisions and
 players (or spin up a whole new season in one guided wizard); the app schedules
@@ -10,7 +10,7 @@ full-featured competition management that Wix has no built-in system for.
 
 ## What's implemented
 
-- **Single unified login**: every account — admin, player, captain, or any combination —
+- **Single unified login**: every account â admin, player, captain, or any combination â
   signs in through the same one form. There's no more separate "admin login" vs. "player
   login"; who you are and what you can do is just a pair of flags (`isAdmin`,
   `isCaptain`) on your account, checked fresh on every request. See **Accounts & login**
@@ -19,10 +19,10 @@ full-featured competition management that Wix has no built-in system for.
   scheduling method).
 - **Divisions** within a league (unlimited), each independently configured along two
   axes:
-  - **Entry type** — `singles` (one player vs. one player), `teams` (team vs. team), or
+  - **Entry type** â `singles` (one player vs. one player), `teams` (team vs. team), or
     `doubles` (a named 2-3 player `Pairing` vs. `Pairing`, alternate-shot - see
     **Doubles / triples format** below).
-  - **Scheduling** — `round_robin_single` (Round Robin - Single: everyone/every team
+  - **Scheduling** â `round_robin_single` (Round Robin - Single: everyone/every team
     plays everyone/every team else exactly once), `round_robin_double` (Round Robin -
     Double: everyone/every team plays everyone/every team else twice, a home leg and
     an away leg with sides swapped), `knockout_single_elim` (single-elimination
@@ -31,7 +31,7 @@ full-featured competition management that Wix has no built-in system for.
   These are independent choices, so e.g. a knockout team cup and a round-robin singles
   division can coexist in the same league.
 - **Season Setup Wizard**: a 5-step guided flow for standing up a brand-new season
-  (Admin Portal → "+ New Season") — name it, choose how many leagues and roughly how
+  (Admin Portal â "+ New Season") â name it, choose how many leagues and roughly how
   many players each, add the players (CSV/Excel upload with a downloadable template, or
   add them one at a time), set the season's start/end dates, then generate every
   league's fixtures in one click with the games spaced out automatically. See
@@ -48,11 +48,11 @@ full-featured competition management that Wix has no built-in system for.
 - **Knockout / single-elimination format**: standard bracket seeding with byes for
   non-power-of-2 entrant counts (see `server/src/services/bracket.js`), automatic bye
   resolution (a bye winner advances without a match, but two bye-advanced entrants
-  meeting in a later round always play a real match — a slot merely waiting on an
+  meeting in a later round always play a real match â a slot merely waiting on an
   earlier round is never confused with a genuine bye), winner propagation into the next
   round's fixture, and an undo-lock: once a result has advanced a player/team to the
   next round, that frame/leg can't be undone from the completed fixture (it would
-  silently corrupt the bracket) — the fixture detail page shows "TBD" for slots that
+  silently corrupt the bracket) â the fixture detail page shows "TBD" for slots that
   haven't been decided yet.
 - **Knockout / double-elimination format**: a losing entrant isn't out immediately -
   they drop into a losers bracket and keep going until they lose a second time.
@@ -61,18 +61,18 @@ full-featured competition management that Wix has no built-in system for.
   own survivors, finishing in a Grand Final between the two brackets' champions. Because
   the losers-bracket entrant already has one loss and the winners-bracket entrant has
   none, winning the Grand Final isn't enough for the losers-bracket entrant on its
-  own — beating the winners-bracket champion there only draws them level, so a single
+  own â beating the winners-bracket champion there only draws them level, so a single
   **bracket-reset decider** is automatically created and must be won too; if the
   winners-bracket champion wins the Grand Final outright, the tournament ends there.
   The Fixtures list on the division page groups fixtures into "Winners Bracket",
-  "Losers Bracket", "Grand Final" and (if triggered) "Grand Final — Bracket Reset"
+  "Losers Bracket", "Grand Final" and (if triggered) "Grand Final â Bracket Reset"
   sections rather than one flat round list. **v1 scope**: requires an exact
   power-of-two entrant count (4, 8, 16, 32...) - the interleaving arithmetic only lines
   up cleanly with no byes anywhere in the winners bracket; a non-power-of-two count gets
   a clear error asking you to add/remove an entrant or use single elimination instead.
   See `server/src/services/bracket.js` (`buildDoubleElimBracket`) for the full seeding
   design notes.
-- **Multi-stage competitions (group stage → knockout) & manual bracket seeding**: a
+- **Multi-stage competitions (group stage â knockout) & manual bracket seeding**: a
   knockout division's roster doesn't have to be filled by hand - `POST
   /api/divisions/:id/seed-from-groups` auto-populates it from the top N finishers of one
   or more other divisions' live standings (e.g. top 2 from each of 4 round-robin groups
@@ -106,16 +106,16 @@ full-featured competition management that Wix has no built-in system for.
   season that's already started.
 - **Automatic fixture generation**: circle-method round-robin (handling odd counts via
   a bye) or knockout bracket generation, depending on the division's `scheduling`, with
-  optional automatic date scheduling (a start date plus a "days between rounds" gap —
+  optional automatic date scheduling (a start date plus a "days between rounds" gap â
   see **Season Setup Wizard**).
 - **Frame-by-frame scoring**: each frame is recorded as a single winner; the match ends
   automatically the moment either side reaches the race target (e.g. race to 6 ends
-  at 6–5, 6–0, 6–3, etc. — never plays on past the target), with the last frame
+  at 6â5, 6â0, 6â3, etc. â never plays on past the target), with the last frame
   reversible for corrections (unless that result already advanced a bracket).
 - **Live standings**: singles and doubles/triples divisions rank by points (2 for a
   win)/frames for/against/difference (a doubles/triples table ranks Pairings, not
   individual players); team divisions rank by points (2/1/0 for win/draw/loss)/legs
-  for/against/difference — all computed automatically from completed results.
+  for/against/difference â all computed automatically from completed results.
 - **Player stats & profiles**: every player has a profile page showing career record
   (played/won/lost, frames for/against, frame difference) aggregated across both singles
   fixtures and legs played inside team fixtures, a **form guide** (last 5 completed
@@ -124,8 +124,8 @@ full-featured competition management that Wix has no built-in system for.
   Honour), a head-to-head breakdown per opponent, and a full match history (most recent
   first) linking back to each fixture.
 - **Breadcrumb navigation**: every page below the home list shows a trail back to the
-  home page (League › Division › Round N, etc.), rendered as a bar under the header.
-- **Player Management Portal** ("My Account"): every logged-in account's home base —
+  home page (League âº Division âº Round N, etc.), rendered as a bar under the header.
+- **Player Management Portal** ("My Account"): every logged-in account's home base â
   update your own profile fields, change your password, and see a personal list of your
   upcoming fixtures and recent results across every division/team you're registered in,
   plus a link to your full stats/history if your account is linked to a `Player` roster
@@ -133,8 +133,8 @@ full-featured competition management that Wix has no built-in system for.
 - **Captain Management Portal**: a dedicated landing page for accounts flagged as
   captain, currently showing the captain's own upcoming matches plus a placeholder for
   the team-management tools (roster management, leg nominations) planned once team
-  leagues expand — see the roadmap.
-- **Admin Management Portal**: a dashboard linking to every admin tool — the Season
+  leagues expand â see the roadmap.
+- **Admin Management Portal**: a dashboard linking to every admin tool â the Season
   Setup Wizard, user management, and the audit log. Any account with `isAdmin` set gets
   a link to it in the header.
 - **Admin user management**: admins get a searchable list of every registered user,
@@ -142,7 +142,7 @@ full-featured competition management that Wix has no built-in system for.
   grant/revoke admin rights, mark/unmark someone as captain, suspend/reactivate the
   account, and force-set a new password without knowing the old one.
 - **Admin score override**: admins can directly correct a fixture's final score at any
-  time, bypassing frame-by-frame play — useful for fixing a scoring mistake after the
+  time, bypassing frame-by-frame play â useful for fixing a scoring mistake after the
   fact. It's blocked only when changing the *winner* would silently corrupt a knockout
   bracket that's already progressed past that result; pure score corrections (same
   winner) are always allowed.
@@ -172,7 +172,7 @@ full-featured competition management that Wix has no built-in system for.
   "Submit for Confirmation"; the other side (or an admin) then either confirms it -
   finalizing the result exactly as before - or disputes it, which locks the fixture
   until an admin resolves it. See **Score confirmation** below.
-- **Game Adjustments**: an admin page (Admin Portal → "Game Adjustments") that opens on
+- **Game Adjustments**: an admin page (Admin Portal â "Game Adjustments") that opens on
   a "Needs Attention" list of every disputed/pending-confirmation result across every
   league - no need to search for the player first - plus a player search to find and
   directly override or reopen any other result. The tool the score-confirmation
@@ -184,10 +184,10 @@ Handicaps (best-of-N or otherwise), online entry/payment, tablet-specific UI, an
 table booking are still out of scope for v1 (shot/match timers, mini-knockouts, and
 mixed group-stage/knockout formats were originally listed here too, but are now
 implemented - see **Knockout / double-elimination format**, **Multi-stage competitions
-(group stage → knockout) & manual bracket seeding**, and the Match timer & shot clock
+(group stage â knockout) & manual bracket seeding**, and the Match timer & shot clock
 routes in `server/src/index.js` above). Team-specific captain tools (roster management,
 leg nominations from the Captain Portal) are also deferred until team leagues are
-actively in use — the `isCaptain` flag exists now so accounts are ready ahead of that.
+actively in use â the `isCaptain` flag exists now so accounts are ready ahead of that.
 Mid-season player substitution (see **Player substitution** below) is singles-only for
 now - swapping a player out of a doubles/triples pairing, or a team roster, isn't
 covered yet.
@@ -198,12 +198,12 @@ There is exactly one way to sign in: email + password, at "Login" in the header.
 account can see and do is controlled by two independent boolean flags, not a single
 role:
 
-- **`isAdmin`** — unlocks the Admin Portal (season wizard, user management, audit log)
+- **`isAdmin`** â unlocks the Admin Portal (season wizard, user management, audit log)
   and the score-override control on every fixture.
-- **`isCaptain`** — unlocks the Captain Portal. Currently just a flag with a fixtures
+- **`isCaptain`** â unlocks the Captain Portal. Currently just a flag with a fixtures
   view; it's in place ahead of team-league captain tools.
 
-An account can be neither, either, or both at once — a league organizer who also plays
+An account can be neither, either, or both at once â a league organizer who also plays
 can have both flags set on the same login. Every request re-checks these flags against
 the database fresh, so granting or revoking either one takes effect immediately, even
 for a session that's already logged in.
@@ -214,11 +214,11 @@ A seeded admin account is created the first time you run `npm run seed`:
 - Password: `Admin12!@`
 
 **Change this password (or delete/rebuild that account) before deploying anywhere real
-people can reach it** — it's checked into this repo and is not a secret. Set
+people can reach it** â it's checked into this repo and is not a secret. Set
 `SESSION_SECRET` to a random string in production too; it's the key used to sign login
 tokens (`server/src/userAuth.js`), and the checked-in default is only safe for local use.
 
-Anyone can self-register a regular player account from "Login" → "Create one".
+Anyone can self-register a regular player account from "Login" â "Create one".
 Registration collects:
 
 - First name, last name, email, password (required)
@@ -228,18 +228,18 @@ Registration collects:
 
 Passwords are salted and hashed with Node's built-in `crypto.scrypt` (never stored in
 plaintext), and login issues an HMAC-signed token (24-hour expiry) stored in the
-browser's `localStorage`. Every account — self-registered or admin-created via the
-Season Setup Wizard's CSV/Excel import — lives in the same `db.users` table and is
+browser's `localStorage`. Every account â self-registered or admin-created via the
+Season Setup Wizard's CSV/Excel import â lives in the same `db.users` table and is
 auto-linked (by matching name) to a `Player` roster entry where one exists, powering the
 "view my stats" link on the account page and letting admins add them to a division or
 team roster.
 
 Logged-in users manage their own account from "My Account" (click their name, top
-right) — the Player Management Portal described above.
+right) â the Player Management Portal described above.
 
 ### Admin permission management
 
-From the Admin Portal → "Manage Users", an admin can:
+From the Admin Portal â "Manage Users", an admin can:
 
 - Search all registered users and click through to edit any of their profile fields.
 - Grant or revoke `isAdmin` on any account.
@@ -247,7 +247,7 @@ From the Admin Portal → "Manage Users", an admin can:
 - Suspend an account (blocks that account's login immediately) or reactivate it.
 - Force-set a new password for a user without needing their current one, or send them a
   reset link instead (see **Password reset links** below) so they choose their own.
-- **Bulk-add users** ("Bulk Add Users" panel, top of the page) — download a CSV or
+- **Bulk-add users** ("Bulk Add Users" panel, top of the page) â download a CSV or
   Excel template, fill in a row per player, and upload it back; or add players one at a
   time with the same fields. This creates accounts only, with no season/division
   attached (add them to a specific roster afterwards from that division's page) - for
@@ -259,19 +259,19 @@ From the Admin Portal → "Manage Users", an admin can:
 
 ## Season Setup Wizard
 
-From the Admin Portal → "+ New Season", a 5-step guided flow walks an admin through
+From the Admin Portal â "+ New Season", a 5-step guided flow walks an admin through
 standing up an entire season:
 
-1. **Name the season** — e.g. "Autumn 2026". This becomes a `League`.
-2. **How many leagues, and how many players in each** — each "league" the admin
+1. **Name the season** â e.g. "Autumn 2026". This becomes a `League`.
+2. **How many leagues, and how many players in each** â each "league" the admin
    describes becomes its own `Division` inside that season (its own round-robin,
    standings and fixture list). The player count is just a target used to build the
    CSV/Excel template's row count; it doesn't limit how many can actually be added.
-3. **Add players** — either:
+3. **Add players** â either:
    - **Upload CSV or Excel**: download a template (pre-filled with one example row per
      league name, so the `division` column's valid values are obvious), fill in a row
      per player, and upload it back. Parsing happens entirely in the browser
-     (`papaparse` for `.csv`, `xlsx`/SheetJS for `.xlsx`/`.xls`) — the server only ever
+     (`papaparse` for `.csv`, `xlsx`/SheetJS for `.xlsx`/`.xls`) â the server only ever
      receives plain JSON rows, regardless of which format was uploaded.
    - **Add players manually**, one at a time, via a form with the same fields.
    Either path creates a full account for each new player (with a random temporary
@@ -281,15 +281,15 @@ standing up an entire season:
    required fields or an unrecognized division name are skipped with a per-row reason,
    without failing the whole batch.
 4. **Season start and end dates.**
-5. **Generate fixtures** — choose the number of days between rounds, and every league
+5. **Generate fixtures** â choose the number of days between rounds, and every league
    (division) with at least 2 players gets its full round-robin fixture list generated,
    spaced out from the start date by that gap. If the last round would fall after the
    season's end date, that division is flagged in the result so the admin can adjust
    before publishing schedules. This step can also be skipped to generate fixtures later
    from the division page itself.
 
-The wizard doesn't introduce a new data type — a "season" is just a `League`, and each
-of its "leagues" is a `Division` (singles, round-robin) — so everything built by the
+The wizard doesn't introduce a new data type â a "season" is just a `League`, and each
+of its "leagues" is a `Division` (singles, round-robin) â so everything built by the
 wizard immediately gets the same standings, fixtures and scoring UI as a league built by
 hand.
 
@@ -400,7 +400,7 @@ to it (or an admin has stepped in).
 
 ## Game Adjustments
 
-From the Admin Portal → "Game Adjustments", the page opens straight onto a **Needs
+From the Admin Portal â "Game Adjustments", the page opens straight onto a **Needs
 Attention** list - every result across every league that's currently `disputed` or
 `pending_confirmation`, pulled from `GET /api/admin/fixtures/needs-attention` - so an
 admin doesn't have to know (or search for) which player is involved just to find
@@ -457,7 +457,7 @@ pool-league/
 ```
 
 **Why a JSON file instead of a real database?** This v1 is optimized to be cloned and
-run with nothing but Node installed — no database server to provision, no native
+run with nothing but Node installed â no database server to provision, no native
 compiled dependencies. Every route goes through `db.js`'s `readDb()`/`writeDb()`
 functions and nothing touches the filesystem directly elsewhere, so swapping this for
 Postgres (with Prisma or similar) is a contained change to one file plus a migration
@@ -485,7 +485,7 @@ changes with no behavior change:
   entire app twice.
 - **Standings/team-standings entrant lookup**: `computeStandings`/`computeTeamStandings`
   used to call `Array.find()` against the *whole* player/team pool for every entrant in
-  a division - O(division size × total players) instead of O(division size + total
+  a division - O(division size Ã total players) instead of O(division size + total
   players) with a `Map` built once. Not yet noticeable at today's data volume, but scales
   a lot better as more seasons/leagues accumulate.
 - **Frontend code-splitting**: every page used to be one static import, so the whole
@@ -509,7 +509,7 @@ changes with no behavior change:
 - `Player`: `id, name`
 - `Team`: `id, divisionId, name, playerIds[]`
 - `Pairing` (doubles/triples divisions only): `id, divisionId, name, playerIds[]` (2 or
-  3 registered players, capped at the division's `pairingSize`) — structurally identical
+  3 registered players, capped at the division's `pairingSize`) â structurally identical
   to a `Team`, but a Pairing's fixtures are singles-shaped (see below), not
   legs-based, since alternate-shot doesn't split a match into separate mini-matches.
 - Singles `Fixture` (also used for doubles/triples - see below): `id, leagueId,
@@ -524,7 +524,7 @@ changes with no behavior change:
     triggers standings/bracket propagation. See **Score confirmation**.
   - `resultSubmittedAt`/`resultSubmittedBy`: set by `submit-result`, recording when the
     result was submitted and which account submitted it.
-  - `frames[]`: `{ frameNumber, winnerPlayerId }` — the source of truth; scores are
+  - `frames[]`: `{ frameNumber, winnerPlayerId }` â the source of truth; scores are
     derived from this list, never stored independently of it.
   - `scheduledDate`: `YYYY-MM-DD` string, set when the division's fixtures were
     generated with a start date and round gap; `null` otherwise.
@@ -540,7 +540,7 @@ changes with no behavior change:
   nextFixtureSlot, bracketRole, loserNextFixtureId, loserNextFixtureSlot,
   resetFixtureId, scheduledDate`
   - `legs[]`: `{ legNumber, homePlayerId, awayPlayerId, frames[], homeFrameScore,
-    awayFrameScore, status, winnerPlayerId, raceTo }` — one leg per nominated
+    awayFrameScore, status, winnerPlayerId, raceTo }` â one leg per nominated
     player-vs-player mini-match, structurally identical to a singles fixture,
     including the same `'pending' | 'scheduled' | 'in_progress' |
     'pending_confirmation' | 'disputed' | 'completed'` status progression and
@@ -557,12 +557,12 @@ changes with no behavior change:
 - `User` (unified account): `id, firstName, lastName, email, passwordHash, phone,
   teamName, classification ('A'|'B'|'C'|'D'|null), isAdmin (bool), isCaptain
   (bool), status ('active'|'suspended'), playerId (linked Player, or null), createdAt`.
-  Distinct from `Player` above — a `Player` is a name entered into a division/team
+  Distinct from `Player` above â a `Player` is a name entered into a division/team
   roster; a `User` is a login. `playerId` links the two where a case-insensitive name
   match was found at registration/import time (known limitation: two different real
   people who share an exact name will be merged onto the same `Player` record - see
   roadmap).
-- `AuditLog` entry: `id, at, actor, action, targetType, targetId, details` — one entry
+- `AuditLog` entry: `id, at, actor, action, targetType, targetId, details` â one entry
   per admin action that affects another account or a fixture result; capped at the most
   recent 500 entries.
 - `PasswordReset`: `id, userId, token, createdAt, expiresAt, usedAt`. Created by
@@ -586,11 +586,11 @@ cd client
 npm install
 npm run build      # produces client/dist, which the server serves automatically
 
-# Now open http://localhost:4000 — the whole app is served from one port.
+# Now open http://localhost:4000 â the whole app is served from one port.
 ```
 
-Browsing the site requires being logged in — either register a player account from
-"Login" → "Create one", or sign in with the seeded admin account
+Browsing the site requires being logged in â either register a player account from
+"Login" â "Create one", or sign in with the seeded admin account
 (`admin@example.com` / `Admin12!@`).
 
 For frontend development with hot reload instead of a static build, run `npm run dev`
@@ -660,7 +660,7 @@ the Express server to serve) rather than Pages.
 | GET | `/api/admin/audit-log` | Most recent 500 admin actions (requires admin) |
 | GET | `/api/admin/players/:playerId/fixtures` | Every fixture involving a player, any status - backs the Game Adjustments search (requires admin) |
 | GET | `/api/admin/fixtures/needs-attention` | Every `disputed`/`pending_confirmation` result (fixture-level or team-leg-level) across every league - backs the Game Adjustments "Needs Attention" list (requires admin) |
-| POST | `/api/admin/seasons` | Season Setup Wizard step 1–2: create a season (League) with N divisions (requires admin) |
+| POST | `/api/admin/seasons` | Season Setup Wizard step 1â2: create a season (League) with N divisions (requires admin) |
 | POST | `/api/admin/seasons/:leagueId/import-players` | Season Setup Wizard step 3: bulk-import players by row (CSV/Excel/manual), creating accounts as needed (requires admin; logged) |
 | POST | `/api/admin/seasons/:leagueId/generate` | Season Setup Wizard step 5: generate fixtures across every eligible division with date scheduling (requires admin) |
 | POST | `/api/fixtures/:id/override` | Directly set a fixture's final score, bypassing frame-by-frame play (requires admin; logged; blocked if it would change a winner that's already advanced a started bracket fixture) |
@@ -675,8 +675,8 @@ the Express server to serve) rather than Pages.
 | POST/DELETE | `/api/divisions/:id/pairings` | Add / remove a pairing (doubles/triples, pre-fixtures only) |
 | POST/DELETE | `/api/pairings/:pairingId/players` | Add / remove a player by `playerId` on a pairing (same registered-user requirement; capped at the division's `pairingSize`) |
 | POST | `/api/divisions/:id/generate-fixtures` | Generate the fixture list (round robin, single-elimination, or double-elimination bracket, per the division's `scheduling`; double elimination requires a power-of-two entrant count; doubles/triples requires every pairing to have exactly `pairingSize` players); optionally accepts `{ startDate, gapDays }` to also set `scheduledDate` on every fixture |
-| POST | `/api/divisions/:id/seed-from-groups` | Auto-populate a not-yet-generated division's roster from the top N finishers of one or more other divisions' live standings (requires admin) - see **Multi-stage competitions (group stage → knockout) & manual bracket seeding** |
-| POST | `/api/divisions/:id/reorder-entrants` | Set a not-yet-generated division's entrant order by hand (requires admin) - controls knockout bracket seeding, since entrant order *is* seed order - see **Multi-stage competitions (group stage → knockout) & manual bracket seeding** |
+| POST | `/api/divisions/:id/seed-from-groups` | Auto-populate a not-yet-generated division's roster from the top N finishers of one or more other divisions' live standings (requires admin) - see **Multi-stage competitions (group stage â knockout) & manual bracket seeding** |
+| POST | `/api/divisions/:id/reorder-entrants` | Set a not-yet-generated division's entrant order by hand (requires admin) - controls knockout bracket seeding, since entrant order *is* seed order - see **Multi-stage competitions (group stage â knockout) & manual bracket seeding** |
 | POST | `/api/divisions/:id/substitute-player` | Swap a player out for a replacement (singles only) - reassigns not-yet-started fixtures, leaves completed/in-progress ones alone; `reason: 'substitution'` (default) keeps the outgoing player on the League Table, `reason: 'retirement'` removes them from it (requires admin; logged) |
 | GET | `/api/fixtures/:id` | Fixture detail (requires login; singles, team, or doubles/triples - the latter includes `homePairing`/`awayPairing` instead of `homePlayer`/`awayPlayer`; includes `bothEntrantsKnown` for knockout TBD slots) |
 | GET | `/api/overlay/fixtures/:id` | Public (no login required), trimmed scoreboard summary of one fixture - powers the `/overlay/:fixtureId` OBS stream overlay page (singles, team, and doubles/triples fixtures all normalized into the same `{ home, away }` shape) |
@@ -709,7 +709,7 @@ the Express server to serve) rather than Pages.
 4. Best-of-N handicaps: adjusting the race target (or giving a frame head-start) per
    player/classification so mismatched skill levels can compete fairly. Mini-knockouts
    and mixing formats within one competition (a round-robin group stage feeding a
-   knockout) are done - see **Multi-stage competitions (group stage → knockout) &
+   knockout) are done - see **Multi-stage competitions (group stage â knockout) &
    manual bracket seeding** above - as is seeded/ranked bracket generation: knockout
    entrants seed by group standings automatically via `seed-from-groups`, and an admin
    can freely reorder any not-yet-generated division's entrants by hand via
@@ -730,7 +730,7 @@ the Express server to serve) rather than Pages.
 ## Seeded demo data
 
 Running `npm run seed` creates the **Top Spin Singles** league with six divisions
-(Premier League, Division 1–5), each populated with its real current-season 14-player
+(Premier League, Division 1â5), each populated with its real current-season 14-player
 roster (84 players total) and its full round-robin fixture list (91 fixtures per
 division) generated up front - but every fixture starts `scheduled` (no frames
 recorded), so standings begin at zero and build up through the normal scoring flow. A

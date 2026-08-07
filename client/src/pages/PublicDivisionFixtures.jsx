@@ -51,7 +51,7 @@ export default function PublicDivisionFixtures() {
   if (!data) {
     return (
       <div className="public-root">
-        {error ? <p className="public-empty-state">{error}</p> : <p className="public-empty-state">Loading…</p>}
+        {error ? <p className="public-empty-state">{error}</p> : <p className="public-empty-state">Loadingâ¦</p>}
       </div>
     );
   }
@@ -59,7 +59,7 @@ export default function PublicDivisionFixtures() {
   return (
     <div className="public-root">
       <div className="public-header">
-        <h1>{data.divisionName}{data.leagueName ? ` — ${data.leagueName}` : ''} — Fixtures</h1>
+        <h1>{data.divisionName}{data.leagueName ? ` â ${data.leagueName}` : ''} â Fixtures</h1>
         <span className="public-updated">Updated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
 
@@ -93,9 +93,9 @@ export default function PublicDivisionFixtures() {
       </ul>
 
       <p className="public-footer">
-        Powered By Cue Sense,{' '}
-        <a href="https://www.cuesense.co.uk" target="_blank" rel="noopener noreferrer">
-          www.CueSense.co.uk
+        Powered By Rack Sense,{' '}
+        <a href="https://www.racksense.co.uk" target="_blank" rel="noopener noreferrer">
+          www.RackSense.co.uk
         </a>
       </p>
     </div>

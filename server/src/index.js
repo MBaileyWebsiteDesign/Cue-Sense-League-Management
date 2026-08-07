@@ -1267,7 +1267,7 @@ app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, re
           divisionName: division?.name,
           round: f.round,
           status: leg.status,
-          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
+          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} â Leg ${leg.legNumber}`,
           scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
           disputeReason: leg.disputeReason || null,
           noShowClaim: leg.noShowClaim || null,
@@ -1345,7 +1345,7 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
 
 // ---- Teams (team divisions only) ----
 
-// Admin-only "quick add" for a walk-in who's never used CueSense before -
+// Admin-only "quick add" for a walk-in who's never used RackSense before -
 // a front-desk-friendly alternative to POST /api/divisions/:id/players,
 // which only accepts an existing registered playerId. Takes just a name,
 // creates a minimal account behind the scenes (synthetic, unguessable
@@ -1373,7 +1373,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   assertLeagueAccess(req, league);
 
   const tempPassword = generateTempPassword();
-  const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
+  const syntheticEmail = `walkin-${uuid()}@no-login.racksense`;
   const user = createUserAccount(db, {
     firstName: firstName.trim(),
     lastName: lastName ? lastName.trim() : '',
@@ -4661,7 +4661,7 @@ app.use((err, req, res, next) => {
 // changed via the normal change-password flow) is left untouched, so a
 // redeploy can never silently reset a real password back to the default.
 //
-// admin@cuesense.co.uk is the one account guaranteed to always be an
+// admin@racksense.co.uk is the one account guaranteed to always be an
 // admin - the break-glass login if every other admin account is ever
 // suspended or demoted by mistake. This is enforced every boot (granted
 // back if it's ever found not-admin), the same way the old bootstrap
@@ -4675,7 +4675,7 @@ function ensureBootstrapAccounts() {
   const db = readDb();
   let changed = false;
 
-  const adminEmail = 'admin@cuesense.co.uk';
+  const adminEmail = 'admin@racksense.co.uk';
   const normalizedAdminEmail = adminEmail.toLowerCase();
   let admin = db.users.find((u) => u.email.toLowerCase() === normalizedAdminEmail);
   if (admin) {
@@ -4687,9 +4687,9 @@ function ensureBootstrapAccounts() {
   } else {
     admin = createUserAccount(db, {
       firstName: 'Admin',
-      lastName: 'Cue Sense',
+      lastName: 'Rack Sense',
       email: adminEmail,
-      passwordHash: hashPassword('CueSense12!@'),
+      passwordHash: hashPassword('RackSense12!@'),
       phone: '',
       teamName: '',
       classification: null,
@@ -4714,7 +4714,7 @@ function ensureBootstrapAccounts() {
       firstName: 'Matt',
       lastName: 'Bailey',
       email: playerEmail,
-      passwordHash: hashPassword('CueSense12!@'),
+      passwordHash: hashPassword('RackSense12!@'),
       phone: '',
       teamName: '',
       classification: null,
@@ -4731,5 +4731,5 @@ ensureBootstrapAccounts();
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`Cue Sense API listening on http://localhost:${PORT}`);
+  console.log(`Rack Sense API listening on http://localhost:${PORT}`);
 });

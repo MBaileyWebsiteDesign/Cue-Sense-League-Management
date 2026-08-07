@@ -13,7 +13,7 @@ name: Deploy to Fly.io (staging)
 # token).
 #
 # Workflow: push/merge into `staging` to deploy and review changes at
-# dev.poolmanager.cuesense.co.uk; once approved, merge `staging` into
+# dev.poolmanager.racksense.co.uk; once approved, merge `staging` into
 # `main` to promote the same changes to the live app.
 on:
   push:

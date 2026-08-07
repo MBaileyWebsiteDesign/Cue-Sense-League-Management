@@ -1,9 +1,9 @@
 {
-  "name": "cue-sense-server",
+  "name": "rack-sense-server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "API server for Cue Sense - Pool Management",
+  "description": "API server for Rack Sense - Pool Management",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
