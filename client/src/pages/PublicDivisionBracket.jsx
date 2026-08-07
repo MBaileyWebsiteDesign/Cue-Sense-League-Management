@@ -56,7 +56,7 @@ export default function PublicDivisionBracket() {
   if (!data && !error) {
     return (
       <div className="public-root">
-        <p className="public-empty-state">Loadingâ¦</p>
+        <p className="public-empty-state">Loading…</p>
       </div>
     );
   }
@@ -72,7 +72,7 @@ export default function PublicDivisionBracket() {
   return (
     <div className="public-root">
       <div className="public-header">
-        <h1>{data.leagueName} â {data.divisionName}</h1>
+        <h1>{data.leagueName} — {data.divisionName}</h1>
         <span className="public-updated">Updated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
 
