@@ -1340,7 +1340,7 @@ export const demoApi = {
             divisionName: division?.name,
             round: f.round,
             status: leg.status,
-            label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
+            label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} â Leg ${leg.legNumber}`,
             scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
             disputeReason: leg.disputeReason || null,
             noShowClaim: leg.noShowClaim || null,
@@ -2284,7 +2284,7 @@ export const demoApi = {
     const user = createUserAccount({
       firstName: firstName.trim(),
       lastName: lastName ? lastName.trim() : '',
-      email: `walkin-${uuid()}@no-login.cuesense`,
+      email: `walkin-${uuid()}@no-login.racksense`,
       teamName: 'Unassigned',
     });
     const newPlayerId = user.playerId;
