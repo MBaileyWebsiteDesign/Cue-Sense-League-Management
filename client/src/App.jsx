@@ -180,7 +180,7 @@ function AppShell() {
       </header>
       <Breadcrumbs />
       <main className="app-main">
-        <Suspense fallback={<p className="muted">Loadingâ¦</p>}>
+        <Suspense fallback={<p className="muted">Loading…</p>}>
           <Routes>
             <Route path="/" element={<RequireLogin><LeagueList /></RequireLogin>} />
             <Route path="/login" element={<Login />} />

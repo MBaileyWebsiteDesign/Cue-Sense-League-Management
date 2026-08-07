@@ -1267,7 +1267,7 @@ app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, re
           divisionName: division?.name,
           round: f.round,
           status: leg.status,
-          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} â Leg ${leg.legNumber}`,
+          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
           scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
           disputeReason: leg.disputeReason || null,
           noShowClaim: leg.noShowClaim || null,

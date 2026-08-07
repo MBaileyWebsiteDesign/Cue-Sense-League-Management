@@ -46,7 +46,7 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
         Make all fixtures visible to players immediately (skip releasing rounds one at a time)
       </label>
       <button className="btn btn-primary" disabled={disabled || generating} onClick={onGenerate} title={title}>
-        {generating ? 'Generatingâ¦' : generateFixturesLabel(division)}
+        {generating ? 'Generating…' : generateFixturesLabel(division)}
       </button>
     </div>
   );
@@ -152,7 +152,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         <form className="inline-form" onSubmit={onAddPlayer}>
           <select value={playerId} onChange={(e) => setPlayerId(e.target.value)} required>
             <option value="" disabled>
-              {available.length === 0 ? 'No registered players available' : 'Select a registered playerâ¦'}
+              {available.length === 0 ? 'No registered players available' : 'Select a registered player…'}
             </option>
             {available.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -190,7 +190,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
               onChange={(e) => setQuickLastName(e.target.value)}
             />
             <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
-              {quickAdding ? 'Addingâ¦' : 'Quick Add'}
+              {quickAdding ? 'Adding…' : 'Quick Add'}
             </button>
           </form>
           <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
@@ -202,7 +202,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
                 ? 'against the current losers-bracket leader, dropping them into the losers bracket rather than handing them the title outright.'
                 : 'against the eventual champion once the bracket finishes.'}{' '}
               <button className="btn" type="button" disabled={quickAdding} onClick={() => onQuickAdd(null, true)}>
-                {quickAdding ? 'Addingâ¦' : 'Add anyway'}
+                {quickAdding ? 'Adding…' : 'Add anyway'}
               </button>
             </p>
           )}
@@ -291,14 +291,14 @@ function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setErr
       </p>
       <form className="inline-form" onSubmit={onSubmit}>
         <select value={outgoingId} onChange={(e) => setOutgoingId(e.target.value)} required>
-          <option value="" disabled>Player dropping outâ¦</option>
+          <option value="" disabled>Player dropping out…</option>
           {division.players.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
         <select value={incomingId} onChange={(e) => setIncomingId(e.target.value)} required>
           <option value="" disabled>
-            {available.length === 0 ? 'No registered players available' : 'Replacement playerâ¦'}
+            {available.length === 0 ? 'No registered players available' : 'Replacement player…'}
           </option>
           {available.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
@@ -309,7 +309,7 @@ function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setErr
           <option value="retirement">Leaving the league (remove from the table)</option>
         </select>
         <button className="btn btn-primary" type="submit" disabled={!outgoingId || !incomingId || submitting}>
-          {submitting ? 'Swappingâ¦' : 'Swap Player'}
+          {submitting ? 'Swapping…' : 'Swap Player'}
         </button>
       </form>
       <p className="muted" style={{ marginTop: 8, fontSize: '0.8rem' }}>
@@ -344,9 +344,9 @@ function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setErr
               <li key={s.id}>
                 <span>
                   {s.outgoingPlayerName} &rarr; {s.incomingPlayerName} ({s.fixturesSwapped} fixture{s.fixturesSwapped === 1 ? '' : 's'})
-                  {s.reason === 'retirement' ? ' Â· retired' : ''}
+                  {s.reason === 'retirement' ? ' · retired' : ''}
                 </span>
-                <span className="muted">{new Date(s.at).toLocaleDateString()} Â· {s.by}</span>
+                <span className="muted">{new Date(s.at).toLocaleDateString()} · {s.by}</span>
               </li>
             ))}
           </ul>
@@ -484,7 +484,7 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
                     required
                   >
                     <option value="" disabled>
-                      {teamAvailable.length === 0 ? 'No registered players available' : 'Select a registered playerâ¦'}
+                      {teamAvailable.length === 0 ? 'No registered players available' : 'Select a registered player…'}
                     </option>
                     {teamAvailable.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
@@ -508,7 +508,7 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated â team rosters are locked.</p>
+        <p className="muted">Fixtures generated — team rosters are locked.</p>
       )}
     </section>
   );
@@ -648,7 +648,7 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
                     required
                   >
                     <option value="" disabled>
-                      {pairingAvailable.length === 0 ? 'No registered players available' : 'Select a registered playerâ¦'}
+                      {pairingAvailable.length === 0 ? 'No registered players available' : 'Select a registered player…'}
                     </option>
                     {pairingAvailable.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
@@ -672,7 +672,7 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated â pairings are locked.</p>
+        <p className="muted">Fixtures generated — pairings are locked.</p>
       )}
     </section>
   );
@@ -746,7 +746,7 @@ function SeedFromGroupsPanel({ division, onChange, setError }) {
         {rows.map((row, i) => (
           <div key={i} className="inline-form" style={{ marginBottom: 8 }}>
             <select value={row.divisionId} onChange={(e) => updateRow(i, 'divisionId', e.target.value)}>
-              <option value="">Select a groupâ¦</option>
+              <option value="">Select a group…</option>
               {siblingDivisions.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
@@ -767,7 +767,7 @@ function SeedFromGroupsPanel({ division, onChange, setError }) {
         <button type="button" className="btn-link" onClick={addRow}>+ Add another group</button>
         <div style={{ marginTop: 12 }}>
           <button className="btn btn-primary" type="submit" disabled={submitting}>
-            {submitting ? 'Seedingâ¦' : 'Seed Entrants'}
+            {submitting ? 'Seeding…' : 'Seed Entrants'}
           </button>
         </div>
       </form>
@@ -825,7 +825,7 @@ function CloseDivisionEarlyPanel({ division, onChange, setError }) {
             undone.
           </p>
           <button className="btn btn-primary" type="button" disabled={submitting} onClick={onConfirm}>
-            {submitting ? 'Closingâ¦' : 'Close this division now'}
+            {submitting ? 'Closing…' : 'Close this division now'}
           </button>
         </>
       )}
@@ -876,10 +876,10 @@ export default function DivisionDetail() {
           { label: division.leagueName || 'League', to: `/leagues/${division.leagueId}` },
           { label: division.name },
         ]
-      : [{ label: 'Home', to: '/' }, { label: 'Loadingâ¦' }]
+      : [{ label: 'Home', to: '/' }, { label: 'Loading…' }]
   );
 
-  if (!division) return <p>Loadingâ¦</p>;
+  if (!division) return <p>Loading…</p>;
 
   // League Manager scoping - see hydrateDivision in server/src/index.js,
   // which embeds the owning league's managerUserIds onto the division
@@ -889,7 +889,7 @@ export default function DivisionDetail() {
   const isTeams = division.entryType === 'teams';
   const isDoubles = division.entryType === 'doubles';
   const nameOf = (id) =>
-    (isTeams ? division.teams : isDoubles ? division.pairings : division.players).find((x) => x.id === id)?.name || 'â';
+    (isTeams ? division.teams : isDoubles ? division.pairings : division.players).find((x) => x.id === id)?.name || '—';
 
   // Double-elimination divisions carry a `bracketRole` on every fixture
   // ('winners' | 'losers' | 'grand_final' | 'grand_final_reset') - group by
@@ -903,8 +903,8 @@ export default function DivisionDetail() {
     winners: 'Winners Bracket',
     losers: 'Losers Bracket',
     grand_final: 'Grand Final',
-    grand_final_reset: 'Grand Final â Bracket Reset (decider)',
-    late_entry_decider: 'Late Entry â Decider',
+    grand_final_reset: 'Grand Final — Bracket Reset (decider)',
+    late_entry_decider: 'Late Entry — Decider',
   };
 
   function groupByRound(fixtures, useRawRoundNumber = false) {
@@ -960,9 +960,9 @@ export default function DivisionDetail() {
       <h1>{division.name}</h1>
       <p className="muted">
         {isTeams
-          ? `Team league Â· ${division.legsPerMatch} legs per match`
+          ? `Team league · ${division.legsPerMatch} legs per match`
           : isDoubles
-            ? `${division.pairingSize === 3 ? 'Triples' : 'Doubles'} league Â· ${division.pairingSize} players per pairing`
+            ? `${division.pairingSize === 3 ? 'Triples' : 'Doubles'} league · ${division.pairingSize} players per pairing`
             : 'Singles league'}
       </p>
       {error && <p className="error">{error}</p>}
@@ -975,7 +975,7 @@ export default function DivisionDetail() {
 
       {division.leaguePayment?.required && (
         <p className="banner">
-          This league requires a confirmed Â£{division.leaguePayment.amount} entry fee before a player can be
+          This league requires a confirmed £{division.leaguePayment.amount} entry fee before a player can be
           added here. Manage payments from the{' '}
           <Link to={`/leagues/${division.leagueId}`}>league page</Link>.
         </p>

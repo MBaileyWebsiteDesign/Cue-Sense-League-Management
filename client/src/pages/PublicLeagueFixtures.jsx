@@ -51,7 +51,7 @@ export default function PublicLeagueFixtures() {
   if (!data) {
     return (
       <div className="public-root">
-        {error ? <p className="public-empty-state">{error}</p> : <p className="public-empty-state">Loadingâ¦</p>}
+        {error ? <p className="public-empty-state">{error}</p> : <p className="public-empty-state">Loading…</p>}
       </div>
     );
   }
@@ -59,7 +59,7 @@ export default function PublicLeagueFixtures() {
   return (
     <div className="public-root">
       <div className="public-header">
-        <h1>{data.leagueName} â Fixtures</h1>
+        <h1>{data.leagueName} — Fixtures</h1>
         <span className="public-updated">Updated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
 
@@ -76,7 +76,7 @@ export default function PublicLeagueFixtures() {
                 ' vs '
               )}
               {f.away.name}
-              <div className="public-division-meta">{f.divisionName} Â· {f.roundLabel}</div>
+              <div className="public-division-meta">{f.divisionName} · {f.roundLabel}</div>
             </div>
             <div className="public-fixture-meta">
               <span className={`public-status-pill${f.status === 'in_progress' ? ' public-status-live' : ''}${f.status === 'completed' ? ' public-status-completed' : ''}${f.status !== 'completed' && !f.bothEntrantsKnown ? ' public-status-awaiting' : ''}`}>
