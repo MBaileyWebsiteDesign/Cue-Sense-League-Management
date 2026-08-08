@@ -81,6 +81,10 @@ const networkApi = {
   overrideFixture: (fixtureId, homeScore, awayScore) =>
     request(`/fixtures/${fixtureId}/override`, { method: 'POST', body: JSON.stringify({ homeScore, awayScore }) }),
 
+  // Admin: select bracket winner directly, without recording a score
+  selectFixtureWinner: (fixtureId, winnerId) =>
+    request(`/fixtures/${fixtureId}/select-winner`, { method: 'POST', body: JSON.stringify({ winnerId }) }),
+
   getRollOfHonour: () => request('/roll-of-honour'),
 
   getTours: () => request('/tours'),

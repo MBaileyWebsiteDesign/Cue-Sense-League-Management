@@ -78,7 +78,7 @@ function resolveRoundOverlaps(roundMatches, yById) {
   }
 }
 
-export default function DoubleElimBracketChart({ matches, fixtureHref }) {
+export default function DoubleElimBracketChart({ matches, fixtureHref, onSelectWinner }) {
   if (!matches || matches.length === 0) return <p className="muted">No bracket to show yet.</p>;
 
   const grandFinal = matches.find((m) => m.bracketRole === 'grand_final');
@@ -193,7 +193,7 @@ export default function DoubleElimBracketChart({ matches, fixtureHref }) {
     const y = yById.get(m.id);
     boxes.push(
       <MatchBox key={m.id} match={m} label={label} href={fixtureHref?.(m.id)}
-        x={x} y={y - BOX_H / 2} width={BOX_W} height={BOX_H} />
+        x={x} y={y - BOX_H / 2} width={BOX_W} height={BOX_H} onSelectWinner={onSelectWinner} />
     );
   }
 

@@ -3430,6 +3430,115 @@ app.post('/api/fixtures/:id/override', requireAnyAdmin, asyncRoute((req, res) =>
   res.json(fixture);
 }));
 
+// ---------- Admin: select bracket winner directly ----------
+// A fast path for the admin bracket chart on the Division page: instead of
+// recording frames and going through the normal submit/confirm handshake,
+// an admin can click a player's (or team's) name directly and declare them
+// the winner - for walk-in exhibition rounds, byes settled without playing,
+// or any other case where the actual score doesn't matter. Deliberately
+// restricted to fixtures that haven't been touched at all yet (status
+// 'scheduled', zero frames/no leg activity) - if any score has already been
+// recorded, this route refuses and the admin has to use the normal scoring
+// flow or the Override Result panel instead, so a quick mis-tap can never
+// silently discard real recorded frames. Recorded with an empty frame
+// history and `scoreRecorded: false` (rather than a 0-0 score) so the
+// bracket chart/fixture page can show "no score recorded" instead of a
+// scoreline that looks like a played 0-0 match. Shares the Override
+// endpoint's downstream-propagation guard above: refuses if picking this
+// winner would overwrite a next-round fixture that's already started.
+app.post('/api/fixtures/:id/select-winner', requireAnyAdmin, asyncRoute((req, res) => {
+  const { winnerId } = req.body;
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  assertLeagueAccess(req, league);
+  const isTeams = division.entryType === 'teams';
+
+  if (isTeams) {
+    if (!fixture.homeTeamId || !fixture.awayTeamId) {
+      throw new ApiError(400, 'Both teams for this fixture are not yet known');
+    }
+    if (winnerId !== fixture.homeTeamId && winnerId !== fixture.awayTeamId) {
+      throw new ApiError(400, "winnerId must be one of this fixture's two teams");
+    }
+    if (fixture.status !== 'scheduled' || fixture.legs.some((l) => l.status !== 'pending')) {
+      throw new ApiError(400, 'This fixture already has a result recorded - use score entry or the Override Result panel instead');
+    }
+  } else {
+    if (!fixture.homePlayerId || !fixture.awayPlayerId) {
+      throw new ApiError(400, 'Both players for this fixture are not yet known');
+    }
+    if (winnerId !== fixture.homePlayerId && winnerId !== fixture.awayPlayerId) {
+      throw new ApiError(400, "winnerId must be one of this fixture's two entrants");
+    }
+    if (fixture.status !== 'scheduled' || fixture.frames.length > 0) {
+      throw new ApiError(400, 'This fixture already has a result recorded - use score entry or the Override Result panel instead');
+    }
+  }
+
+  const next = fixture.nextFixtureId ? db.fixtures.find((f) => f.id === fixture.nextFixtureId) : null;
+  const nextCurrentOccupant = next
+    ? (isTeams
+        ? (fixture.nextFixtureSlot === 'home' ? next.homeTeamId : next.awayTeamId)
+        : (fixture.nextFixtureSlot === 'home' ? next.homePlayerId : next.awayPlayerId))
+    : null;
+  const winnerNeedsPropagating = !!(next && nextCurrentOccupant !== winnerId);
+
+  if (winnerNeedsPropagating) {
+    const nextHasStarted = isTeams ? next.legs.some((l) => l.status !== 'pending') : next.frames.length > 0;
+    if (nextHasStarted) {
+      throw new ApiError(409, 'This result has already progressed to a fixture that has started - override or reset that fixture first');
+    }
+  }
+
+  if (isTeams) {
+    fixture.homeLegsWon = 0;
+    fixture.awayLegsWon = 0;
+    fixture.winnerTeamId = winnerId;
+    fixture.legs = fixture.legs.map((leg) => ({
+      ...leg,
+      homePlayerId: null,
+      awayPlayerId: null,
+      frames: [],
+      homeFrameScore: 0,
+      awayFrameScore: 0,
+      status: 'pending',
+      winnerPlayerId: null,
+    }));
+  } else {
+    fixture.homeFrameScore = 0;
+    fixture.awayFrameScore = 0;
+    fixture.frames = [];
+    fixture.winnerPlayerId = winnerId;
+  }
+  fixture.status = 'completed';
+  fixture.adminOverride = { at: new Date().toISOString(), by: req.adminSession.label };
+  fixture.scoreRecorded = false;
+  fixture.disputeReason = null;
+
+  if (winnerNeedsPropagating) {
+    propagateWinner(db, division, fixture, winnerId);
+  }
+  const loserId = winnerId === (isTeams ? fixture.homeTeamId : fixture.homePlayerId)
+    ? (isTeams ? fixture.awayTeamId : fixture.awayPlayerId)
+    : (isTeams ? fixture.homeTeamId : fixture.homePlayerId);
+  propagateLoser(db, division, fixture, loserId);
+  checkGrandFinalReset(db, division, fixture);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'fixture.winner_selected',
+    targetType: 'fixture',
+    targetId: fixture.id,
+    details: 'Selected the winner directly from the bracket, without recording a score',
+  });
+
+  writeDb(db);
+  res.json(fixture);
+}));
+
 // ---------- Admin: mid-season player substitution ----------
 // Lets an admin swap a player out for a replacement in a singles division
 // when someone drops out. The incoming player takes over every fixture that

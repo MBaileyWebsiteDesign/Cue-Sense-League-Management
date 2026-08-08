@@ -75,7 +75,7 @@ function computeSides(byRound, sfRound) {
   return sidesByRound;
 }
 
-export default function BracketChart({ matches, totalRounds, fixtureHref }) {
+export default function BracketChart({ matches, totalRounds, fixtureHref, onSelectWinner }) {
   if (!matches || matches.length === 0 || !totalRounds || totalRounds < 1) {
     return <p className="muted">No bracket to show yet.</p>;
   }
@@ -94,7 +94,7 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
   if (totalRounds === 1) {
     return (
       <div className="bracket-chart bracket-chart-single">
-        <MatchBox match={finalMatch} label="Final" href={fixtureHref?.(finalMatch.id)} />
+        <MatchBox match={finalMatch} label="Final" href={fixtureHref?.(finalMatch.id)} onSelectWinner={onSelectWinner} />
       </div>
     );
   }
@@ -203,6 +203,7 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
             y={y - BOX_H / 2}
             width={BOX_W}
             height={BOX_H}
+            onSelectWinner={onSelectWinner}
           />
         );
       });
@@ -250,6 +251,7 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
       width={BOX_W}
       height={BOX_H}
       isFinal
+      onSelectWinner={onSelectWinner}
     />
   );
 
@@ -262,8 +264,14 @@ export default function BracketChart({ matches, totalRounds, fixtureHref }) {
   );
 }
 
-export function MatchBox({ match, label, href, x, y, width = 176, height = 56, isFinal }) {
+export function MatchBox({ match, label, href, x, y, width = 176, height = 56, isFinal, onSelectWinner }) {
   const winnerSide = match.status === 'completed' ? match.winnerSide : null;
+  // Only offer the "click a name to set the winner" quick-pick when a
+  // handler was actually passed in (DivisionDetail only passes one for an
+  // admin viewer) AND this specific match is eligible (see
+  // buildBracketMatches's canSelectWinner comment - both entrants known,
+  // nothing recorded against it yet).
+  const selectable = !!onSelectWinner && !!match.canSelectWinner;
   const content = (
     <g>
       <rect
@@ -272,8 +280,18 @@ export function MatchBox({ match, label, href, x, y, width = 176, height = 56, i
       />
       <text className="bracket-round-label" x={x + width / 2} y={y - 6} textAnchor="middle">{label}</text>
       <line className="bracket-box-divider" x1={x} y1={y + height / 2} x2={x + width} y2={y + height / 2} />
-      <EntrantRow entrant={match.home} won={winnerSide === 'home'} x={x} y={y} width={width} rowHeight={height / 2} />
-      <EntrantRow entrant={match.away} won={winnerSide === 'away'} x={x} y={y + height / 2} width={width} rowHeight={height / 2} />
+      <EntrantRow
+        entrant={match.home}
+        won={winnerSide === 'home'}
+        x={x} y={y} width={width} rowHeight={height / 2}
+        onSelect={selectable ? () => onSelectWinner(match, 'home') : null}
+      />
+      <EntrantRow
+        entrant={match.away}
+        won={winnerSide === 'away'}
+        x={x} y={y + height / 2} width={width} rowHeight={height / 2}
+        onSelect={selectable ? () => onSelectWinner(match, 'away') : null}
+      />
       {match.closedEarly && (
         <text className="bracket-closed-early" x={x + width / 2} y={y + height + 12} textAnchor="middle">closed early</text>
       )}
@@ -284,10 +302,30 @@ export function MatchBox({ match, label, href, x, y, width = 176, height = 56, i
   ) : content;
 }
 
-export function EntrantRow({ entrant, won, x, y, width, rowHeight }) {
+export function EntrantRow({ entrant, won, x, y, width, rowHeight, onSelect }) {
   const name = entrant?.name || 'TBD';
+  // An invisible rect over the whole row, drawn under the name/score text,
+  // is the actual click target - simpler and more forgiving to tap than
+  // relying on SVG text glyph hit-testing. preventDefault/stopPropagation
+  // here stops the enclosing MatchBox <a href> (see below) from also
+  // navigating to the fixture's full scoring page on the same click.
+  const handleClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect();
+  };
   return (
     <g>
+      {onSelect && (
+        <rect
+          className="bracket-entrant-pick-target"
+          x={x} y={y} width={width} height={rowHeight}
+          fill="transparent"
+          onClick={handleClick}
+        >
+          <title>{`Click to set ${name} as the winner (no score recorded)`}</title>
+        </rect>
+      )}
       <text
         className={`bracket-entrant-name${won ? ' bracket-entrant-winner' : ''}${!entrant?.name ? ' bracket-entrant-tbd' : ''}`}
         x={x + 10} y={y + rowHeight / 2 + 4}
