@@ -80,9 +80,9 @@ export default function PublicLeagueTable() {
       ))}
 
       <p className="public-footer">
-        Powered By Rack Sense,{' '}
-        <a href="https://www.racksense.co.uk" target="_blank" rel="noopener noreferrer">
-          www.RackSense.co.uk
+        Powered By Cue Sense,{' '}
+        <a href="https://www.cuesense.co.uk" target="_blank" rel="noopener noreferrer">
+          www.CueSense.co.uk
         </a>
       </p>
     </div>

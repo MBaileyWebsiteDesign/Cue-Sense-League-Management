@@ -1,9 +1,9 @@
 {
-  "name": "rack-sense-server",
+  "name": "cue-sense-server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "API server for Rack Sense - League Management",
+  "description": "API server for Cue Sense - League Management",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

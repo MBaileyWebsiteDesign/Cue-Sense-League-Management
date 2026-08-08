@@ -1,6 +1,6 @@
-# Rack Sense - League Management
+# Cue Sense - League Management
 
-Live on GitHub: https://github.com/MBaileyWebsiteDesign/Rack-Sense-League-Management
+Live on GitHub: https://github.com/MBaileyWebsiteDesign/Cue-Sense-League-Management
 
 A self-hosted pool league management platform: admins create leagues, divisions and
 players (or spin up a whole new season in one guided wizard); the app schedules

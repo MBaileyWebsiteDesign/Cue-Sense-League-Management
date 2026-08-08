@@ -1345,7 +1345,7 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
 
 // ---- Teams (team divisions only) ----
 
-// Admin-only "quick add" for a walk-in who's never used RackSense before -
+// Admin-only "quick add" for a walk-in who's never used CueSense before -
 // a front-desk-friendly alternative to POST /api/divisions/:id/players,
 // which only accepts an existing registered playerId. Takes just a name,
 // creates a minimal account behind the scenes (synthetic, unguessable
@@ -1373,7 +1373,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   assertLeagueAccess(req, league);
 
   const tempPassword = generateTempPassword();
-  const syntheticEmail = `walkin-${uuid()}@no-login.racksense`;
+  const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
   const user = createUserAccount(db, {
     firstName: firstName.trim(),
     lastName: lastName ? lastName.trim() : '',
@@ -4661,7 +4661,7 @@ app.use((err, req, res, next) => {
 // changed via the normal change-password flow) is left untouched, so a
 // redeploy can never silently reset a real password back to the default.
 //
-// admin@racksense.co.uk is the one account guaranteed to always be an
+// admin@cuesense.co.uk is the one account guaranteed to always be an
 // admin - the break-glass login if every other admin account is ever
 // suspended or demoted by mistake. This is enforced every boot (granted
 // back if it's ever found not-admin), the same way the old bootstrap
@@ -4675,7 +4675,7 @@ function ensureBootstrapAccounts() {
   const db = readDb();
   let changed = false;
 
-  const adminEmail = 'admin@racksense.co.uk';
+  const adminEmail = 'admin@cuesense.co.uk';
   const normalizedAdminEmail = adminEmail.toLowerCase();
   let admin = db.users.find((u) => u.email.toLowerCase() === normalizedAdminEmail);
   if (admin) {
@@ -4687,9 +4687,9 @@ function ensureBootstrapAccounts() {
   } else {
     admin = createUserAccount(db, {
       firstName: 'Admin',
-      lastName: 'Rack Sense',
+      lastName: 'Cue Sense',
       email: adminEmail,
-      passwordHash: hashPassword('RackSense12!@'),
+      passwordHash: hashPassword('CueSense12!@'),
       phone: '',
       teamName: '',
       classification: null,
@@ -4714,7 +4714,7 @@ function ensureBootstrapAccounts() {
       firstName: 'Matt',
       lastName: 'Bailey',
       email: playerEmail,
-      passwordHash: hashPassword('RackSense12!@'),
+      passwordHash: hashPassword('CueSense12!@'),
       phone: '',
       teamName: '',
       classification: null,
@@ -4731,5 +4731,5 @@ ensureBootstrapAccounts();
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`Rack Sense API listening on http://localhost:${PORT}`);
+  console.log(`Cue Sense API listening on http://localhost:${PORT}`);
 });
