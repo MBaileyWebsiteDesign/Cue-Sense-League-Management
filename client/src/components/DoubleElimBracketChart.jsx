@@ -172,34 +172,7 @@ export default function DoubleElimBracketChart({ matches, fixtureHref }) {
     yById.set(reset.id, yById.get(grandFinal.id));
   }
 
-  // ---- Late-entry deciders (see appendLateEntrantBranch, server-side) ----
-  // A late arrival added after this bracket was already underway gets its
-  // own round-1 branch box (drawn as an ordinary Winners Bracket box above,
-  // since its bracketRole is 'winners' like any other) plus a decider match
-  // against whichever fixture was the current "final" at the moment they
-  // were added - normally the Grand Final, but if an earlier late arrival's
-  // own decider was still the current final, this one chains off THAT
-  // decider instead. Sorted by round, which is always increasing along
-  // that chain, so each decider is positioned only after anything it could
-  // possibly depend on for its own y-centring below.
-  const deciders = matches
-    .filter((m) => m.bracketRole === 'late_entry_decider')
-    .sort((a, b) => a.round - b.round);
-  let deciderCol = gfCol + (reset ? 2 : 1);
-  deciders.forEach((d) => {
-    xById.set(d.id, colX(deciderCol));
-    deciderCol += 1;
-    // Whichever already-positioned fixture feeds this decider that *isn't*
-    // the round-1 branch (the Grand Final, a Bracket Reset, or an earlier
-    // decider) is the one worth lining up with vertically - the branch
-    // itself lives all the way back in round 1, so its own connector below
-    // is just a long line in from the left regardless of where this box
-    // ends up centred.
-    const feeders = matches.filter((m) => m.nextFixtureId === d.id && yById.has(m.id));
-    const mainFeeder = feeders.find((f) => f.bracketRole !== 'winners') || feeders[0];
-    yById.set(d.id, mainFeeder ? yById.get(mainFeeder.id) : yById.get(grandFinal.id));
-  });
-  const lastCol = deciders.length > 0 ? deciderCol - 1 : gfCol + (reset ? 1 : 0);
+  const lastCol = gfCol + (reset ? 1 : 0);
 
   const width = colX(lastCol) + BOX_W;
   // Computed from actual box positions, not the Winners/Losers block
@@ -255,22 +228,9 @@ export default function DoubleElimBracketChart({ matches, fixtureHref }) {
 
   addBox(grandFinal, 'Grand Final');
   if (grandFinal.resetFixtureId) addConnector('gf-reset', grandFinal.id, grandFinal.resetFixtureId);
-  // The Grand Final was still the current final when a late arrival was
-  // added (see appendLateEntrantBranch) - this is the one connector type
-  // that section of that function's caller can leave wired here rather
-  // than on a bracket-reset decider (see the 'reset-late' connector below).
-  if (grandFinal.nextFixtureId) addConnector('gf-late', grandFinal.id, grandFinal.nextFixtureId, 'bracket-connector bracket-connector-cross');
   if (reset) {
     addBox(reset, 'Bracket Reset');
-    if (reset.nextFixtureId) addConnector('reset-late', reset.id, reset.nextFixtureId, 'bracket-connector bracket-connector-cross');
   }
-
-  deciders.forEach((d, i) => {
-    addBox(d, deciders.length === 1 ? 'Late Entry Decider' : `Late Entry Decider ${i + 1}`);
-    // Chains to whichever decider came after it, if a further late arrival
-    // was added before this one's match was played.
-    if (d.nextFixtureId) addConnector(`late-${d.id}`, d.id, d.nextFixtureId, 'bracket-connector bracket-connector-cross');
-  });
 
   return (
     <div className="bracket-chart-scroll">

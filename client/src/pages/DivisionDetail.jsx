@@ -58,7 +58,6 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const [quickLastName, setQuickLastName] = useState('');
   const [quickAdding, setQuickAdding] = useState(false);
   const [quickResult, setQuickResult] = useState('');
-  const [bracketFullOverride, setBracketFullOverride] = useState(false);
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
 
@@ -75,43 +74,19 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
     }
   };
 
-  const onQuickAdd = async (e, withOverride = false) => {
+  const onQuickAdd = async (e) => {
     if (e) e.preventDefault();
     if (!quickFirstName.trim()) return;
     setError('');
     setQuickResult('');
-    if (!withOverride) setBracketFullOverride(false);
     setQuickAdding(true);
     try {
-      const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null, withOverride);
+      const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null);
       setQuickFirstName('');
       setQuickLastName('');
-      setBracketFullOverride(false);
-      const methodLabel = {
-        'added': 'Added.',
-        'bye-reclaim': 'Added - took the place of an open bye in round 1.',
-        'reserved-slot': 'Added - took one of the bracket\'s always-reserved round 1 slots and now plays forward through the bracket like anyone else, no decider match involved.',
-        'bracket-regenerated': 'Added - the bracket was regenerated to include them (nothing had been played yet).',
-        'round-robin-extra-round': 'Added - new fixtures were created against everyone already in the division.',
-        // Double-elimination: a losers-bracket decider, not a shortcut to the
-        // title - win it and they still have to beat the winners-bracket
-        // champion in the Grand Final, same as anyone from the losers side.
-        // Single-elimination has no losers bracket, so the decider there is
-        // against the eventual champion directly (see appendLateEntrantBranch,
-        // server/src/index.js, for why these differ).
-        'late-branch': division.scheduling === 'knockout_double_elim'
-          ? 'Added - given a new round 1 bye, and one decider match to fight into the losers bracket. Lose it and they\'re out; win it and they still have to beat the winners-bracket champion in the Grand Final.'
-          : 'Added - given a new round 1 bye, and a decider match against the eventual champion once the bracket finishes.',
-      }[res.outcome?.method] || 'Added.';
-      setQuickResult(`${res.player.name}: ${methodLabel}`);
+      setQuickResult(`${res.player.name}: Added.`);
       onChange();
     } catch (err) {
-      // The one refusal this override applies to - see insertLateEntrantIntoKnockout
-      // (server/src/index.js) - is worded consistently so it can be matched here
-      // without a dedicated error code.
-      if (!withOverride && /has no open bye to slot a new player/.test(err.message)) {
-        setBracketFullOverride(true);
-      }
       setError(err.message);
     } finally {
       setQuickAdding(false);
@@ -165,13 +140,11 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         Only people with a registered player account can be added this way - see "My Account" to register.
       </p>
 
-      {isAdmin && (
+      {isAdmin && !division.fixturesGenerated && (
         <>
           <h3 style={{ marginBottom: 4 }}>Quick add (walk-in)</h3>
           <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
-            {!division.fixturesGenerated
-              ? 'For someone who\'s never used CueSense before - just a name, no account needed to add them to the draw.'
-              : 'Fixtures are already generated, but a late arrival can still be worked in: they\'ll take an open round 1 bye if one exists, or the bracket will be safely regenerated if nothing\'s been played yet. If neither is possible, you\'ll get a clear reason why not.'}
+            For someone who's never used CueSense before - just a name, no account needed to add them to the draw.
           </p>
           <form className="inline-form" onSubmit={onQuickAdd}>
             <input
@@ -194,18 +167,6 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
             </button>
           </form>
           <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
-          {bracketFullOverride && (
-            <p className="banner banner-warning">
-              This bracket's already underway with no open bye or reserved slot. Add {quickFirstName.trim() || 'them'} anyway as a
-              new round 1 branch - they'll get a bye now, then one decider match to fight for a spot:{' '}
-              {division.scheduling === 'knockout_double_elim'
-                ? 'against the current losers-bracket leader, dropping them into the losers bracket rather than handing them the title outright.'
-                : 'against the eventual champion once the bracket finishes.'}{' '}
-              <button className="btn" type="button" disabled={quickAdding} onClick={() => onQuickAdd(null, true)}>
-                {quickAdding ? 'Adding…' : 'Add anyway'}
-              </button>
-            </p>
-          )}
           {quickResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{quickResult}</p>}
         </>
       )}
@@ -236,8 +197,9 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated - the regular roster is locked, but Quick Add above can still work a late arrival in.</p>
+        <p className="muted">Fixtures generated - the roster is locked, no further additions or removals.</p>
       )}
+
     </section>
   );
 }
@@ -904,7 +866,6 @@ export default function DivisionDetail() {
     losers: 'Losers Bracket',
     grand_final: 'Grand Final',
     grand_final_reset: 'Grand Final — Bracket Reset (decider)',
-    late_entry_decider: 'Late Entry — Decider',
   };
 
   function groupByRound(fixtures, useRawRoundNumber = false) {
@@ -949,7 +910,7 @@ export default function DivisionDetail() {
   ]);
 
   const bracketSections = isDoubleElim
-    ? ['winners', 'losers', 'grand_final', 'grand_final_reset', 'late_entry_decider']
+    ? ['winners', 'losers', 'grand_final', 'grand_final_reset']
         .map((role) => ({ role, fixtures: division.fixtures.filter((f) => f.bracketRole === role) }))
         .filter((s) => s.fixtures.length > 0)
     : [];
@@ -1170,16 +1131,8 @@ function buildBracketMatches(fixtures, isTeams, nameOf) {
     return {
       id: f.id,
       round: f.round,
-      // Always-there round 1 slots (see SINGLE_ELIM_RESERVED_PAIR_COUNT /
-      // DOUBLE_ELIM_RESERVED_PAIR_COUNT, server/src/index.js) that no real
-      // entrant has claimed yet - shown as "Reserved" rather than the usual
-      // "TBD" so it reads as "kept open on purpose" instead of "waiting on
-      // an earlier round". Applies to both single- and double-elimination
-      // brackets, since both use this function (see buildDoubleElimMatches
-      // below, which layers its own extra fields on top of this).
-      reserved: !!f.reserved,
-      home: f.reserved ? { ...home, name: 'Reserved' } : home,
-      away: f.reserved ? { ...away, name: 'Reserved' } : away,
+      home,
+      away,
       status: f.status,
       bothEntrantsKnown: f.bothEntrantsKnown,
       winnerSide: f.status === 'completed' && winnerId ? (winnerId === homeId ? 'home' : 'away') : null,
@@ -1197,11 +1150,10 @@ function buildBracketMatches(fixtures, isTeams, nameOf) {
 // (see that component's header comment for why - it also has to render the
 // public embed, which never gets these link fields; this chart never does).
 function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
-  // reserved/home/away's "Reserved" labeling is already handled by
-  // buildBracketMatches above (shared with single-elimination) - this just
-  // layers on the extra link fields DoubleElimBracketChart needs to
-  // position and connect boxes by real fixture id rather than round
-  // number/array position (see that component's header comment for why).
+  // Layers the extra link fields DoubleElimBracketChart needs on top of
+  // buildBracketMatches above - to position and connect boxes by real
+  // fixture id rather than round number/array position (see that
+  // component's header comment for why).
   return buildBracketMatches(fixtures, isTeams, nameOf).map((m, i) => {
     const f = fixtures[i];
     return {

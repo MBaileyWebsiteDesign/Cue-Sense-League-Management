@@ -125,8 +125,8 @@ const networkApi = {
     request(`/divisions/${divisionId}/players`, { method: 'POST', body: JSON.stringify({ playerId }) }),
   removePlayer: (divisionId, playerId) =>
     request(`/divisions/${divisionId}/players/${playerId}`, { method: 'DELETE' }),
-  quickAddPlayer: (divisionId, firstName, lastName, override) =>
-    request(`/divisions/${divisionId}/quick-add-player`, { method: 'POST', body: JSON.stringify({ firstName, lastName, override: !!override }) }),
+  quickAddPlayer: (divisionId, firstName, lastName) =>
+    request(`/divisions/${divisionId}/quick-add-player`, { method: 'POST', body: JSON.stringify({ firstName, lastName }) }),
   generateFixtures: (divisionId, data = {}) =>
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
   seedFromGroups: (divisionId, sources) =>

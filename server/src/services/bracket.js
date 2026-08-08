@@ -14,15 +14,6 @@
 // seeding is a small, isolated improvement for later (sort `entrantIds`
 // before calling this).
 //
-// Sentinel for a reserved (empty) bracket slot - always-available capacity
-// for a late arrival or day-of walk-in substitution, baked into the
-// bracket tree itself at generation time rather than needing any override
-// once the bracket already exists (see the double-elim reservedPairCount
-// option below, and insertLateEntrantIntoKnockout in server/src/index.js
-// for how a real entrant later takes over one of these). Never a real
-// entrant id, so it's always safe to check `=== RESERVED_SLOT`.
-export const RESERVED_SLOT = '__RESERVED__';
-
 // Picks one random entrant out of the list and moves it to the end,
 // leaving everyone else's relative order untouched - buildBracketRounds
 // always gives an odd round's bye to whoever ends up last, so this is what
@@ -58,7 +49,7 @@ function withRandomEntrantLast(entrantIds) {
 // rounds can also produce a bye (see above), but there's no "entrant" to
 // randomise there - it falls out of whichever box a survivor happens to
 // land in, decided by results that don't exist yet at generation time.
-export function buildBracketRounds(entrantIds, { reservedPairCount = 0 } = {}) {
+export function buildBracketRounds(entrantIds) {
   if (entrantIds.length < 2) return [];
 
   const n = entrantIds.length;
@@ -74,18 +65,6 @@ export function buildBracketRounds(entrantIds, { reservedPairCount = 0 } = {}) {
   }
   if (hasFirstRoundBye) {
     firstRoundPairs.push([orderedIds[idx], null]);
-  }
-  // Reserved slots (see RESERVED_SLOT above) - added on top of the real
-  // entrants' own pairing/bye above, never mixed into it, so how many
-  // reserved slots exist never changes who any real entrant is paired
-  // against or whether they get the real bye. Each pair faces its own kind
-  // - two reserved slots against each other - so by default nothing about
-  // them needs playing at all; every later round's size is computed from
-  // firstRoundPairs.length below, which already includes them, so the
-  // reserved capacity carries all the way through to the final exactly as
-  // if they were real entrants who simply haven't shown up yet.
-  for (let r = 0; r < reservedPairCount; r++) {
-    firstRoundPairs.push([RESERVED_SLOT, RESERVED_SLOT]);
   }
 
   const rounds = [firstRoundPairs];
@@ -143,7 +122,7 @@ export function buildBracketRounds(entrantIds, { reservedPairCount = 0 } = {}) {
 //     losers-bracket box). Like buildBracketRounds, only the *shape* is
 //     returned - actual entrant IDs are wired up by the caller via
 //     nextFixtureId/nextFixtureSlot and loserNextFixtureId/loserNextFixtureSlot.
-export function buildDoubleElimBracket(entrantIds, { reservedPairCount = 0 } = {}) {
+export function buildDoubleElimBracket(entrantIds) {
   const n = entrantIds.length;
   if (n < 4) throw new Error('Double elimination needs at least 4 entrants');
 
@@ -152,15 +131,12 @@ export function buildDoubleElimBracket(entrantIds, { reservedPairCount = 0 } = {
   // single-elimination - so an odd n here needs no special handling beyond
   // that; the loser-count math below (Math.floor(count / 2) throughout)
   // already accounts for a bye box producing no loser.
-  const winnersRounds = buildBracketRounds(entrantIds, { reservedPairCount });
+  const winnersRounds = buildBracketRounds(entrantIds);
   // How many entrants/survivors enter each winners round (round 0 starts
-  // with everyone plus any reserved slots - see reservedPairCount above -
-  // since the losers bracket has to have room for one of those to produce
-  // a real loser later, exactly as if it always held a real entrant; every
-  // later round starts with however many boxes the round before it had,
-  // since every box - real match, bye, or reserved - produces exactly one
-  // survivor slot).
-  const incoming = [n + reservedPairCount * 2, ...winnersRounds.slice(0, -1).map((round) => round.length)];
+  // with everyone; every later round starts with however many boxes the
+  // round before it had, since every box - real match or bye - produces
+  // exactly one survivor slot).
+  const incoming = [n, ...winnersRounds.slice(0, -1).map((round) => round.length)];
   // Only real matches produce a loser - a bye box's occupant advances for
   // free, so Math.floor handles both the even case (no bye) and the odd
   // case (one bye, floor drops it) correctly.
