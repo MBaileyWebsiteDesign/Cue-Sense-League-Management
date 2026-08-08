@@ -9,7 +9,7 @@ const isDemoBuild = process.env.VITE_DEMO_MODE === 'true';
 
 export default defineConfig({
   plugins: [react()],
-  base: isDemoBuild ? '/Rack-Sense-Pool-Management/' : '/',
+  base: isDemoBuild ? '/Rack-Sense-League-Management/' : '/',
   server: {
     proxy: {
       '/api': 'http://localhost:4000',

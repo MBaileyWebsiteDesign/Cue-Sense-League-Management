@@ -173,7 +173,7 @@ function AppShell() {
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
           <span className="brand-text">
             <span className="brand-name">Rack Sense</span>
-            <span className="brand-tagline">Pool Management</span>
+            <span className="brand-tagline">League Management</span>
           </span>
         </Link>
         <HeaderNav />
