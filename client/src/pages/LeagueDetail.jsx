@@ -605,20 +605,6 @@ export default function LeagueDetail() {
         </p>
       )}
 
-      {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
-
-      {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
-
-      {canManage && (
-        <ManageLeaguePanel
-          league={league}
-          isAdmin={isAdmin}
-          canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
-          onChange={load}
-          setError={setError}
-        />
-      )}
-
       <div className="card-grid">
         {league.divisions.map((division) => (
           <Link key={division.id} to={`/divisions/${division.id}`} className="card card-link">
@@ -644,6 +630,20 @@ export default function LeagueDetail() {
           </Link>
         ))}
       </div>
+
+      {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
+
+      {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
+
+      {canManage && (
+        <ManageLeaguePanel
+          league={league}
+          isAdmin={isAdmin}
+          canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
+          onChange={load}
+          setError={setError}
+        />
+      )}
     </div>
   );
 }
