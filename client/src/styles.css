@@ -34,6 +34,20 @@ body {
   gap: 12px;
 }
 
+/* Staging-only strip rendered directly under the header (see StagingBanner
+   in App.jsx) - a plain, unmissable red bar so dev.poolmanager is never
+   mistaken for the live app. Never rendered on production. */
+.staging-banner {
+  background: #c0392b;
+  color: #ffffff;
+  text-align: center;
+  padding: 6px 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .brand {
   color: white;
   text-decoration: none;
