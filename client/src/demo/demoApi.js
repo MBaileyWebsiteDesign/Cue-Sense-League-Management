@@ -2284,7 +2284,7 @@ export const demoApi = {
     const user = createUserAccount({
       firstName: firstName.trim(),
       lastName: lastName ? lastName.trim() : '',
-      email: `walkin-${uuid()}@no-login.racksense`,
+      email: `walkin-${uuid()}@no-login.cuesense`,
       teamName: 'Unassigned',
     });
     const newPlayerId = user.playerId;

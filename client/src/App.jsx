@@ -172,7 +172,7 @@ function AppShell() {
         <Link to="/" className="brand">
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
           <span className="brand-text">
-            <span className="brand-name">Rack Sense</span>
+            <span className="brand-name">Cue Sense</span>
             <span className="brand-tagline">League Management</span>
           </span>
         </Link>
@@ -210,9 +210,9 @@ function AppShell() {
       </main>
       <footer className="app-footer">
         <p>
-          Powered By Rack Sense,{' '}
-          <a href="https://www.racksense.co.uk" target="_blank" rel="noopener noreferrer">
-            www.RackSense.co.uk
+          Powered By Cue Sense,{' '}
+          <a href="https://www.cuesense.co.uk" target="_blank" rel="noopener noreferrer">
+            www.CueSense.co.uk
           </a>
         </p>
       </footer>

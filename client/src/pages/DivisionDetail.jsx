@@ -170,7 +170,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           <h3 style={{ marginBottom: 4 }}>Quick add (walk-in)</h3>
           <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
             {!division.fixturesGenerated
-              ? 'For someone who\'s never used RackSense before - just a name, no account needed to add them to the draw.'
+              ? 'For someone who\'s never used CueSense before - just a name, no account needed to add them to the draw.'
               : 'Fixtures are already generated, but a late arrival can still be worked in: they\'ll take an open round 1 bye if one exists, or the bracket will be safely regenerated if nothing\'s been played yet. If neither is possible, you\'ll get a clear reason why not.'}
           </p>
           <form className="inline-form" onSubmit={onQuickAdd}>
