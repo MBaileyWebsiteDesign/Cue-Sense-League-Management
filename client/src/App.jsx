@@ -178,7 +178,8 @@ function HeaderNav() {
 function isStagingEnvironment() {
   if (typeof window === 'undefined') return false;
   const host = window.location.hostname;
-  if (host === 'dev.poolmanager.cuesense.co.uk') return true;
+  if (host === 'poolmanagement-dev.cuesense.co.uk') return true;
+  if (host.endsWith('.cuesense.co.uk') && host.includes('-dev')) return true;
   if (host.endsWith('.fly.dev') && host.includes('staging')) return true;
   return false;
 }
