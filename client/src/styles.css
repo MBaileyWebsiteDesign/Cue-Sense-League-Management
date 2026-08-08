@@ -546,6 +546,8 @@ h2 { margin-top: 0; }
 .bracket-closed-early { font-size: 9px; fill: var(--muted); }
 .bracket-box-link { cursor: pointer; }
 .bracket-box-link:hover .bracket-box { stroke: var(--secondary); }
+.bracket-entrant-pick-target { cursor: pointer; }
+.bracket-entrant-pick-target:hover + .bracket-entrant-name { fill: var(--secondary); text-decoration: underline dotted; }
 
 /* ---- Double-elimination bracket chart (DoubleElimBracketChart.jsx) ----
    Reuses every class above (.bracket-box, .bracket-connector, etc.) - the

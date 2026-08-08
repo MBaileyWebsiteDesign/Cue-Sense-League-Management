@@ -807,6 +807,23 @@ export default function DivisionDetail() {
 
   const load = () => api.getDivision(divisionId).then(setDivision).catch((e) => setError(e.message));
 
+  // Admin-only quick pick from the bracket chart below (BracketChart /
+  // DoubleElimBracketChart's onSelectWinner prop) - lets an admin click a
+  // player's name on a match that hasn't started yet and declare them the
+  // winner directly, skipping frame-by-frame scoring entirely. `match` is
+  // one of buildBracketMatches' normalized entries below (has homeId/awayId
+  // alongside the display-only home/away name+score), `side` is whichever
+  // entrant row was clicked. Confirms first since this bypasses the normal
+  // submit/confirm handshake - see POST /api/fixtures/:id/select-winner.
+  const handleSelectWinner = (match, side) => {
+    const winner = side === 'home' ? match.home : match.away;
+    const winnerId = side === 'home' ? match.homeId : match.awayId;
+    if (!winnerId || !winner?.name) return;
+    if (!window.confirm(`Set ${winner.name} as the winner of this match? No score will be recorded.`)) return;
+    setError('');
+    api.selectFixtureWinner(match.id, winnerId).then(load).catch((e) => setError(e.message));
+  };
+
   useEffect(() => {
     mountedRef.current = true;
     load();
@@ -1031,10 +1048,17 @@ export default function DivisionDetail() {
       {isSingleElimKnockout && division.fixturesGenerated && division.fixtures.length > 0 && (
         <section className="card">
           <h2>Bracket</h2>
+          {canManage && (
+            <p className="muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
+              Click a player's name on a match that hasn't started yet to set them as the winner directly - no score
+              is recorded.
+            </p>
+          )}
           <BracketChart
             matches={buildBracketMatches(division.fixtures, isTeams, nameOf)}
             totalRounds={division.totalRounds}
             fixtureHref={(id) => `/fixtures/${id}`}
+            onSelectWinner={canManage ? handleSelectWinner : undefined}
           />
           <p style={{ marginTop: 8 }}>
             <Link to={`/public/divisions/${division.id}/bracket`}>View public Bracket &rarr;</Link>
@@ -1052,9 +1076,16 @@ export default function DivisionDetail() {
       {isDoubleElim && division.fixturesGenerated && division.fixtures.length > 0 && (
         <section className="card">
           <h2>Bracket</h2>
+          {canManage && (
+            <p className="muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
+              Click a player's name on a match that hasn't started yet to set them as the winner directly - no score
+              is recorded.
+            </p>
+          )}
           <DoubleElimBracketChart
             matches={buildDoubleElimMatches(division.fixtures, isTeams, nameOf)}
             fixtureHref={(id) => `/fixtures/${id}`}
+            onSelectWinner={canManage ? handleSelectWinner : undefined}
           />
           <p className="muted" style={{ fontSize: '0.8rem', marginTop: 8 }}>
             Dashed lines show a loser dropping from the Winners Bracket into the Losers Bracket.
@@ -1126,17 +1157,32 @@ function buildBracketMatches(fixtures, isTeams, nameOf) {
     const winnerId = isTeams ? f.winnerTeamId : f.winnerPlayerId;
     const homeScore = isTeams ? f.homeLegsWon : f.homeFrameScore;
     const awayScore = isTeams ? f.awayLegsWon : f.awayFrameScore;
-    const home = { name: homeId ? nameOf(homeId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? homeScore : undefined };
-    const away = { name: awayId ? nameOf(awayId) : null, score: f.status === 'completed' || f.bothEntrantsKnown ? awayScore : undefined };
+    // f.scoreRecorded is only ever explicitly false for a fixture completed
+    // via POST .../select-winner (see server/src/index.js) - everything
+    // else (including a genuine 0-0 no-show walkover) leaves it undefined,
+    // which is treated as "yes, show the score" exactly like before.
+    const showScore = (f.status === 'completed' || f.bothEntrantsKnown) && f.scoreRecorded !== false;
+    const home = { name: homeId ? nameOf(homeId) : null, score: showScore ? homeScore : undefined };
+    const away = { name: awayId ? nameOf(awayId) : null, score: showScore ? awayScore : undefined };
+    // Eligible for the bracket chart's "click a name to set the winner"
+    // quick pick only when both entrants are known and nothing has been
+    // recorded against it yet - mirrors POST .../select-winner's own
+    // eligibility check server-side, so the UI never offers a click that
+    // would just come back as a 400.
+    const notStarted = isTeams ? (f.legs || []).every((l) => l.status === 'pending') : (f.frames || []).length === 0;
+    const canSelectWinner = !!homeId && !!awayId && f.status === 'scheduled' && notStarted;
     return {
       id: f.id,
       round: f.round,
       home,
       away,
+      homeId,
+      awayId,
       status: f.status,
       bothEntrantsKnown: f.bothEntrantsKnown,
       winnerSide: f.status === 'completed' && winnerId ? (winnerId === homeId ? 'home' : 'away') : null,
       closedEarly: !!f.closedEarly,
+      canSelectWinner,
     };
   });
 }
