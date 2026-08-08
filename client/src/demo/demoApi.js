@@ -858,146 +858,6 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
-// Mirrors server/src/index.js's insertLateEntrantIntoRoundRobin exactly -
-// see the comment there for why this is safe (nothing existing is touched,
-// just new fixtures appended in a fresh round).
-function insertLateEntrantIntoRoundRobin({ league, division, newPlayerId }) {
-  const existingFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
-  const maxRound = existingFixtures.reduce((max, f) => Math.max(max, f.round), 0);
-  const existingPlayerIds = [...division.playerIds];
-  const isDouble = division.scheduling === 'round_robin_double';
-
-  const legOne = existingPlayerIds.map((opponentId) => {
-    const fixture = makeSinglesFixture({ league, division, round: maxRound + 1 });
-    fixture.homePlayerId = newPlayerId;
-    fixture.awayPlayerId = opponentId;
-    return fixture;
-  });
-  legOne.forEach((f) => db.fixtures.push(f));
-
-  if (isDouble) {
-    const legTwo = existingPlayerIds.map((opponentId) => {
-      const fixture = makeSinglesFixture({ league, division, round: maxRound + 2 });
-      fixture.homePlayerId = opponentId;
-      fixture.awayPlayerId = newPlayerId;
-      return fixture;
-    });
-    legTwo.forEach((f) => db.fixtures.push(f));
-  }
-
-  return { method: 'round-robin-extra-round', fixturesAdded: legOne.length * (isDouble ? 2 : 1) };
-}
-
-// Mirrors server/src/index.js's insertLateEntrantIntoKnockout exactly -
-// see the comment there for the full reasoning behind the two safe paths
-// (bye reclaim, or a full regenerate when nothing's been played yet) and
-// why anything riskier than those is refused instead of attempted.
-function insertLateEntrantIntoKnockout({ league, division, newPlayerId, override }) {
-  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
-
-  const round1Byes = fixtures.filter(
-    (f) => f.round === 1 && f.byeSlot && f.status === 'completed' &&
-      (division.scheduling !== 'knockout_double_elim' || f.bracketRole === 'winners')
-  );
-  for (const bye of round1Byes) {
-    if (!bye.nextFixtureId) continue;
-    const next = fixtures.find((f) => f.id === bye.nextFixtureId);
-    if (!next || next.byeSlot || next.status !== 'scheduled') continue;
-
-    if (bye.nextFixtureSlot === 'home') next.homePlayerId = null;
-    else next.awayPlayerId = null;
-
-    if (bye.byeSlot === 'home') bye.homePlayerId = newPlayerId;
-    else bye.awayPlayerId = newPlayerId;
-    bye.byeSlot = null;
-    bye.status = 'scheduled';
-    bye.winnerPlayerId = null;
-
-    division.playerIds.push(newPlayerId);
-    return { method: 'bye-reclaim', fixtureId: bye.id };
-  }
-
-  const anyStarted = fixtures.some((f) => f.status === 'in_progress' || f.status === 'completed');
-  if (!anyStarted) {
-    db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
-    division.playerIds.push(newPlayerId);
-    const entrantIds = [...division.playerIds];
-    const league = db.leagues.find((l) => l.id === division.leagueId);
-    if (division.scheduling === 'knockout_single_elim') {
-      generateKnockoutFixtures({ league, division, entrantIds });
-    } else {
-      generateDoubleElimFixtures({ league, division, entrantIds });
-    }
-    return { method: 'bracket-regenerated' };
-  }
-
-  // Admin override: rather than refusing outright, splice the late entrant
-  // in as a brand new round-1 branch - see appendLateEntrantBranch.
-  if (override) {
-    return appendLateEntrantBranch({ league, division, newPlayerId, fixtures });
-  }
-
-  throw new ApiError(
-    400,
-    "This bracket has already started and has no open bye to slot a new player into right now - it can't be safely expanded without disturbing a match that's already underway. They can still be registered for next time from here, or added anyway as a new branch that plays off against the eventual champion."
-  );
-}
-
-// Admin override for a knockout bracket that's already underway with no
-// open bye to reclaim (see insertLateEntrantIntoKnockout above). Rather
-// than refusing the late entrant outright, gives them their own new
-// round-1 box - a bye, since there's nobody left to pair them against -
-// and carries that bye forward directly into a brand new "decider" fixture
-// created one round past whatever is currently the last round, where they
-// play off against the tournament's eventual champion. Every existing
-// fixture is left untouched except the current final/Grand Final, which
-// gets pointed at the new decider instead of staying terminal.
-//
-// Known limitation (double-elimination only): if this is used before the
-// Grand Final has been played, and that Grand Final result later triggers
-// a bracket-reset decider (see checkGrandFinalReset), the late entrant's
-// decider will already be wired to the Grand Final's immediate winner
-// rather than waiting for the reset - a genuinely rare double-edge-case
-// this override doesn't attempt to chase.
-function appendLateEntrantBranch({ league, division, newPlayerId, fixtures }) {
-  const isDoubleElim = division.scheduling === 'knockout_double_elim';
-  const mainFixtures = isDoubleElim
-    ? fixtures.filter((f) => ['winners', 'grand_final', 'grand_final_reset'].includes(f.bracketRole))
-    : fixtures;
-
-  const terminalFixtures = mainFixtures.filter((f) => !f.nextFixtureId);
-  const currentFinal = terminalFixtures.reduce(
-    (latest, f) => (!latest || f.round > latest.round ? f : latest),
-    null
-  );
-
-  const branchFixture = makeSinglesFixture({ league, division, round: 1 });
-  branchFixture.bracketRole = isDoubleElim ? 'winners' : 'single';
-  branchFixture.homePlayerId = newPlayerId;
-  branchFixture.byeSlot = 'away';
-
-  const decider = makeSinglesFixture({ league, division, round: currentFinal.round + 1 });
-  decider.bracketRole = 'late_entry_decider';
-
-  branchFixture.nextFixtureId = decider.id;
-  branchFixture.nextFixtureSlot = 'home';
-
-  db.fixtures.push(branchFixture);
-  db.fixtures.push(decider);
-  division.playerIds.push(newPlayerId);
-
-  resolveByeIfNeeded(division, branchFixture);
-
-  if (currentFinal.status === 'completed') {
-    decider.awayPlayerId = currentFinal.winnerPlayerId;
-  } else {
-    currentFinal.nextFixtureId = decider.id;
-    currentFinal.nextFixtureSlot = 'away';
-  }
-
-  return { method: 'late-branch', fixtureId: branchFixture.id, deciderFixtureId: decider.id };
-}
-
 function assignScheduledDates(division, startDate, gapDays) {
   if (!startDate || !gapDays) return;
   const base = new Date(`${startDate}T00:00:00`);
@@ -1708,9 +1568,15 @@ export const demoApi = {
       : homeScore > awayScore
         ? (isTeams ? fixture.homeTeamId : fixture.homePlayerId)
         : (isTeams ? fixture.awayTeamId : fixture.awayPlayerId);
-    if (fixture.nextFixtureId && oldWinnerId && newWinnerId !== oldWinnerId) {
-      const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
-      const nextHasStarted = next && (isTeams ? next.legs.some((l) => l.status !== 'pending') : next.frames.length > 0);
+    const next = fixture.nextFixtureId ? db.fixtures.find((f) => f.id === fixture.nextFixtureId) : null;
+    const nextCurrentOccupant = next
+      ? (isTeams
+          ? (fixture.nextFixtureSlot === 'home' ? next.homeTeamId : next.awayTeamId)
+          : (fixture.nextFixtureSlot === 'home' ? next.homePlayerId : next.awayPlayerId))
+      : null;
+    const winnerNeedsPropagating = !!(next && newWinnerId && nextCurrentOccupant !== newWinnerId);
+    if (winnerNeedsPropagating) {
+      const nextHasStarted = isTeams ? next.legs.some((l) => l.status !== 'pending') : next.frames.length > 0;
       if (nextHasStarted) {
         throw new ApiError(409, 'This result has already progressed to a fixture that has started - override or reset that fixture first');
       }
@@ -1732,10 +1598,10 @@ export const demoApi = {
     fixture.status = 'completed';
     fixture.adminOverride = { at: new Date().toISOString(), by: adminLabel() };
     fixture.disputeReason = null;
-    if (fixture.nextFixtureId && newWinnerId && newWinnerId !== oldWinnerId) {
+    if (winnerNeedsPropagating) {
       propagateWinner(division, fixture, newWinnerId);
     }
-    if (newWinnerId && newWinnerId !== oldWinnerId) {
+    if (newWinnerId) {
       const newLoserId = newWinnerId === (isTeams ? fixture.homeTeamId : fixture.homePlayerId)
         ? (isTeams ? fixture.awayTeamId : fixture.awayPlayerId)
         : (isTeams ? fixture.homeTeamId : fixture.homePlayerId);
@@ -2272,12 +2138,15 @@ export const demoApi = {
   }),
 
   // Mirrors server/src/index.js's POST /api/divisions/:id/quick-add-player.
-  quickAddPlayer: op((divisionId, firstName, lastName, override) => {
+  quickAddPlayer: op((divisionId, firstName, lastName) => {
     if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
     const division = db.divisions.find((d) => d.id === divisionId);
     if (!division) throw new ApiError(404, 'Division not found');
     if (division.entryType !== 'singles') {
       throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
+    }
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
     }
     const league = db.leagues.find((l) => l.id === division.leagueId);
 
@@ -2289,18 +2158,7 @@ export const demoApi = {
     });
     const newPlayerId = user.playerId;
 
-    let outcome = { method: 'added' };
-
-    if (!division.fixturesGenerated) {
-      if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
-    } else if (division.scheduling === 'round_robin_single' || division.scheduling === 'round_robin_double') {
-      outcome = insertLateEntrantIntoRoundRobin({ league, division, newPlayerId });
-      division.playerIds.push(newPlayerId);
-    } else if (division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim') {
-      outcome = insertLateEntrantIntoKnockout({ league, division, newPlayerId, override: !!override });
-    } else {
-      throw new ApiError(400, `Quick-add doesn't support the "${division.scheduling}" scheduling type yet`);
-    }
+    if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
 
     if (league && league.payment && league.payment.required) {
       const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
@@ -2324,10 +2182,10 @@ export const demoApi = {
       action: 'division.quick_add_player',
       targetType: 'division',
       targetId: division.id,
-      details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}" (${outcome.method})`,
+      details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
     });
 
-    return { division: hydrateDivision(division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` }, outcome };
+    return { division: hydrateDivision(division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` } };
   }),
 
   createPairing: op((divisionId, name) => {

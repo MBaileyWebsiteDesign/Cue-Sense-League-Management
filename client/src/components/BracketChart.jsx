@@ -267,7 +267,7 @@ export function MatchBox({ match, label, href, x, y, width = 176, height = 56, i
   const content = (
     <g>
       <rect
-        className={`bracket-box${isFinal ? ' bracket-box-final' : ''}${match.reserved ? ' bracket-box-reserved' : ''}`}
+        className={`bracket-box${isFinal ? ' bracket-box-final' : ''}`}
         x={x} y={y} width={width} height={height} rx={6}
       />
       <text className="bracket-round-label" x={x + width / 2} y={y - 6} textAnchor="middle">{label}</text>
