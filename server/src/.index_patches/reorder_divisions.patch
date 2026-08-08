@@ -1,0 +1,44 @@
+--- a/client/src/pages/LeagueDetail.jsx
++++ b/client/src/pages/LeagueDetail.jsx
+@@ -605,20 +605,6 @@
+         </p>
+       )}
+ 
+-      {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
+-
+-      {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
+-
+-      {canManage && (
+-        <ManageLeaguePanel
+-          league={league}
+-          isAdmin={isAdmin}
+-          canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
+-          onChange={load}
+-          setError={setError}
+-        />
+-      )}
+-
+       <div className="card-grid">
+         {league.divisions.map((division) => (
+           <Link key={division.id} to={`/divisions/${division.id}`} className="card card-link">
+@@ -644,6 +630,20 @@
+           </Link>
+         ))}
+       </div>
++
++      {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
++
++      {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
++
++      {canManage && (
++        <ManageLeaguePanel
++          league={league}
++          isAdmin={isAdmin}
++          canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
++          onChange={load}
++          setError={setError}
++        />
++      )}
+     </div>
+   );
+ }
