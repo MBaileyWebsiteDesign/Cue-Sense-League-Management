@@ -1,12 +1,14 @@
-/* Compact layout for the standalone /register page (see App.jsx and
-   Register.jsx) - designed to be opened as a 640x640 popup window from the
-   Wix marketing site's Register button. Tighter vertical rhythm and a
-   two-column row for First/Last name and Phone/Team name than the roomier
-   .card/.form styling used elsewhere in the app (Login, admin forms, etc.).
-   Deliberately NOT stretched to fill the popup's full height - intrinsic
-   content is ~466px, well under the 640px budget, so the button sits
-   directly under the last field rather than being pinned to the bottom of
-   the window with a large empty gap above it. */
+/* Compact layout for the dedicated /register-wix page (see App.jsx and
+   RegisterWix.jsx) - designed to be opened as a 640x640 popup window from
+   the Wix marketing site's Register button. Kept separate from the
+   standard in-app registration styling so changes made for the Wix popup
+   never affect /register. Tighter vertical rhythm and a two-column row for
+   First/Last name and Phone/Team name than the roomier .card/.form styling
+   used elsewhere in the app (Login, admin forms, etc.). Deliberately NOT
+   stretched to fill the popup's full height - intrinsic content is
+   ~466px, well under the 640px budget, so the button sits directly under
+   the last field rather than being pinned to the bottom of the window with
+   a large empty gap above it. */
 .register-popup {
   width: 640px;
   max-width: 100vw;
@@ -75,6 +77,17 @@
   margin-top: 4px;
   width: 100%;
   padding: 9px 16px;
+}
+
+/* Confirmation view shown in place of the form after a successful
+   registration (see RegisterWix.jsx) - a little extra breathing room since
+   it's not sitting directly under a dense form. */
+.register-confirmation {
+  padding-top: 8px;
+}
+
+.register-confirmation .register-submit {
+  margin-top: 14px;
 }
 
 /* If a narrow popup somehow opens below 640px wide (blocked popups

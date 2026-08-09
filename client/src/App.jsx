@@ -10,6 +10,7 @@ import FixtureDetail from './pages/FixtureDetail.jsx';
 import PlayerProfile from './pages/PlayerProfile.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
+import RegisterWix from './pages/RegisterWix.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
 import { AuthProvider, useAuth } from './AuthContext.jsx';
@@ -184,6 +185,7 @@ function AppShell() {
           <Routes>
             <Route path="/" element={<RequireLogin><LeagueList /></RequireLogin>} />
             <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
@@ -301,18 +303,20 @@ export default function App() {
           </Suspense>
         }
       />
-      {/* Standalone, unauthenticated route for player self-registration - no
-          header/breadcrumbs, since this is linked to directly from the Wix
-          marketing site as a pop-out rather than surfaced inside the app
-          shell. Still needs AuthProvider (not AppShell) since Register.jsx
-          calls useAuth().login() on successful signup and then navigates to
-          /account - that re-mounts AuthProvider under the catch-all route
-          below, which picks the session back up from localStorage. */}
+      {/* Standalone, unauthenticated route for the Wix-embedded player
+          registration popup - no header/breadcrumbs, since this is linked
+          to directly from the Wix marketing site as a pop-out rather than
+          surfaced inside the app shell. Kept as its own dedicated
+          route/component (RegisterWix.jsx), separate from the standard
+          /register page above, so changes made for the Wix popup never
+          affect in-app registration. Still needs AuthProvider (not
+          AppShell) since RegisterWix.jsx calls useAuth().login() on
+          successful signup. */}
       <Route
-        path="/register"
+        path="/register-wix"
         element={
           <AuthProvider>
-            <Register />
+            <RegisterWix />
           </AuthProvider>
         }
       />
