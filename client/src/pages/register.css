@@ -77,6 +77,17 @@
   padding: 9px 16px;
 }
 
+/* Confirmation view shown in place of the form after a successful
+   registration (see Register.jsx) - a little extra breathing room since
+   it's not sitting directly under a dense form. */
+.register-confirmation {
+  padding-top: 8px;
+}
+
+.register-confirmation .register-submit {
+  margin-top: 14px;
+}
+
 /* If a narrow popup somehow opens below 640px wide (blocked popups
    sometimes fall back to a full tab at the browser's own width), collapse
    the two-column rows to one column rather than clipping content. */

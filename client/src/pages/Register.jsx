@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import './register.css';
@@ -7,20 +7,22 @@ import './register.css';
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
 // Sized for the standalone /register route (see App.jsx) opened as a
-// 640x640 popup window from the Wix marketing site's Register button -
-// register.css uses a tighter two-column layout (name fields side by side,
-// phone/team side by side) instead of the roomier stacked .card/.form
-// styling used elsewhere in the app, so the whole form fits without
-// scrolling at that size.
+// 640x640 popup window from the Wix marketing site's Register button. On
+// success this shows an inline confirmation instead of navigating to
+// /account - the popup is too small for the full app shell, and the whole
+// point of a dedicated popup is register -> confirm, not register -> land
+// in the Player Portal. The account is still logged in via useAuth().login()
+// (so the session is already live if the player continues to the main site
+// in another tab afterwards), it just doesn't navigate anywhere.
 export default function Register() {
   const { login } = useAuth();
-  const navigate = useNavigate();
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '',
     phone: '', teamName: '', classification: '',
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
 
@@ -34,15 +36,33 @@ export default function Register() {
         classification: form.classification || null,
       });
       login(token, expiresAt, user);
-      // New self-registrations are never admins, so this always lands on My
-      // Account - mirrors Login.jsx's default for a non-admin sign-in.
-      navigate('/account');
+      setSubmitted(true);
     } catch (err) {
       setError(err.message);
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (submitted) {
+    return (
+      <div className="register-popup">
+        <div className="register-confirmation">
+          <h1>You're registered{form.firstName ? `, ${form.firstName}` : ''}!</h1>
+          <p className="register-subtitle">
+            Your account has been created. You can close this window now.
+          </p>
+          <button
+            className="btn btn-primary register-submit"
+            type="button"
+            onClick={() => window.close()}
+          >
+            Close window
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="register-popup">
