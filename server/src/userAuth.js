@@ -206,9 +206,9 @@ export function requireAnyAdmin(req, res, next) {
 // Admin (isAdmin) always passes; a League Manager only passes for a league
 // whose managerUserIds includes their own user id (assigned by an Overall
 // Admin via POST /api/leagues/:id/managers - League Managers can never
-// assign themselves). Deleting a league is intentionally NOT gated through
-// this helper - that route stays on requireAdmin directly, since League
-// Managers are never allowed to delete a league even one they manage.
+// assign themselves). Also gates DELETE /api/leagues/:id and
+// DELETE /api/divisions/:id - a League Manager can delete a league (or a
+// division within it) they manage, the same as an Overall Admin.
 export function assertLeagueAccess(req, league) {
   const user = req.auth && req.auth.user;
   if (!user) throw new ApiError(401, 'Login required for this action');

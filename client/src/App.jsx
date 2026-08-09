@@ -166,6 +166,34 @@ function HeaderNav() {
   );
 }
 
+// Shows a "Development Platform" strip under the header on the staging
+// site only - a visual guard so nobody mistakes dev.poolmanager for the
+// live app while testing there. Detected purely by hostname at runtime
+// (no build-time env var currently distinguishes staging from production -
+// both are built by the same Dockerfile/`npm run build`, see
+// fly.staging.toml vs fly.toml), matched against the staging custom domain
+// (see .github/workflows/deploy-fly-staging.yml) and, as a fallback, any
+// default Fly.io *.fly.dev hostname containing "staging" - so this stays
+// hidden by default (including on production and localhost) and only
+// switches on when the hostname is affirmatively recognised as staging.
+function isStagingEnvironment() {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  if (host === 'poolmanagement-dev.cuesense.co.uk') return true;
+  if (host.endsWith('.cuesense.co.uk') && host.includes('-dev')) return true;
+  if (host.endsWith('.fly.dev') && host.includes('staging')) return true;
+  return false;
+}
+
+function StagingBanner() {
+  if (!isStagingEnvironment()) return null;
+  return (
+    <div className="staging-banner" role="status">
+      Development Platform
+    </div>
+  );
+}
+
 function AppShell() {
   return (
     <div className="app-shell">
@@ -179,6 +207,7 @@ function AppShell() {
         </Link>
         <HeaderNav />
       </header>
+      <StagingBanner />
       <Breadcrumbs />
       <main className="app-main">
         <Suspense fallback={<p className="muted">Loading…</p>}>

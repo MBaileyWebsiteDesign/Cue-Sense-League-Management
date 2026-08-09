@@ -947,6 +947,40 @@ app.get('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
   res.json(hydrated);
 }));
 
+// League Manager (scoped to their assigned league) or Overall Admin -
+// mirrors DELETE /api/leagues/:id one level down. Permanently deletes just
+// this division and everything scoped to it (fixtures, teams/pairings,
+// roll-of-honour entries, and its slot in any tour's divisionIds), leaving
+// the rest of the league untouched.
+app.delete('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const fixturesRemoved = db.fixtures.filter((f) => f.divisionId === division.id).length;
+  db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
+  db.teams = db.teams.filter((t) => t.divisionId !== division.id);
+  db.pairings = db.pairings.filter((p) => p.divisionId !== division.id);
+  db.rollOfHonour = db.rollOfHonour.filter((r) => r.divisionId !== division.id);
+  db.tours.forEach((tour) => {
+    tour.divisionIds = tour.divisionIds.filter((id) => id !== division.id);
+  });
+  db.divisions = db.divisions.filter((d) => d.id !== division.id);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.delete',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Deleted division "${division.name}" from league "${league ? league.name : 'Unknown'}" - ${fixturesRemoved} fixture(s)`,
+  });
+
+  writeDb(db);
+  res.json({ deleted: true, divisionId: division.id, fixturesRemoved });
+}));
+
 // ---------- Close a division early ----------
 // Lets an admin force-finish a division without waiting on the normal
 // submit -> confirm handshake: every fixture that isn't already completed
@@ -1072,10 +1106,11 @@ app.post('/api/leagues/:id/close-early', requireAnyAdmin, asyncRoute((req, res) 
 // outstanding fixtures but leaves the league and its history in place) -
 // use this to actually remove a league that was created by mistake or is no
 // longer wanted, not just to end its season. There's no undo.
-app.delete('/api/leagues/:id', requireAdmin, asyncRoute((req, res) => {
+app.delete('/api/leagues/:id', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
 
   const divisions = db.divisions.filter((d) => d.leagueId === league.id);
   const divisionIds = new Set(divisions.map((d) => d.id));

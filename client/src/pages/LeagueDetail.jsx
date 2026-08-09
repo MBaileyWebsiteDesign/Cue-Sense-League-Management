@@ -226,15 +226,17 @@ function PaymentsPanel({ league, onChange, setError }) {
   );
 }
 
-// Admin-only, collapsed-by-default panel of league-wide destructive admin
-// actions - closing the season early (force-completes outstanding fixtures,
-// but the league and its history stick around) and, below that, permanently
-// deleting the league altogether (removes the league and everything scoped
-// to it: divisions, fixtures, teams, pairings, roll-of-honour entries). Same
+// Collapsed-by-default panel of league-wide destructive/admin actions -
+// closing the season early (force-completes outstanding fixtures, but the
+// league and its history stick around), assigning League Manager access
+// (Overall-Admin-only), and, below that, permanently deleting the league
+// altogether (removes the league and everything scoped to it: divisions,
+// fixtures, teams, pairings, roll-of-honour entries). Delete is available to
+// an Overall Admin or a League Manager assigned to this league - same
 // two-step "Show" then confirm pattern as the rest of the app's irreversible
 // actions, with an extra type-the-league-name confirmation before delete
 // specifically, since that one can't be recovered from at all.
-function ManageLeaguePanel({ league, isAdmin, canCloseEarly, onChange, setError }) {
+function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange, setError }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -341,9 +343,9 @@ function ManageLeaguePanel({ league, isAdmin, canCloseEarly, onChange, setError 
               <h3 style={{ marginBottom: '0.25rem' }}>League Managers</h3>
               <p className="muted">
                 League Managers get the same day-to-day access as an Overall Admin for this one league
-                (entrants, tables, payments, fixtures, closing it early) - but can never delete the league or
-                manage who else has access. Grant the League Manager flag on an account's profile first (Admin
-                Portal &rarr; Users) before assigning them here.
+                (entrants, tables, payments, fixtures, closing it early, and deleting the league or a division
+                within it) - but can never manage who else has access. Grant the League Manager flag on an
+                account's profile first (Admin Portal &rarr; Users) before assigning them here.
               </p>
               {managers.length === 0 ? (
                 <p className="muted">No League Managers assigned to this league yet.</p>
@@ -379,14 +381,13 @@ function ManageLeaguePanel({ league, isAdmin, canCloseEarly, onChange, setError 
             </div>
           )}
 
-          {isAdmin && (
+          {canManage && (
             <div>
               <h3 style={{ marginBottom: '0.25rem' }}>Delete League</h3>
               <p className="muted">
                 Permanently deletes <strong>{league.name}</strong> and everything in it - every division,
                 fixture, team and pairing, plus its roll-of-honour history. This cannot be undone. To
-                confirm, type the league's name below. League Managers can't delete a league, even one
-                they manage - only an Overall Admin can.
+                confirm, type the league's name below.
               </p>
               <label>
                 League name
@@ -605,20 +606,6 @@ export default function LeagueDetail() {
         </p>
       )}
 
-      {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
-
-      {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
-
-      {canManage && (
-        <ManageLeaguePanel
-          league={league}
-          isAdmin={isAdmin}
-          canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
-          onChange={load}
-          setError={setError}
-        />
-      )}
-
       <div className="card-grid">
         {league.divisions.map((division) => (
           <Link key={division.id} to={`/divisions/${division.id}`} className="card card-link">
@@ -644,6 +631,21 @@ export default function LeagueDetail() {
           </Link>
         ))}
       </div>
+
+      {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
+
+      {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
+
+      {canManage && (
+        <ManageLeaguePanel
+          league={league}
+          isAdmin={isAdmin}
+          canManage={canManage}
+          canCloseEarly={league.divisions.some((d) => d.fixturesGenerated && d.status !== 'completed')}
+          onChange={load}
+          setError={setError}
+        />
+      )}
     </div>
   );
 }

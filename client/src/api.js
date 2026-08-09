@@ -124,6 +124,11 @@ const networkApi = {
   // division/fixture/team/pairing scoped to it. See server/src/index.js's
   // DELETE /api/leagues/:id.
   deleteLeague: (leagueId) => request(`/leagues/${leagueId}`, { method: 'DELETE' }),
+  // Overall-Admin-or-assigned-League-Manager, irreversible: permanently
+  // deletes a division and everything scoped to it (fixtures, teams/
+  // pairings, roll-of-honour history), leaving the rest of the league
+  // untouched. See server/src/index.js's DELETE /api/divisions/:id.
+  deleteDivision: (divisionId) => request(`/divisions/${divisionId}`, { method: 'DELETE' }),
   getRegisteredPlayers: () => request('/registered-players'),
   addPlayer: (divisionId, playerId) =>
     request(`/divisions/${divisionId}/players`, { method: 'POST', body: JSON.stringify({ playerId }) }),
