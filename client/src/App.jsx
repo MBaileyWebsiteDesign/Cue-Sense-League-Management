@@ -256,7 +256,7 @@ export default function App() {
       {/* Standalone, unauthenticated route for the OBS stream overlay - no
           header/breadcrumbs/login gate, since this is meant to be loaded
           cold inside OBS's Browser Source, not browsed by a logged-in
-          person. Deliberately outside AuthProvider/AppShell entirely. *}
+          person. Deliberately outside AuthProvider/AppShell entirely. */}
       <Route
         path="/overlay/:fixtureId"
         element={
