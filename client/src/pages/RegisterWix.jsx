@@ -55,13 +55,6 @@ export default function RegisterWix() {
           <p className="register-subtitle">
             Your account has been created. You can close this window now.
           </p>
-          <button
-            className="btn btn-primary register-submit"
-            type="button"
-            onClick={() => window.close()}
-          >
-            Close window
-          </button>
         </div>
       </div>
     );
