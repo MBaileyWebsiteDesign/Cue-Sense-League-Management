@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
@@ -795,6 +795,68 @@ function CloseDivisionEarlyPanel({ division, onChange, setError }) {
   );
 }
 
+// Same "type the name to confirm" irreversible-delete pattern as
+// LeagueDetail's ManageLeaguePanel Delete League section, one level down -
+// permanently deletes just this division and everything scoped to it
+// (fixtures, teams/pairings, roll-of-honour entries), leaving the rest of
+// the league untouched. Available to an Overall Admin or a League Manager
+// assigned to this division's league - see assertLeagueAccess in
+// server/src/userAuth.js for the backend enforcement this mirrors.
+function DeleteDivisionPanel({ division, onChange, setError }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const onDelete = async () => {
+    setDeleting(true);
+    setError('');
+    try {
+      await api.deleteDivision(division.id);
+      navigate(`/leagues/${division.leagueId}`);
+    } catch (err) {
+      setError(err.message);
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Delete Division</h2>
+        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="muted">
+            Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture,
+            team and pairing, plus its roll-of-honour history. The rest of the league is untouched. This
+            cannot be undone. To confirm, type the division's name below.
+          </p>
+          <label>
+            Division name
+            <input
+              value={confirmName}
+              onChange={(e) => setConfirmName(e.target.value)}
+              placeholder={division.name}
+            />
+          </label>
+          <button
+            className="btn btn-danger"
+            type="button"
+            disabled={deleting || confirmName.trim() !== division.name}
+            onClick={onDelete}
+          >
+            {deleting ? 'Deleting…' : 'Delete this division permanently'}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
 const KNOCKOUT_BRACKET_POLL_MS = 15000;
 
 export default function DivisionDetail() {
@@ -961,6 +1023,10 @@ export default function DivisionDetail() {
 
       {canManage && division.fixturesGenerated && division.status !== 'completed' && (
         <CloseDivisionEarlyPanel division={division} onChange={load} setError={setError} />
+      )}
+
+      {canManage && (
+        <DeleteDivisionPanel division={division} onChange={load} setError={setError} />
       )}
 
       {isTeams ? (
