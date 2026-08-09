@@ -213,7 +213,6 @@ function AppShell() {
           <Routes>
             <Route path="/" element={<RequireLogin><LeagueList /></RequireLogin>} />
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
@@ -329,6 +328,21 @@ export default function App() {
           <Suspense fallback={null}>
             <PublicDivisionFixtures />
           </Suspense>
+        }
+      />
+      {/* Standalone, unauthenticated route for player self-registration - no
+          header/breadcrumbs, since this is linked to directly from the Wix
+          marketing site as a pop-out rather than surfaced inside the app
+          shell. Still needs AuthProvider (not AppShell) since Register.jsx
+          calls useAuth().login() on successful signup and then navigates to
+          /account - that re-mounts AuthProvider under the catch-all route
+          below, which picks the session back up from localStorage. */}
+      <Route
+        path="/register"
+        element={
+          <AuthProvider>
+            <Register />
+          </AuthProvider>
         }
       />
       <Route
