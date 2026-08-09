@@ -1,0 +1,89 @@
+/* Compact layout for the standalone /register page (see App.jsx and
+   Register.jsx) - designed to be opened as a 640x640 popup window from the
+   Wix marketing site's Register button. Tighter vertical rhythm and a
+   two-column row for First/Last name and Phone/Team name than the roomier
+   .card/.form styling used elsewhere in the app (Login, admin forms, etc.),
+   so the whole form fits inside 640x640 without scrolling. */
+.register-popup {
+  width: 640px;
+  max-width: 100vw;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 28px 32px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.register-popup h1 {
+  font-size: 1.5rem;
+  margin: 0 0 6px;
+}
+
+.register-subtitle {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0 0 16px;
+}
+
+.register-form {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.register-form label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.register-form input,
+.register-form select {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 400;
+  box-sizing: border-box;
+}
+
+.register-form input:focus,
+.register-form select:focus {
+  outline: 2px solid var(--secondary);
+  outline-offset: 1px;
+  border-color: var(--secondary);
+}
+
+.register-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
+.register-form .error {
+  margin-bottom: 10px;
+}
+
+.register-submit {
+  margin-top: auto;
+  width: 100%;
+  padding: 10px 16px;
+}
+
+/* If a narrow popup somehow opens below 640px wide (blocked popups
+   sometimes fall back to a full tab at the browser's own width), collapse
+   the two-column rows to one column rather than clipping content. */
+@media (max-width: 480px) {
+  .register-row {
+    display: block;
+  }
+}
