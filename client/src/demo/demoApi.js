@@ -37,23 +37,15 @@ class ApiError extends Error {
   }
 }
 
-function loadInitialDb() {
-  let base;
-  try {
-    const raw = localStorage.getItem(DB_KEY);
-    if (raw) base = JSON.parse(raw);
-  } catch {
-    // fall through to the bundled seed
-  }
-  if (!base) base = structuredClone(demoDataSeed);
-  // Backfill for a seed/save that predates `pairings` (doubles/triples) -
-  // mirrors db.js's readDb() migration on the real server.
+// Mirrors db.js's readDb() migration on the real server - backfills any
+// collection/field a seed/save (or, for restoreBackup below, an uploaded
+// export) predates. Shared by loadInitialDb() below and restoreBackup(), so
+// there's exactly one place this list has to stay in sync with db.js.
+function backfillState(base) {
   if (!base.pairings) base.pairings = [];
   if (!base.passwordResets) base.passwordResets = [];
   if (!base.divisions) base.divisions = [];
   if (!base.fixtures) base.fixtures = [];
-  // Tours/series and the Roll of Honour both post-date the original schema
-  // too - mirrors db.js's readDb() migration on the real server.
   if (!base.tours) base.tours = [];
   if (!base.rollOfHonour) base.rollOfHonour = [];
   if (!base.apiKeys) base.apiKeys = [];
@@ -63,10 +55,8 @@ function loadInitialDb() {
     if (!league.payment) {
       league.payment = { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
     }
-    // League Manager scoping - mirrors db.js's readDb() migration.
     if (!league.managerUserIds) league.managerUserIds = [];
   }
-  // League Manager account flag - mirrors db.js's readDb() migration.
   for (const user of base.users) {
     if (user.isLeagueManager === undefined) user.isLeagueManager = false;
   }
@@ -76,16 +66,32 @@ function loadInitialDb() {
     if (!fixture.timer) fixture.timer = { startedAt: null, elapsedSeconds: 0, running: false };
     if (!fixture.shotClock) fixture.shotClock = { durationSeconds: 60, startedAt: null, running: false };
   }
-  // Round visibility ("Manage Fixtures") - mirrors db.js's readDb() migration:
-  // fixtures are hidden from players by default, even for a division saved
-  // before this feature existed and already has fixtures generated - an
-  // admin has to explicitly release each round from Manage Fixtures.
   for (const division of base.divisions) {
     if (division.visibleRounds === undefined) {
       division.visibleRounds = [];
     }
   }
   return base;
+}
+
+// Bare, empty shape - mirrors db.js's EMPTY_STATE, used only by
+// wipeAllData() below.
+const EMPTY_DEMO_STATE = {
+  leagues: [], divisions: [], players: [], teams: [], pairings: [], divisionPlayers: [],
+  fixtures: [], users: [], auditLog: [], venues: [], passwordResets: [], tours: [],
+  rollOfHonour: [], apiKeys: [], leaguePayments: [],
+};
+
+function loadInitialDb() {
+  let base;
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    if (raw) base = JSON.parse(raw);
+  } catch {
+    // fall through to the bundled seed
+  }
+  if (!base) base = structuredClone(demoDataSeed);
+  return backfillState(base);
 }
 
 // Browser-safe stand-in for Node's crypto.randomBytes(...).toString('hex'),
@@ -1865,6 +1871,46 @@ export const demoApi = {
     if (index === -1) throw new ApiError(404, 'API key not found');
     db.apiKeys.splice(index, 1);
     return { ok: true };
+  }),
+
+  // ---------- Backup & Restore ----------
+  // Demo mode has no server-side db.json to export - this downloads the
+  // current localStorage-backed demo dataset instead, and restore/wipe
+  // operate on that same `db` the rest of the demo uses. Mirrors
+  // server/src/index.js's GET/POST /api/admin/backup|restore|wipe.
+  downloadBackup: op(() => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cuesense-demo-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { ok: true };
+  }),
+
+  restoreBackup: op((data) => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new ApiError(400, "That file doesn't look like a Cue Sense backup - expected a JSON object.");
+    }
+    if (!Array.isArray(data.leagues) || !Array.isArray(data.users)) {
+      throw new ApiError(400, "That file doesn't look like a Cue Sense backup - missing leagues/users.");
+    }
+    db = backfillState(structuredClone(data));
+    return { restored: true, leagues: db.leagues.length, users: db.users.length, fixtures: db.fixtures.length };
+  }),
+
+  // Unlike the real server (which recreates a fixed admin@cuesense.co.uk
+  // recovery account), the demo has no fixed bootstrap identity to fall
+  // back on - it just reports what a real wipe would say, without actually
+  // being able to log the visitor back in afterwards, same as the real app
+  // once their account is gone.
+  wipeAllData: op(() => {
+    db = structuredClone(EMPTY_DEMO_STATE);
+    return { wiped: true, bootstrapAdminEmail: 'admin@cuesense.co.uk' };
   }),
 
   getLeagues: op(() => db.leagues),

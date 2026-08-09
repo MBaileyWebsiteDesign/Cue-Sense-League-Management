@@ -188,3 +188,18 @@ export function writeDb(state) {
 export function resetDb() {
   writeDb(structuredClone(EMPTY_STATE));
 }
+
+// Used only by the admin restore-from-backup route (see POST
+// /api/admin/restore in index.js). Writes the given state as-is - an
+// uploaded export may predate fields/collections the current schema
+// expects - then drops the in-memory cache entirely instead of priming it
+// with the as-uploaded object, so the very next readDb() does a real read
+// from disk and runs the same migration/backfill pass a fresh db.json load
+// always gets. That's how this app already handles opening an export from
+// an older version, so a restore gets it for free rather than needing its
+// own separate migration logic.
+export function restoreDb(state) {
+  ensureDataFile();
+  writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
+  cache = null;
+}

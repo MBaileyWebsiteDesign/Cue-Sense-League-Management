@@ -75,6 +75,14 @@ export default function AdminPortal() {
             each one acts as a permanent, admin-equivalent login.
           </p>
         </Link>
+
+        <Link to="/admin/backup" className="card card-link">
+          <h2>Backup &amp; Restore</h2>
+          <p className="muted">
+            Export every league, division, fixture and account to a file before a risky upgrade -
+            restore it if something goes wrong, or wipe everything back to a clean slate.
+          </p>
+        </Link>
       </div>
     </div>
   );

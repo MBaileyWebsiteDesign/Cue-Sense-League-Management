@@ -43,6 +43,7 @@ const PublicDivisionBracket = lazy(() => import('./pages/PublicDivisionBracket.j
 const PublicDivisionTable = lazy(() => import('./pages/PublicDivisionTable.jsx'));
 const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures.jsx'));
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
+const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
 // combination of admin/captain/plain-player flags it has) can browse. There
@@ -224,6 +225,7 @@ function AppShell() {
             <Route path="/admin/users/:userId" element={<RequireAdmin><AdminUserEdit /></RequireAdmin>} />
             <Route path="/admin/audit-log" element={<RequireAdmin><AdminAuditLog /></RequireAdmin>} />
             <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
+            <Route path="/admin/backup" element={<RequireAdmin><AdminBackup /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAdmin><GameAdjustments /></RequireAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
             <Route path="/admin/manage-fixtures" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />

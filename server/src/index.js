@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { readDb, writeDb } from './db.js';
+import { readDb, writeDb, resetDb, restoreDb } from './db.js';
 import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket } from './services/bracket.js';
 import { computeStandings } from './services/standings.js';
@@ -37,7 +37,7 @@ const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '5mb' })); // season CSV/Excel imports can be a few hundred rows
+app.use(express.json({ limit: '20mb' })); // season CSV/Excel imports can be a few hundred rows; a full-system backup restore (see POST /api/admin/restore) can be larger still
 
 const asyncRoute = (fn) => (req, res, next) => {
   try {
@@ -4444,6 +4444,99 @@ app.delete('/api/api-keys/:id', requireAdmin, asyncRoute((req, res) => {
   });
   writeDb(db);
   res.status(204).end();
+}));
+
+// ---------- Backup, restore & wipe ----------
+// Overall-Admin-only (never League Manager - this touches every league at
+// once, not just one a manager is scoped to). Meant to be run immediately
+// before a risky upgrade/migration: export first, apply the upgrade, and if
+// anything goes wrong either restore the exported file or wipe back to a
+// clean slate. Nothing here is scoped by league, so it stays on
+// requireAdmin directly rather than requireAnyAdmin + assertLeagueAccess.
+
+// Downloads the entire db.json as a single file. db.js's readDb() already
+// backfills any collection/field an older export predates, so re-uploading
+// this file later (even after future schema changes) restores cleanly - see
+// POST /api/admin/restore below.
+app.get('/api/admin/backup', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'backup.export',
+    targetType: 'system',
+    targetId: 'db',
+    details: `Exported a full data backup (${db.leagues.length} league(s), ${db.users.length} user(s), ${db.fixtures.length} fixture(s))`,
+  });
+  writeDb(db);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="cuesense-backup-${stamp}.json"`);
+  res.send(JSON.stringify(db, null, 2));
+}));
+
+// Replaces everything currently in the system with the contents of a
+// previously exported backup file - irreversible, and expected to be used
+// right after a failed/problematic upgrade to put things back exactly as
+// they were beforehand. Only sanity-checks the two most fundamental
+// collections (leagues/users are arrays) rather than every field - anything
+// more specific that's missing or stale gets backfilled by readDb() via
+// restoreDb() below, the same way opening an old db.json would.
+app.post('/api/admin/restore', requireAdmin, asyncRoute((req, res) => {
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    throw new ApiError(400, "That file doesn't look like a Cue Sense backup - expected a JSON object.");
+  }
+  if (!Array.isArray(incoming.leagues) || !Array.isArray(incoming.users)) {
+    throw new ApiError(400, "That file doesn't look like a Cue Sense backup - missing leagues/users.");
+  }
+
+  const before = readDb();
+  restoreDb(incoming);
+  const restored = readDb(); // forces a fresh disk read + migration/backfill pass, thanks to restoreDb() dropping the cache
+
+  recordAudit(restored, {
+    actor: req.adminSession.label,
+    action: 'backup.restore',
+    targetType: 'system',
+    targetId: 'db',
+    details: `Restored from an uploaded backup, replacing ${before.leagues.length} league(s)/${before.users.length} user(s) with ${restored.leagues.length} league(s)/${restored.users.length} user(s)`,
+  });
+  writeDb(restored);
+
+  res.json({
+    restored: true,
+    leagues: restored.leagues.length,
+    users: restored.users.length,
+    fixtures: restored.fixtures.length,
+  });
+}));
+
+// Deletes everything, back to a completely empty system - for when there's
+// no export worth restoring and the goal is a genuinely clean slate (e.g.
+// clearing out test data before real use). This necessarily also deletes
+// the acting admin's own account, which would otherwise lock every admin
+// out with no way back in short of a redeploy - so ensureBootstrapAccounts()
+// (see below, normally only run once at server startup) is re-run
+// immediately after, since a wipe is functionally a fresh deploy from the
+// app's point of view. That guarantees the same admin@cuesense.co.uk
+// recovery account a brand-new deployment gets, rather than a bespoke
+// one-off account invented just for this route.
+app.post('/api/admin/wipe', requireAdmin, asyncRoute((req, res) => {
+  const before = readDb();
+  resetDb();
+  ensureBootstrapAccounts();
+  const after = readDb();
+
+  recordAudit(after, {
+    actor: req.adminSession.label,
+    action: 'backup.wipe',
+    targetType: 'system',
+    targetId: 'db',
+    details: `Wiped all data - removed ${before.leagues.length} league(s), ${before.users.length} user(s), ${before.fixtures.length} fixture(s). Recreated the standard bootstrap admin account.`,
+  });
+  writeDb(after);
+
+  res.json({ wiped: true, bootstrapAdminEmail: 'admin@cuesense.co.uk' });
 }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
