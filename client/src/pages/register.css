@@ -1,0 +1,87 @@
+/* Compact layout for the standalone /register page (see App.jsx and
+   Register.jsx) - designed to be opened as a 640x640 popup window from the
+   Wix marketing site's Register button. Tighter vertical rhythm and a
+   two-column row for First/Last name and Phone/Team name than the roomier
+   .card/.form styling used elsewhere in the app (Login, admin forms, etc.).
+   Deliberately NOT stretched to fill the popup's full height - intrinsic
+   content is ~466px, well under the 640px budget, so the button sits
+   directly under the last field rather than being pinned to the bottom of
+   the window with a large empty gap above it. */
+.register-popup {
+  width: 640px;
+  max-width: 100vw;
+  margin: 0 auto;
+  padding: 20px 24px;
+  box-sizing: border-box;
+}
+
+.register-popup h1 {
+  font-size: 1.4rem;
+  margin: 0 0 4px;
+}
+
+.register-subtitle {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0 0 12px;
+}
+
+.register-form {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.register-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.register-form input,
+.register-form select {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.92rem;
+  font-weight: 400;
+  box-sizing: border-box;
+}
+
+.register-form input:focus,
+.register-form select:focus {
+  outline: 2px solid var(--secondary);
+  outline-offset: 1px;
+  border-color: var(--secondary);
+}
+
+.register-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
+.register-form .error {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+}
+
+.register-submit {
+  margin-top: 4px;
+  width: 100%;
+  padding: 9px 16px;
+}
+
+/* If a narrow popup somehow opens below 640px wide (blocked popups
+   sometimes fall back to a full tab at the browser's own width), collapse
+   the two-column rows to one column rather than clipping content. */
+@media (max-width: 480px) {
+  .register-row {
+    display: block;
+  }
+}
