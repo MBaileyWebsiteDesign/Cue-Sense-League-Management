@@ -1,0 +1,111 @@
+diff --git a/server/src/index.js b/server/src/index.js
+index abccaff..20f62b7 100644
+--- a/server/src/index.js
++++ b/server/src/index.js
+@@ -1756,8 +1756,98 @@ function resolveByeIfNeeded(db, division, fixture) {
+   }
+ }
+ 
++// Checks whether two entrants (player IDs, or team IDs for a teams
++// division) have already played a completed fixture against each other in
++// this division - the source of truth avoidRematchOnPlacement below uses
++// to decide whether a would-be pairing is actually a repeat.
++function haveAlreadyPlayed(db, division, aId, bId) {
++  if (!aId || !bId) return false;
++  const isTeams = division.entryType === 'teams';
++  return db.fixtures.some((f) => {
++    if (f.divisionId !== division.id || f.status !== 'completed') return false;
++    const home = isTeams ? f.homeTeamId : f.homePlayerId;
++    const away = isTeams ? f.awayTeamId : f.awayPlayerId;
++    return (home === aId && away === bId) || (home === bId && away === aId);
++  });
++}
++
++// Double-elimination rematch avoidance, shared by propagateWinner (losers-
++// bracket-internal advancement) and propagateLoser (a winners-bracket
++// loser dropping into the losers bracket).
++//
++// Most losers-bracket placements can never repeat an earlier pairing by
++// construction: two winners-bracket losers arriving in the same "entry"
++// round always come from two different winners-round-1 matches (so never
++// played each other), and two fresh losers paired off against each other
++// in the "leftover" portion of a merge round both come from winners
++// matches still in progress this round (so, per single-elimination-tree
++// properties, can't have met yet either) - see buildDoubleElimBracket's
++// comments. The one spot this isn't true: a merge round's box also seats
++// an *already-waiting* losers-bracket survivor, whose route through the
++// bracket is entirely independent of whoever the incoming entrant is -
++// there's nothing structural stopping those two from having played each
++// other already. Likewise, once that survivor's own box was decided by an
++// earlier swap (see below), later losers-bracket-internal consolidation
++// rounds inherit the same risk.
++//
++// So: before seating `entrantId` into `fixture[idField]`/`fixture[slotField]`,
++// check whether whoever already occupies that destination's other slot is
++// someone `entrantId` has already played. If so, look for a sibling
++// fixture - same round, same bracketRole, not yet completed, wired via the
++// same id/slot field pair and the same target slot - and swap the two
++// fixtures' routing so each one's *eventual* winner/loser lands somewhere
++// rematch-free instead. This only ever repoints not-yet-decided
++// assignments, so it's always safe to do (and redo, on a result
++// correction) right up until each one's result actually lands. If no
++// rematch-free sibling exists, the placement goes ahead as originally
++// wired - not every case can be avoided (see the docs on this feature).
++function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entrantId) {
++  const targetId = fixture[idField];
++  const targetSlot = fixture[slotField];
++  if (!targetId || !entrantId) return;
++  const dest = db.fixtures.find((f) => f.id === targetId);
++  if (!dest) return;
++  const isTeams = division.entryType === 'teams';
++  const otherSlot = targetSlot === 'home' ? 'away' : 'home';
++  const readSlot = (fx, slot) => (isTeams
++    ? (slot === 'home' ? fx.homeTeamId : fx.awayTeamId)
++    : (slot === 'home' ? fx.homePlayerId : fx.awayPlayerId));
++  const occupant = readSlot(dest, otherSlot);
++  if (!occupant || !haveAlreadyPlayed(db, division, entrantId, occupant)) return;
++
++  const siblings = db.fixtures.filter((f) =>
++    f.id !== fixture.id &&
++    f.divisionId === fixture.divisionId &&
++    f.bracketRole === fixture.bracketRole &&
++    f.round === fixture.round &&
++    f.status !== 'completed' &&
++    f[slotField] === targetSlot &&
++    f[idField]
++  );
++  const occupantAt = (fx) => {
++    const d = db.fixtures.find((x) => x.id === fx[idField]);
++    return d ? readSlot(d, otherSlot) : null;
++  };
++  const pick =
++    siblings.find((f) => !occupantAt(f)) ||
++    siblings.find((f) => {
++      const o = occupantAt(f);
++      return o && !haveAlreadyPlayed(db, division, entrantId, o);
++    });
++  if (!pick) return;
++
++  const ours = { id: fixture[idField], slot: fixture[slotField] };
++  fixture[idField] = pick[idField];
++  fixture[slotField] = pick[slotField];
++  pick[idField] = ours.id;
++  pick[slotField] = ours.slot;
++}
++
+ function propagateWinner(db, division, fixture, winnerId) {
+   if (!fixture.nextFixtureId) return;
++  if (fixture.bracketRole === 'losers') {
++    avoidRematchOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
++  }
+   const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
+   if (!next) return;
+   if (division.entryType === 'teams') {
+@@ -1788,6 +1878,7 @@ function propagateWinner(db, division, fixture, winnerId) {
+ // eliminate their loser outright - there's nowhere further for them to go).
+ function propagateLoser(db, division, fixture, loserId) {
+   if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
++  avoidRematchOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+   const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
+   if (!dest) return;
+   if (division.entryType === 'teams') {
