@@ -16,7 +16,7 @@
 // and there's no way to reset short of clearing site data.
 import demoDataSeed from './demoData.json';
 import { generateRoundRobin, generateRoundRobinDouble } from './logic/roundRobin.js';
-import { buildBracketRounds, buildDoubleElimBracket } from './logic/bracket.js';
+import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './logic/bracket.js';
 import { computeStandings } from './logic/standings.js';
 import { computeTeamStandings } from './logic/teamStandings.js';
 import { computeTourStandings } from './logic/tours.js';
@@ -26,6 +26,13 @@ import { recordAudit } from './logic/auditLog.js';
 const uuid = () => crypto.randomUUID();
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 const STATUSES = ['active', 'suspended'];
+
+// See server/src/index.js's MAX_RESERVED_BYE_COUNT / reservedByeCountFor
+// comments - mirrored here so the demo build behaves the same way.
+const MAX_RESERVED_BYE_COUNT = 4;
+function reservedByeCountFor(entrantCount) {
+  return Math.max(0, Math.min(MAX_RESERVED_BYE_COUNT, Math.floor(entrantCount / 2) - 1));
+}
 const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim'];
 const DB_KEY = 'poolLeagueDemoDb';
 const CURRENT_USER_KEY = 'poolLeagueDemoCurrentUserId';
@@ -562,6 +569,8 @@ function makeSinglesFixture({ league, division, round }) {
     nextFixtureSlot: null,
     // Knockout only - see server/src/index.js's byeSlot comment.
     byeSlot: null,
+    // See server/src/index.js's reserved comment.
+    reserved: false,
     bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -601,6 +610,7 @@ function makeTeamFixture({ league, division, round }) {
     nextFixtureId: null,
     nextFixtureSlot: null,
     byeSlot: null,
+    reserved: false,
     bracketRole: 'single',
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -629,6 +639,7 @@ function generateRoundRobinFixtures({ league, division, entrantIds }) {
 }
 
 function resolveByeIfNeeded(division, fixture) {
+  if (fixture.reserved) return;
   if (division.entryType === 'teams') {
     if (fixture.homeTeamId && fixture.awayTeamId) return;
     const winnerTeamId = fixture.homeTeamId || fixture.awayTeamId;
@@ -666,7 +677,8 @@ function propagateWinner(division, fixture, winnerId) {
 
 function generateKnockoutFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const bracketRounds = buildBracketRounds(entrantIds);
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const bracketRounds = buildBracketRounds(entrantIds, { reservedCount });
 
   const fixturesByRound = bracketRounds.map((pairs, roundIndex) =>
     pairs.map(() => makeFixture({ league, division, round: roundIndex + 1 }))
@@ -691,13 +703,16 @@ function generateKnockoutFixtures({ league, division, entrantIds }) {
 
   bracketRounds[0].forEach(([a, b], i) => {
     const fixture = fixturesByRound[0][i];
-    if (b === null) fixture.byeSlot = 'away';
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
-      fixture.awayTeamId = b;
+      fixture.awayTeamId = awayValue;
     } else {
       fixture.homePlayerId = a;
-      fixture.awayPlayerId = b;
+      fixture.awayPlayerId = awayValue;
     }
   });
 
@@ -761,7 +776,8 @@ function checkGrandFinalReset(division, fixture) {
 // port, adapted only for demoApi's closed-over `db` instead of a db param).
 function generateDoubleElimFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds);
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
 
   // ---- Winners bracket ----
   const wbByRound = winnersRounds.map((pairs, roundIndex) =>
@@ -785,13 +801,16 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
   }
   winnersRounds[0].forEach(([a, b], i) => {
     const fixture = wbByRound[0][i];
-    if (b === null) fixture.byeSlot = 'away';
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
-      fixture.awayTeamId = b;
+      fixture.awayTeamId = awayValue;
     } else {
       fixture.homePlayerId = a;
-      fixture.awayPlayerId = b;
+      fixture.awayPlayerId = awayValue;
     }
   });
 
@@ -858,9 +877,8 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
 
   const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
   allFixtures.forEach((f) => db.fixtures.push(f));
-  // Resolve any winners-bracket round-1 byes - see server/src/index.js's
-  // matching comment (no-op today since double elimination requires an
-  // even entrant count, kept for defensive parity).
+  // Resolve any non-reserved winners-bracket round-1 byes - see
+  // server/src/index.js's matching comment.
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
@@ -2253,8 +2271,20 @@ export const demoApi = {
     if (division.entryType !== 'singles') {
       throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
     }
+    const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
+    let reservedFixture = null;
     if (division.fixturesGenerated) {
-      throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+      if (isKnockout) {
+        reservedFixture = db.fixtures.find((f) => f.divisionId === division.id && f.reserved && f.status !== 'completed');
+      }
+      if (!reservedFixture) {
+        throw new ApiError(
+          400,
+          isKnockout
+            ? 'No reserved late-entrant slot is open for this division right now'
+            : 'Cannot add players after fixtures have been generated for this division'
+        );
+      }
     }
     const league = db.leagues.find((l) => l.id === division.leagueId);
 
@@ -2267,6 +2297,11 @@ export const demoApi = {
     const newPlayerId = user.playerId;
 
     if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
+    if (reservedFixture) {
+      reservedFixture.awayPlayerId = newPlayerId;
+      reservedFixture.reserved = false;
+      reservedFixture.byeSlot = null;
+    }
 
     if (league && league.payment && league.payment.required) {
       const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
@@ -2287,13 +2322,38 @@ export const demoApi = {
 
     recordAudit(db, {
       actor: adminLabel(),
-      action: 'division.quick_add_player',
+      action: reservedFixture ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
       targetType: 'division',
       targetId: division.id,
-      details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
+      details: reservedFixture
+        ? `Quick-added late entrant ${user.firstName} ${user.lastName} to "${division.name}" - claimed a reserved bracket slot`
+        : `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
     });
 
-    return { division: hydrateDivision(division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` } };
+    return {
+      division: hydrateDivision(division),
+      player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` },
+      outcome: { method: reservedFixture ? 'reserved-slot' : 'added' },
+    };
+  }),
+
+  // Mirrors server/src/index.js's POST /api/divisions/:id/close-late-entry.
+  closeLateEntry: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const reservedFixtures = db.fixtures.filter((f) => f.divisionId === division.id && f.reserved);
+    reservedFixtures.forEach((fixture) => {
+      fixture.reserved = false;
+      resolveByeIfNeeded(division, fixture);
+    });
+    recordAudit(db, {
+      actor: adminLabel(),
+      action: 'division.close_late_entry',
+      targetType: 'division',
+      targetId: division.id,
+      details: `Closed late entry for "${division.name}" - released ${reservedFixtures.length} unclaimed reserved slot(s)`,
+    });
+    return { division: hydrateDivision(division), releasedCount: reservedFixtures.length };
   }),
 
   createPairing: op((divisionId, name) => {
