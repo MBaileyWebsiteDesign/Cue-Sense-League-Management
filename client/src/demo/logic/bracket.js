@@ -49,13 +49,41 @@ function withRandomEntrantLast(entrantIds) {
 // rounds can also produce a bye (see above), but there's no "entrant" to
 // randomise there - it falls out of whichever box a survivor happens to
 // land in, decided by results that don't exist yet at generation time.
-export function buildBracketRounds(entrantIds) {
-  if (entrantIds.length < 2) return [];
+// How many of a round's boxes can ever be a bye. Structurally, ordinary
+// play only ever produces one (see buildBracketRounds's own comments) -
+// this is only ever exceeded deliberately, by reservedCount below.
+function boxesFor(pairCount) {
+  return Array.from({ length: pairCount }, () => [null, null]);
+}
 
-  const n = entrantIds.length;
+// Marker used as round 1's second slot to flag a box as a RESERVED bye
+// (see reservedCount below) rather than an ordinary structural one - both
+// look like `[entrantId, <empty>]` to the rest of the pipeline, but only a
+// reserved one should be left unresolved for a late entrant to claim.
+// Ordinary byes still use plain `null`, unchanged.
+export const RESERVED_SLOT = Symbol('reserved-slot');
+
+export function buildBracketRounds(entrantIds, { reservedCount = 0 } = {}) {
+  if (entrantIds.length < 2 + reservedCount) {
+    // Not enough real entrants to both hold reservedCount of them back for
+    // a late-entrant slot AND pair off everyone else - the caller
+    // (generateKnockoutFixtures) is expected to cap reservedCount before
+    // calling this, so this is a defensive floor, not the normal path.
+    reservedCount = Math.max(0, entrantIds.length - 2);
+  }
+  if (entrantIds.length < 2 && reservedCount === 0) return [];
+
+  // Reserved entrants (see reservedCount doc below) are pulled off the end
+  // of the field before normal pairing runs, so they never affect who else
+  // plays whom in round 1 - withRandomEntrantLast below only ever sees the
+  // entrants left after reservedCount has been removed.
+  const reservedEntrants = reservedCount > 0 ? entrantIds.slice(entrantIds.length - reservedCount) : [];
+  const pairEntrants = reservedCount > 0 ? entrantIds.slice(0, entrantIds.length - reservedCount) : entrantIds;
+
+  const n = pairEntrants.length;
   const firstRoundRealMatches = Math.floor(n / 2);
   const hasFirstRoundBye = n % 2 === 1;
-  const orderedIds = hasFirstRoundBye ? withRandomEntrantLast(entrantIds) : entrantIds;
+  const orderedIds = hasFirstRoundBye ? withRandomEntrantLast(pairEntrants) : pairEntrants;
 
   const firstRoundPairs = [];
   let idx = 0;
@@ -66,16 +94,35 @@ export function buildBracketRounds(entrantIds) {
   if (hasFirstRoundBye) {
     firstRoundPairs.push([orderedIds[idx], null]);
   }
+  // Reserved slots: up to `reservedCount` extra round-1 boxes, each
+  // seeding ONE genuine registered entrant (pulled off the field above)
+  // against an open side reserved for a day-of late entrant - structurally
+  // an ordinary bye box (one real occupant, byeSlot marked by the caller),
+  // except generateKnockoutFixtures/generateDoubleElimFixtures deliberately
+  // leave it unresolved instead of auto-advancing the occupant immediately,
+  // so a late entrant can claim the open side first. Anything still
+  // unclaimed once late entry closes falls back to ordinary bye
+  // resolution. This is a different (and safer) design than an earlier,
+  // reverted attempt that reserved fully-blank two-sided boxes with no
+  // real occupant on either side - see the removal commit "Remove the
+  // always-present empty round-1 fixture from double-elim brackets" for
+  // why that broke (an empty box has no structural path to ever resolve
+  // itself if nobody claims it - a bye box always does).
+  reservedEntrants.forEach((entrantId) => {
+    firstRoundPairs.push([entrantId, RESERVED_SLOT]);
+  });
 
   const rounds = [firstRoundPairs];
   // Every box in a round (real match or bye) produces exactly one winner,
   // so the next round's box count is always ceil(current / 2) - not an
   // exact halving, since an odd count needs one bye box to mop up the
-  // leftover survivor.
+  // leftover survivor. Reserved boxes count the same as any other box here
+  // - the recurrence only cares about round-1's total box count, not how
+  // many of them are reserved.
   let survivors = firstRoundPairs.length;
   while (survivors > 1) {
     survivors = Math.ceil(survivors / 2);
-    rounds.push(Array.from({ length: survivors }, () => [null, null]));
+    rounds.push(boxesFor(survivors));
   }
   return rounds;
 }
@@ -122,25 +169,32 @@ export function buildBracketRounds(entrantIds) {
 //     losers-bracket box). Like buildBracketRounds, only the *shape* is
 //     returned - actual entrant IDs are wired up by the caller via
 //     nextFixtureId/nextFixtureSlot and loserNextFixtureId/loserNextFixtureSlot.
-export function buildDoubleElimBracket(entrantIds) {
+export function buildDoubleElimBracket(entrantIds, { reservedCount = 0 } = {}) {
   const n = entrantIds.length;
   if (n < 4) throw new Error('Double elimination needs at least 4 entrants');
 
   // buildBracketRounds already handles an odd entrant count on its own -
   // one randomly-chosen entrant sits out round 1 with a bye, exactly like
-  // single-elimination - so an odd n here needs no special handling beyond
-  // that; the loser-count math below (Math.floor(count / 2) throughout)
-  // already accounts for a bye box producing no loser.
-  const winnersRounds = buildBracketRounds(entrantIds);
-  // How many entrants/survivors enter each winners round (round 0 starts
-  // with everyone; every later round starts with however many boxes the
-  // round before it had, since every box - real match or bye - produces
-  // exactly one survivor).
-  const incoming = [n, ...winnersRounds.slice(0, -1).map((round) => round.length)];
-  // Only real matches produce a loser - a bye box's occupant advances for
-  // free, so Math.floor handles both the even case (no bye) and the odd
-  // case (one bye, floor drops it) correctly.
-  const wbLosers = incoming.map((count) => Math.floor(count / 2));
+  // single-elimination - and now also handles reservedCount (see its own
+  // doc comment) the same way single-elimination does: up to reservedCount
+  // entrants are held back from round 1 and each seeded alone into their
+  // own bye box instead.
+  const winnersRounds = buildBracketRounds(entrantIds, { reservedCount });
+  // wbLosers: how many *real* matches (and therefore losers) each winners
+  // round produces. Math.floor(count / 2) is only correct when a round has
+  // AT MOST ONE bye box - true everywhere else in this file, since ordinary
+  // play only ever produces one structurally-unavoidable bye per round, but
+  // round 1 can now carry a natural bye AND up to several reserved byes at
+  // once (see reservedCount above). So round 1's real-match count is read
+  // directly off its pairing (how many boxes have a real second entrant)
+  // instead of assumed from a simple halving, and every later round keeps
+  // the floor-based shortcut, since only round 1 is ever deliberately
+  // padded with more than one bye.
+  const wbLosers = winnersRounds.map((round, r) => {
+    if (r === 0) return round.filter(([, b]) => b !== null && b !== RESERVED_SLOT).length;
+    const hasBye = winnersRounds[r - 1].length % 2 === 1;
+    return round.length - (hasBye ? 1 : 0);
+  });
 
   const losersRounds = [];
   let pool = 0; // losers-bracket survivors currently waiting, between rounds
