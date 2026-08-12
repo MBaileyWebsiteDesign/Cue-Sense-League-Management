@@ -68,11 +68,27 @@ export default function AdminPortal() {
           </p>
         </Link>
 
+        <Link to="/admin/issues" className="card card-link">
+          <h2>Issue / Bug Tracker</h2>
+          <p className="muted">
+            Every open and recently-closed issue on the project's GitHub repo, pulled live -
+            feature requests and bugs together in one read-only list.
+          </p>
+        </Link>
+
         <Link to="/admin/api-keys" className="card card-link">
           <h2>API Keys</h2>
           <p className="muted">
             Generate or revoke API keys for StreamDeck or other unattended integrations -
             each one acts as a permanent, admin-equivalent login.
+          </p>
+        </Link>
+
+        <Link to="/admin/backup" className="card card-link">
+          <h2>Backup &amp; Restore</h2>
+          <p className="muted">
+            Export every league, division, fixture and account to a file before a risky upgrade -
+            restore it if something goes wrong, or wipe everything back to a clean slate.
           </p>
         </Link>
       </div>

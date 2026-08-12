@@ -63,6 +63,7 @@ const networkApi = {
   adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),
+  adminGetGithubIssues: () => request('/admin/github-issues'),
 
   // Admin: Game Adjustments
   adminGetPlayerFixtures: (playerId) => request(`/admin/players/${playerId}/fixtures`),
@@ -136,6 +137,8 @@ const networkApi = {
     request(`/divisions/${divisionId}/players/${playerId}`, { method: 'DELETE' }),
   quickAddPlayer: (divisionId, firstName, lastName) =>
     request(`/divisions/${divisionId}/quick-add-player`, { method: 'POST', body: JSON.stringify({ firstName, lastName }) }),
+  closeLateEntry: (divisionId) =>
+    request(`/divisions/${divisionId}/close-late-entry`, { method: 'POST' }),
   generateFixtures: (divisionId, data = {}) =>
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
   seedFromGroups: (divisionId, sources) =>
@@ -184,6 +187,38 @@ const networkApi = {
   getApiKeys: () => request('/api-keys'),
   createApiKey: (label) => request('/api-keys', { method: 'POST', body: JSON.stringify({ label }) }),
   deleteApiKey: (id) => request(`/api-keys/${id}`, { method: 'DELETE' }),
+
+  // Backup, restore & wipe (Overall-Admin-only) - see server/src/index.js's
+  // GET/POST /api/admin/backup|restore|wipe.
+  //
+  // Bypasses the JSON-only `request()` helper: the response is the raw
+  // db.json body with a Content-Disposition filename, not a parsed API
+  // result, so this reads it as a blob and triggers a real browser download
+  // instead of returning data to the caller.
+  downloadBackup: async () => {
+    const token = getStoredToken();
+    const res = await fetch(`${BASE}/admin/backup`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : 'cuesense-backup.json';
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+  restoreBackup: (data) => request('/admin/restore', { method: 'POST', body: JSON.stringify(data) }),
+  wipeAllData: () => request('/admin/wipe', { method: 'POST' }),
   recordFrame: (fixtureId, winnerPlayerId) =>
     request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId }) }),
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),

@@ -16,7 +16,7 @@
 // and there's no way to reset short of clearing site data.
 import demoDataSeed from './demoData.json';
 import { generateRoundRobin, generateRoundRobinDouble } from './logic/roundRobin.js';
-import { buildBracketRounds, buildDoubleElimBracket } from './logic/bracket.js';
+import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './logic/bracket.js';
 import { computeStandings } from './logic/standings.js';
 import { computeTeamStandings } from './logic/teamStandings.js';
 import { computeTourStandings } from './logic/tours.js';
@@ -26,6 +26,13 @@ import { recordAudit } from './logic/auditLog.js';
 const uuid = () => crypto.randomUUID();
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 const STATUSES = ['active', 'suspended'];
+
+// See server/src/index.js's MAX_RESERVED_BYE_COUNT / reservedByeCountFor
+// comments - mirrored here so the demo build behaves the same way.
+const MAX_RESERVED_BYE_COUNT = 4;
+function reservedByeCountFor(entrantCount) {
+  return Math.max(0, Math.min(MAX_RESERVED_BYE_COUNT, Math.floor(entrantCount / 2) - 1));
+}
 const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim'];
 const DB_KEY = 'poolLeagueDemoDb';
 const CURRENT_USER_KEY = 'poolLeagueDemoCurrentUserId';
@@ -37,23 +44,15 @@ class ApiError extends Error {
   }
 }
 
-function loadInitialDb() {
-  let base;
-  try {
-    const raw = localStorage.getItem(DB_KEY);
-    if (raw) base = JSON.parse(raw);
-  } catch {
-    // fall through to the bundled seed
-  }
-  if (!base) base = structuredClone(demoDataSeed);
-  // Backfill for a seed/save that predates `pairings` (doubles/triples) -
-  // mirrors db.js's readDb() migration on the real server.
+// Mirrors db.js's readDb() migration on the real server - backfills any
+// collection/field a seed/save (or, for restoreBackup below, an uploaded
+// export) predates. Shared by loadInitialDb() below and restoreBackup(), so
+// there's exactly one place this list has to stay in sync with db.js.
+function backfillState(base) {
   if (!base.pairings) base.pairings = [];
   if (!base.passwordResets) base.passwordResets = [];
   if (!base.divisions) base.divisions = [];
   if (!base.fixtures) base.fixtures = [];
-  // Tours/series and the Roll of Honour both post-date the original schema
-  // too - mirrors db.js's readDb() migration on the real server.
   if (!base.tours) base.tours = [];
   if (!base.rollOfHonour) base.rollOfHonour = [];
   if (!base.apiKeys) base.apiKeys = [];
@@ -63,10 +62,8 @@ function loadInitialDb() {
     if (!league.payment) {
       league.payment = { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
     }
-    // League Manager scoping - mirrors db.js's readDb() migration.
     if (!league.managerUserIds) league.managerUserIds = [];
   }
-  // League Manager account flag - mirrors db.js's readDb() migration.
   for (const user of base.users) {
     if (user.isLeagueManager === undefined) user.isLeagueManager = false;
   }
@@ -76,16 +73,32 @@ function loadInitialDb() {
     if (!fixture.timer) fixture.timer = { startedAt: null, elapsedSeconds: 0, running: false };
     if (!fixture.shotClock) fixture.shotClock = { durationSeconds: 60, startedAt: null, running: false };
   }
-  // Round visibility ("Manage Fixtures") - mirrors db.js's readDb() migration:
-  // fixtures are hidden from players by default, even for a division saved
-  // before this feature existed and already has fixtures generated - an
-  // admin has to explicitly release each round from Manage Fixtures.
   for (const division of base.divisions) {
     if (division.visibleRounds === undefined) {
       division.visibleRounds = [];
     }
   }
   return base;
+}
+
+// Bare, empty shape - mirrors db.js's EMPTY_STATE, used only by
+// wipeAllData() below.
+const EMPTY_DEMO_STATE = {
+  leagues: [], divisions: [], players: [], teams: [], pairings: [], divisionPlayers: [],
+  fixtures: [], users: [], auditLog: [], venues: [], passwordResets: [], tours: [],
+  rollOfHonour: [], apiKeys: [], leaguePayments: [],
+};
+
+function loadInitialDb() {
+  let base;
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    if (raw) base = JSON.parse(raw);
+  } catch {
+    // fall through to the bundled seed
+  }
+  if (!base) base = structuredClone(demoDataSeed);
+  return backfillState(base);
 }
 
 // Browser-safe stand-in for Node's crypto.randomBytes(...).toString('hex'),
@@ -556,6 +569,8 @@ function makeSinglesFixture({ league, division, round }) {
     nextFixtureSlot: null,
     // Knockout only - see server/src/index.js's byeSlot comment.
     byeSlot: null,
+    // See server/src/index.js's reserved comment.
+    reserved: false,
     bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -595,6 +610,7 @@ function makeTeamFixture({ league, division, round }) {
     nextFixtureId: null,
     nextFixtureSlot: null,
     byeSlot: null,
+    reserved: false,
     bracketRole: 'single',
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -623,6 +639,7 @@ function generateRoundRobinFixtures({ league, division, entrantIds }) {
 }
 
 function resolveByeIfNeeded(division, fixture) {
+  if (fixture.reserved) return;
   if (division.entryType === 'teams') {
     if (fixture.homeTeamId && fixture.awayTeamId) return;
     const winnerTeamId = fixture.homeTeamId || fixture.awayTeamId;
@@ -660,7 +677,8 @@ function propagateWinner(division, fixture, winnerId) {
 
 function generateKnockoutFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const bracketRounds = buildBracketRounds(entrantIds);
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const bracketRounds = buildBracketRounds(entrantIds, { reservedCount });
 
   const fixturesByRound = bracketRounds.map((pairs, roundIndex) =>
     pairs.map(() => makeFixture({ league, division, round: roundIndex + 1 }))
@@ -685,13 +703,16 @@ function generateKnockoutFixtures({ league, division, entrantIds }) {
 
   bracketRounds[0].forEach(([a, b], i) => {
     const fixture = fixturesByRound[0][i];
-    if (b === null) fixture.byeSlot = 'away';
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
-      fixture.awayTeamId = b;
+      fixture.awayTeamId = awayValue;
     } else {
       fixture.homePlayerId = a;
-      fixture.awayPlayerId = b;
+      fixture.awayPlayerId = awayValue;
     }
   });
 
@@ -755,7 +776,8 @@ function checkGrandFinalReset(division, fixture) {
 // port, adapted only for demoApi's closed-over `db` instead of a db param).
 function generateDoubleElimFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds);
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
 
   // ---- Winners bracket ----
   const wbByRound = winnersRounds.map((pairs, roundIndex) =>
@@ -779,13 +801,16 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
   }
   winnersRounds[0].forEach(([a, b], i) => {
     const fixture = wbByRound[0][i];
-    if (b === null) fixture.byeSlot = 'away';
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
-      fixture.awayTeamId = b;
+      fixture.awayTeamId = awayValue;
     } else {
       fixture.homePlayerId = a;
-      fixture.awayPlayerId = b;
+      fixture.awayPlayerId = awayValue;
     }
   });
 
@@ -852,9 +877,8 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
 
   const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
   allFixtures.forEach((f) => db.fixtures.push(f));
-  // Resolve any winners-bracket round-1 byes - see server/src/index.js's
-  // matching comment (no-op today since double elimination requires an
-  // even entrant count, kept for defensive parity).
+  // Resolve any non-reserved winners-bracket round-1 byes - see
+  // server/src/index.js's matching comment.
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
@@ -1873,6 +1897,46 @@ export const demoApi = {
     return { ok: true };
   }),
 
+  // ---------- Backup & Restore ----------
+  // Demo mode has no server-side db.json to export - this downloads the
+  // current localStorage-backed demo dataset instead, and restore/wipe
+  // operate on that same `db` the rest of the demo uses. Mirrors
+  // server/src/index.js's GET/POST /api/admin/backup|restore|wipe.
+  downloadBackup: op(() => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cuesense-demo-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { ok: true };
+  }),
+
+  restoreBackup: op((data) => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new ApiError(400, "That file doesn't look like a Cue Sense backup - expected a JSON object.");
+    }
+    if (!Array.isArray(data.leagues) || !Array.isArray(data.users)) {
+      throw new ApiError(400, "That file doesn't look like a Cue Sense backup - missing leagues/users.");
+    }
+    db = backfillState(structuredClone(data));
+    return { restored: true, leagues: db.leagues.length, users: db.users.length, fixtures: db.fixtures.length };
+  }),
+
+  // Unlike the real server (which recreates a fixed admin@cuesense.co.uk
+  // recovery account), the demo has no fixed bootstrap identity to fall
+  // back on - it just reports what a real wipe would say, without actually
+  // being able to log the visitor back in afterwards, same as the real app
+  // once their account is gone.
+  wipeAllData: op(() => {
+    db = structuredClone(EMPTY_DEMO_STATE);
+    return { wiped: true, bootstrapAdminEmail: 'admin@cuesense.co.uk' };
+  }),
+
   getLeagues: op(() => db.leagues),
 
   createLeague: op((data) => {
@@ -2213,8 +2277,20 @@ export const demoApi = {
     if (division.entryType !== 'singles') {
       throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
     }
+    const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
+    let reservedFixture = null;
     if (division.fixturesGenerated) {
-      throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+      if (isKnockout) {
+        reservedFixture = db.fixtures.find((f) => f.divisionId === division.id && f.reserved && f.status !== 'completed');
+      }
+      if (!reservedFixture) {
+        throw new ApiError(
+          400,
+          isKnockout
+            ? 'No reserved late-entrant slot is open for this division right now'
+            : 'Cannot add players after fixtures have been generated for this division'
+        );
+      }
     }
     const league = db.leagues.find((l) => l.id === division.leagueId);
 
@@ -2227,6 +2303,11 @@ export const demoApi = {
     const newPlayerId = user.playerId;
 
     if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
+    if (reservedFixture) {
+      reservedFixture.awayPlayerId = newPlayerId;
+      reservedFixture.reserved = false;
+      reservedFixture.byeSlot = null;
+    }
 
     if (league && league.payment && league.payment.required) {
       const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
@@ -2247,13 +2328,38 @@ export const demoApi = {
 
     recordAudit(db, {
       actor: adminLabel(),
-      action: 'division.quick_add_player',
+      action: reservedFixture ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
       targetType: 'division',
       targetId: division.id,
-      details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
+      details: reservedFixture
+        ? `Quick-added late entrant ${user.firstName} ${user.lastName} to "${division.name}" - claimed a reserved bracket slot`
+        : `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
     });
 
-    return { division: hydrateDivision(division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` } };
+    return {
+      division: hydrateDivision(division),
+      player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` },
+      outcome: { method: reservedFixture ? 'reserved-slot' : 'added' },
+    };
+  }),
+
+  // Mirrors server/src/index.js's POST /api/divisions/:id/close-late-entry.
+  closeLateEntry: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const reservedFixtures = db.fixtures.filter((f) => f.divisionId === division.id && f.reserved);
+    reservedFixtures.forEach((fixture) => {
+      fixture.reserved = false;
+      resolveByeIfNeeded(division, fixture);
+    });
+    recordAudit(db, {
+      actor: adminLabel(),
+      action: 'division.close_late_entry',
+      targetType: 'division',
+      targetId: division.id,
+      details: `Closed late entry for "${division.name}" - released ${reservedFixtures.length} unclaimed reserved slot(s)`,
+    });
+    return { division: hydrateDivision(division), releasedCount: reservedFixtures.length };
   }),
 
   createPairing: op((divisionId, name) => {
