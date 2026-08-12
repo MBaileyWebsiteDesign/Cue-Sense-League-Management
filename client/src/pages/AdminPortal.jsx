@@ -68,6 +68,14 @@ export default function AdminPortal() {
           </p>
         </Link>
 
+        <Link to="/admin/issues" className="card card-link">
+          <h2>Issue / Bug Tracker</h2>
+          <p className="muted">
+            Every open and recently-closed issue on the project's GitHub repo, pulled live -
+            feature requests and bugs together in one read-only list.
+          </p>
+        </Link>
+
         <Link to="/admin/api-keys" className="card card-link">
           <h2>API Keys</h2>
           <p className="muted">

@@ -1357,6 +1357,65 @@ app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, re
   res.json(results);
 }));
 
+// Powers the Admin Portal's "Issue / Bug Tracker" section - a read-only
+// mirror of the project's GitHub Issues (github.com/MBaileyWebsiteDesign/
+// Cue-Sense-League-Management/issues), admin-only. The repo is public, so
+// this deliberately doesn't need a GitHub token - it hits the same
+// unauthenticated REST endpoint anyone could call, just server-side to
+// avoid a browser CORS request and keep the repo name in one place. A
+// short in-memory cache keeps repeat page loads from tripping GitHub's
+// ~60-requests/hour unauthenticated rate limit; it's process-local and
+// simply resets on every deploy/restart. Deliberately NOT wrapped in
+// asyncRoute - that helper only catches synchronous throws (see its
+// definition above), not a rejected promise from an async handler, so
+// this handler manages its own fetch/catch and error response instead.
+const GITHUB_ISSUES_REPO = 'MBaileyWebsiteDesign/Cue-Sense-League-Management';
+const GITHUB_ISSUES_CACHE_MS = 60 * 1000;
+let githubIssuesCache = { at: 0, data: null };
+
+app.get('/api/admin/github-issues', requireAdmin, (req, res) => {
+  const now = Date.now();
+  if (githubIssuesCache.data && now - githubIssuesCache.at < GITHUB_ISSUES_CACHE_MS) {
+    res.json(githubIssuesCache.data);
+    return;
+  }
+
+  fetch(
+    `https://api.github.com/repos/${GITHUB_ISSUES_REPO}/issues?state=all&per_page=100&sort=updated&direction=desc`,
+    { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'cue-sense-pool-management' } }
+  )
+    .then(async (ghRes) => {
+      if (!ghRes.ok) {
+        res.status(502).json({ error: `GitHub returned ${ghRes.status} fetching issues - try again shortly.` });
+        return;
+      }
+      const raw = await ghRes.json();
+      // The Issues API returns pull requests too - a PR is an issue with a
+      // `pull_request` key present; filter those out so this only shows
+      // real issues.
+      const issues = raw
+        .filter((item) => !item.pull_request)
+        .map((item) => ({
+          number: item.number,
+          title: item.title,
+          state: item.state,
+          htmlUrl: item.html_url,
+          labels: (item.labels || []).map((l) =>
+            typeof l === 'string' ? { name: l, color: '888888' } : { name: l.name, color: l.color }
+          ),
+          commentCount: item.comments,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+          author: item.user?.login || null,
+        }));
+      githubIssuesCache = { at: now, data: issues };
+      res.json(issues);
+    })
+    .catch((err) => {
+      res.status(502).json({ error: `Couldn't reach GitHub: ${err.message}` });
+    });
+});
+
 app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
   const { playerId } = req.body;
   if (!playerId) throw new ApiError(400, 'playerId is required');

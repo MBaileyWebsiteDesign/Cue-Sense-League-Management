@@ -33,6 +33,7 @@ const AdminPortal = lazy(() => import('./pages/AdminPortal.jsx'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers.jsx'));
 const AdminUserEdit = lazy(() => import('./pages/AdminUserEdit.jsx'));
 const AdminAuditLog = lazy(() => import('./pages/AdminAuditLog.jsx'));
+const AdminIssueTracker = lazy(() => import('./pages/AdminIssueTracker.jsx'));
 const AdminSeasonWizard = lazy(() => import('./pages/AdminSeasonWizard.jsx'));
 const ManageFixtures = lazy(() => import('./pages/ManageFixtures.jsx'));
 const StreamOverlay = lazy(() => import('./pages/StreamOverlay.jsx'));
@@ -224,6 +225,7 @@ function AppShell() {
             <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
             <Route path="/admin/users/:userId" element={<RequireAdmin><AdminUserEdit /></RequireAdmin>} />
             <Route path="/admin/audit-log" element={<RequireAdmin><AdminAuditLog /></RequireAdmin>} />
+            <Route path="/admin/issues" element={<RequireAdmin><AdminIssueTracker /></RequireAdmin>} />
             <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
             <Route path="/admin/backup" element={<RequireAdmin><AdminBackup /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAdmin><GameAdjustments /></RequireAdmin>} />
