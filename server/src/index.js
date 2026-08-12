@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { readDb, writeDb, resetDb, restoreDb } from './db.js';
 import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
-import { buildBracketRounds, buildDoubleElimBracket } from './services/bracket.js';
+import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
 import { computeStandings } from './services/standings.js';
 import { computeTeamStandings } from './services/teamStandings.js';
 import { computeTourStandings } from './services/tours.js';
@@ -31,6 +31,29 @@ import {
 import { recordAudit } from './services/auditLog.js';
 
 const STATUSES = ['active', 'suspended'];
+
+// Late-entrant reserved bye slots (knockout only, singles only - see
+// quick-add-player and claim-reserved-slot below). Up to this many round-1
+// entrants are held back from normal pairing at fixture-generation time and
+// seeded alone into their own bye box instead - see buildBracketRounds'
+// reservedCount doc (server/src/services/bracket.js) for the full design,
+// and generateKnockoutFixtures/generateDoubleElimFixtures below for how the
+// resulting box is left deliberately unresolved until a late entrant claims
+// it or an admin closes late entry for the division. Applied to BOTH
+// knockout formats uniformly - buildDoubleElimBracket's loser-count math
+// was extended (see its own comments) specifically so this could go beyond
+// the single reserved pair an earlier, reverted version of this feature
+// shipped with.
+const MAX_RESERVED_BYE_COUNT = 4;
+
+// Caps how many round-1 boxes can be reserved for late entrants relative to
+// the field size, so a small division doesn't end up mostly byes - always
+// leaves at least one real round-1 match. Every knockout division gets as
+// many reserved slots as this allows (up to MAX_RESERVED_BYE_COUNT) - not
+// currently an admin-configurable per-division setting.
+function reservedByeCountFor(entrantCount) {
+  return Math.max(0, Math.min(MAX_RESERVED_BYE_COUNT, Math.floor(entrantCount / 2) - 1));
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
@@ -1372,6 +1395,20 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
 
 // ---- Teams (team divisions only) ----
 
+// Seats a late entrant into a still-open reserved bye box (see
+// MAX_RESERVED_BYE_COUNT), converting it into a genuine two-sided match -
+// from this point on it's indistinguishable from any other round-1
+// fixture. Called by quick-add-player below when a reserved slot exists.
+function claimReservedFixtureSlot(division, fixture, playerId) {
+  if (division.entryType === 'teams') {
+    fixture.awayTeamId = playerId;
+  } else {
+    fixture.awayPlayerId = playerId;
+  }
+  fixture.reserved = false;
+  fixture.byeSlot = null;
+}
+
 // Admin-only "quick add" for a walk-in who's never used CueSense before -
 // a front-desk-friendly alternative to POST /api/divisions/:id/players,
 // which only accepts an existing registered playerId. Takes just a name
@@ -1380,12 +1417,13 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
 // can turn it into a real account later from Admin > Users if they want
 // one), then adds them to the division roster.
 //
-// Same lockout as the ordinary add-player route: once fixtures have been
-// generated for a division (any scheduling type), no more players can be
-// added via any route, quick-add included - players turn up, players are
-// added, fixtures are generated, then the roster is locked for late
-// arrivals. Team and doubles divisions aren't supported here yet - only
-// singles.
+// Same lockout as the ordinary add-player route for everything EXCEPT a
+// knockout division with an open reserved bye slot (see
+// MAX_RESERVED_BYE_COUNT) - that one case is exactly what reserved slots
+// exist for: a genuine day-of late entrant claims the slot instead of
+// being turned away. Every other case is unchanged: once fixtures have
+// been generated, no more players can be added via any route. Team and
+// doubles divisions aren't supported here yet - only singles.
 app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req, res) => {
   const { firstName, lastName } = req.body || {};
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
@@ -1396,8 +1434,20 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
   }
+  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
+  let reservedFixture = null;
   if (division.fixturesGenerated) {
-    throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    if (isKnockout) {
+      reservedFixture = db.fixtures.find((f) => f.divisionId === division.id && f.reserved && f.status !== 'completed');
+    }
+    if (!reservedFixture) {
+      throw new ApiError(
+        400,
+        isKnockout
+          ? 'No reserved late-entrant slot is open for this division right now'
+          : 'Cannot add players after fixtures have been generated for this division'
+      );
+    }
   }
   const league = db.leagues.find((l) => l.id === division.leagueId);
   assertLeagueAccess(req, league);
@@ -1414,6 +1464,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   const newPlayerId = user.playerId;
 
   if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
+  if (reservedFixture) claimReservedFixtureSlot(division, reservedFixture, newPlayerId);
 
   // Same "don't hard-block, just flag it" approach as the season wizard's
   // CSV import (see POST /api/admin/seasons/:leagueId/import-players) - a
@@ -1438,14 +1489,52 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
 
   recordAudit(db, {
     actor: req.adminSession.label,
-    action: 'division.quick_add_player',
+    action: reservedFixture ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
     targetType: 'division',
     targetId: division.id,
-    details: `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
+    details: reservedFixture
+      ? `Quick-added late entrant ${user.firstName} ${user.lastName} to "${division.name}" - claimed a reserved bracket slot`
+      : `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
   });
 
   writeDb(db);
-  res.status(201).json({ division: hydrateDivision(db, division), player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` } });
+  res.status(201).json({
+    division: hydrateDivision(db, division),
+    player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` },
+    outcome: { method: reservedFixture ? 'reserved-slot' : 'added' },
+  });
+}));
+
+// Admin-only: force-releases any still-open reserved bye slots (see
+// MAX_RESERVED_BYE_COUNT) in a knockout division, resolving each one as an
+// ordinary bye - the seeded entrant advances automatically, exactly like
+// any bye the app has always known how to handle (resolveByeIfNeeded).
+// Call this once no more late entrants are expected for the division; it's
+// a safe no-op if nothing is currently reserved (e.g. everything was
+// already claimed, or the division has no reserved slots at all).
+app.post('/api/divisions/:id/close-late-entry', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const reservedFixtures = db.fixtures.filter((f) => f.divisionId === division.id && f.reserved);
+  reservedFixtures.forEach((fixture) => {
+    fixture.reserved = false;
+    resolveByeIfNeeded(db, division, fixture);
+  });
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.close_late_entry',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Closed late entry for "${division.name}" - released ${reservedFixtures.length} unclaimed reserved slot(s)`,
+  });
+
+  writeDb(db);
+  res.json({ division: hydrateDivision(db, division), releasedCount: reservedFixtures.length });
 }));
 
 // ---- Teams (team divisions only) ----
@@ -1667,6 +1756,13 @@ function makeSinglesFixture({ league, division, round }) {
     // null for every non-knockout fixture and every genuine two-sided
     // knockout fixture.
     byeSlot: null,
+    // Knockout only: true for a round-1 bye box deliberately held open for
+    // a day-of late entrant (see MAX_RESERVED_BYE_COUNT) instead of being
+    // auto-resolved at generation time like an ordinary bye. Cleared to
+    // false the moment it's claimed (claim-reserved-slot below) or when an
+    // admin closes late entry for the division (close-late-entry below) -
+    // resolveByeIfNeeded skips any fixture while this is still true.
+    reserved: false,
     // Double-elimination only (bracketRole stays 'single' for round robin and
     // single-elimination fixtures, which don't use any of the fields below).
     bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
@@ -1709,6 +1805,11 @@ function makeTeamFixture({ league, division, round }) {
     nextFixtureSlot: null,
     // See makeSinglesFixture's byeSlot comment - same meaning here.
     byeSlot: null,
+    // See makeSinglesFixture's reserved comment - same meaning here (teams
+    // knockout brackets can carry reserved boxes too, they just have no
+    // claim route today - an unclaimed one just falls back to an ordinary
+    // bye at close-late-entry, same as any other division).
+    reserved: false,
     bracketRole: 'single',
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
@@ -1737,8 +1838,11 @@ function generateRoundRobinFixtures({ db, league, division, entrantIds }) {
 }
 
 // Marks a bye fixture (one side missing) as an automatic win, and propagates
-// the winner into the next round straight away.
+// the winner into the next round straight away. A no-op for a fixture still
+// held open as a reserved late-entrant slot (see MAX_RESERVED_BYE_COUNT) -
+// that one only resolves via claim-reserved-slot or close-late-entry below.
 function resolveByeIfNeeded(db, division, fixture) {
+  if (fixture.reserved) return;
   if (division.entryType === 'teams') {
     if (fixture.homeTeamId && fixture.awayTeamId) return;
     const winnerTeamId = fixture.homeTeamId || fixture.awayTeamId;
@@ -1930,7 +2034,11 @@ function checkGrandFinalReset(db, division, fixture) {
 
 function generateKnockoutFixtures({ db, league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const bracketRounds = buildBracketRounds(entrantIds); // rounds[0] has real entrants (nulls = byes); later rounds are just counts
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  // rounds[0] has real entrants (nulls = ordinary byes, RESERVED_SLOT =
+  // reserved late-entrant byes - see MAX_RESERVED_BYE_COUNT); later rounds
+  // are just counts.
+  const bracketRounds = buildBracketRounds(entrantIds, { reservedCount });
 
   const fixturesByRound = bracketRounds.map((pairs, roundIndex) =>
     pairs.map(() => makeFixture({ league, division, round: roundIndex + 1 }))
@@ -1957,22 +2065,30 @@ function generateKnockoutFixtures({ db, league, division, entrantIds }) {
 
   // Seed round 1 with the real entrants (marking its own bye box, if any -
   // same byeSlot field every later round uses, so propagateWinner only
-  // needs one code path regardless of which round a bye falls in).
+  // needs one code path regardless of which round a bye falls in). A
+  // RESERVED_SLOT second slot marks a box as a reserved late-entrant bye
+  // (see MAX_RESERVED_BYE_COUNT) rather than an ordinary one - same shape,
+  // but left unresolved below instead of auto-advancing immediately.
   bracketRounds[0].forEach(([a, b], i) => {
     const fixture = fixturesByRound[0][i];
-    if (b === null) fixture.byeSlot = 'away';
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
-      fixture.awayTeamId = b;
+      fixture.awayTeamId = awayValue;
     } else {
       fixture.homePlayerId = a;
-      fixture.awayPlayerId = b;
+      fixture.awayPlayerId = awayValue;
     }
   });
 
   const allFixtures = fixturesByRound.flat();
   allFixtures.forEach((f) => db.fixtures.push(f));
-  // Resolve any byes now that every fixture (and its next-round link) exists.
+  // Resolve any non-reserved byes now that every fixture (and its
+  // next-round link) exists - resolveByeIfNeeded itself skips anything
+  // still marked reserved.
   fixturesByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
@@ -1986,7 +2102,8 @@ function generateKnockoutFixtures({ db, league, division, entrantIds }) {
 // on demand once the Grand Final result is known.
 function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds);
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
 
   // ---- Winners bracket ----
   const wbByRound = winnersRounds.map((pairs, roundIndex) =>
@@ -2011,15 +2128,20 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
       nextRound[nextRound.length - 1].byeSlot = 'away';
     }
   }
+  // Reserved-slot handling mirrors generateKnockoutFixtures - see its
+  // comment above the equivalent block.
   winnersRounds[0].forEach(([a, b], i) => {
     const fixture = wbByRound[0][i];
-    if (b === null) fixture.byeSlot = 'away';
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
     if (division.entryType === 'teams') {
       fixture.homeTeamId = a;
-      fixture.awayTeamId = b;
+      fixture.awayTeamId = awayValue;
     } else {
       fixture.homePlayerId = a;
-      fixture.awayPlayerId = b;
+      fixture.awayPlayerId = awayValue;
     }
   });
 
@@ -2111,11 +2233,11 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
 
   const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
   allFixtures.forEach((f) => db.fixtures.push(f));
-  // Resolve any winners-bracket round-1 byes now that every fixture (and
-  // its next-round link) exists - mirrors generateKnockoutFixtures. This is
-  // a no-op today (double elimination requires an even entrant count, so
-  // round 1 itself never has a bye), but kept for defensive parity with the
-  // single-elimination generator and in case that constraint ever loosens.
+  // Resolve any non-reserved winners-bracket round-1 byes now that every
+  // fixture (and its next-round link) exists - mirrors
+  // generateKnockoutFixtures. An odd entrant count gives one ordinary bye
+  // here; MAX_RESERVED_BYE_COUNT can add several more, deliberately left
+  // unresolved (resolveByeIfNeeded skips anything still marked reserved).
   // Every later-round bye (winners or losers bracket) cascade-resolves
   // automatically via propagateWinner/propagateLoser as earlier fixtures
   // complete.
