@@ -58,8 +58,17 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const [quickLastName, setQuickLastName] = useState('');
   const [quickAdding, setQuickAdding] = useState(false);
   const [quickResult, setQuickResult] = useState('');
+  const [closingLateEntry, setClosingLateEntry] = useState(false);
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
+  // Reserved bracket slots (see MAX_RESERVED_BYE_COUNT, server-side) - up to
+  // a few round-1 boxes a knockout division's fixtures can carry, each
+  // holding one seeded entrant and one side deliberately left open for a
+  // day-of late entrant. Only relevant once fixtures exist; a round robin
+  // (or a knockout with none reserved) never has any.
+  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
+  const openReservedSlots = isKnockout ? (division.fixtures || []).filter((f) => f.reserved) : [];
+  const canQuickAddLateEntrant = division.fixturesGenerated && openReservedSlots.length > 0;
 
   const onAddPlayer = async (e) => {
     e.preventDefault();
@@ -84,12 +93,34 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       const res = await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null);
       setQuickFirstName('');
       setQuickLastName('');
-      setQuickResult(`${res.player.name}: Added.`);
+      setQuickResult(
+        res.outcome?.method === 'reserved-slot'
+          ? `${res.player.name}: added - took one of the bracket's reserved round 1 slots and plays forward through the bracket like anyone else, no decider match involved.`
+          : `${res.player.name}: Added.`
+      );
       onChange();
     } catch (err) {
       setError(err.message);
     } finally {
       setQuickAdding(false);
+    }
+  };
+
+  const onCloseLateEntry = async () => {
+    setError('');
+    setClosingLateEntry(true);
+    try {
+      const res = await api.closeLateEntry(division.id);
+      setQuickResult(
+        res.releasedCount > 0
+          ? `Late entry closed - ${res.releasedCount} unclaimed reserved slot(s) released as ordinary byes.`
+          : 'Late entry closed - nothing was left unclaimed.'
+      );
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setClosingLateEntry(false);
     }
   };
 
@@ -140,11 +171,13 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         Only people with a registered player account can be added this way - see "My Account" to register.
       </p>
 
-      {isAdmin && !division.fixturesGenerated && (
+      {isAdmin && (!division.fixturesGenerated || canQuickAddLateEntrant) && (
         <>
           <h3 style={{ marginBottom: 4 }}>Quick add (walk-in)</h3>
           <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
-            For someone who's never used CueSense before - just a name, no account needed to add them to the draw.
+            {division.fixturesGenerated
+              ? `Fixtures are already generated, but ${openReservedSlots.length} reserved bracket slot${openReservedSlots.length === 1 ? ' is' : 's are'} still open for a day-of arrival - just a name, no account needed.`
+              : 'For someone who\'s never used CueSense before - just a name, no account needed to add them to the draw.'}
           </p>
           <form className="inline-form" onSubmit={onQuickAdd}>
             <input
@@ -169,6 +202,15 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
           {quickResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{quickResult}</p>}
         </>
+      )}
+      {isAdmin && canQuickAddLateEntrant && (
+        <p className="muted" style={{ fontSize: '0.8rem' }}>
+          Not expecting anyone else?{' '}
+          <button className="btn-link" type="button" disabled={closingLateEntry} onClick={onCloseLateEntry}>
+            {closingLateEntry ? 'Closing…' : 'Close late entry'}
+          </button>{' '}
+          to release the remaining reserved slot{openReservedSlots.length === 1 ? '' : 's'} as ordinary byes now, rather than waiting.
+        </p>
       )}
       <ul className="player-list">
         {division.players.map((p, i) => (
@@ -197,7 +239,10 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated - the roster is locked, no further additions or removals.</p>
+        <p className="muted">
+          Fixtures generated - the roster is locked, no further additions or removals
+          {canQuickAddLateEntrant ? ' (aside from Quick Add above, while a reserved slot is still open).' : '.'}
+        </p>
       )}
 
     </section>
@@ -1228,8 +1273,18 @@ function buildBracketMatches(fixtures, isTeams, nameOf) {
     // else (including a genuine 0-0 no-show walkover) leaves it undefined,
     // which is treated as "yes, show the score" exactly like before.
     const showScore = (f.status === 'completed' || f.bothEntrantsKnown) && f.scoreRecorded !== false;
+    // Always-open round 1 slots (see MAX_RESERVED_BYE_COUNT, server-side)
+    // held for a day-of late entrant, still unclaimed - shown as "Reserved"
+    // rather than the usual blank/TBD side so it reads as "kept open on
+    // purpose" instead of "waiting on an earlier round". Applies to both
+    // single- and double-elimination brackets, since both use this
+    // function (see buildDoubleElimMatches below, which layers its own
+    // extra fields on top of this).
     const home = { name: homeId ? nameOf(homeId) : null, score: showScore ? homeScore : undefined };
-    const away = { name: awayId ? nameOf(awayId) : null, score: showScore ? awayScore : undefined };
+    const away = {
+      name: f.reserved ? 'Reserved' : (awayId ? nameOf(awayId) : null),
+      score: showScore ? awayScore : undefined,
+    };
     // Eligible for the bracket chart's "click a name to set the winner"
     // quick pick only when both entrants are known and nothing has been
     // recorded against it yet - mirrors POST .../select-winner's own
@@ -1249,6 +1304,7 @@ function buildBracketMatches(fixtures, isTeams, nameOf) {
       winnerSide: f.status === 'completed' && winnerId ? (winnerId === homeId ? 'home' : 'away') : null,
       closedEarly: !!f.closedEarly,
       canSelectWinner,
+      reserved: !!f.reserved,
     };
   });
 }
