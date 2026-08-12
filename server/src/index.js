@@ -1380,9 +1380,19 @@ app.get('/api/admin/github-issues', requireAdmin, (req, res) => {
     return;
   }
 
+  const githubHeaders = { Accept: 'application/vnd.github+json', 'User-Agent': 'cue-sense-pool-management' };
+  // Optional: set a GITHUB_ISSUES_TOKEN Fly secret to raise the rate limit
+  // from GitHub's unauthenticated 60/hour (shared across everything on the
+  // host's egress IP - trivial to exhaust) to 5000/hour. Any token works,
+  // even one with no special scopes, since this only ever reads a public
+  // repo's issues. Falls back to unauthenticated if the secret isn't set.
+  if (process.env.GITHUB_ISSUES_TOKEN) {
+    githubHeaders.Authorization = `Bearer ${process.env.GITHUB_ISSUES_TOKEN}`;
+  }
+
   fetch(
     `https://api.github.com/repos/${GITHUB_ISSUES_REPO}/issues?state=all&per_page=100&sort=updated&direction=desc`,
-    { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'cue-sense-pool-management' } }
+    { headers: githubHeaders }
   )
     .then(async (ghRes) => {
       if (!ghRes.ok) {
