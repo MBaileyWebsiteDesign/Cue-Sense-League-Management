@@ -2496,44 +2496,50 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
-// ---- Pre-tournament late entry: unlock the roster and rebuild the bracket ----
+// ---- Late entry: unlock the roster and rebuild the bracket ----
 //
 // Alternative to the reserved-bye-slot approach above (currently switched
 // off - see MAX_RESERVED_BYE_COUNT) for a double-elimination knockout
 // division: rather than pre-committing speculative empty slots at
 // generation time, add the late entrant(s) to the roster for real and
 // rebuild exactly as much of the bracket as their arrival actually changes.
-// Only usable while nothing in the division has been played yet (see
-// isDivisionBracketUntouched) - the whole design here relies on that: it
-// never needs to preserve a real result, so it's free to back up (archive,
-// not delete) and fully regenerate any part of the bracket whose shape the
-// new entrant count requires, while leaving every fixture it doesn't need
-// to touch completely alone.
+// Usable up through the point where round 1 of the winners bracket has
+// results on it but nothing past round 1 does (see
+// isDivisionBracketReadyForLateEntrantRebuild) - round 1's *composition*
+// (who plays whom) never changes for a box that's kept as-is, so any result
+// already recorded there is safe to keep and simply replay forward onto the
+// freshly rebuilt round 2+/losers-bracket tree (see the replay step at the
+// end of this route). Round 2 onward has no such guarantee - which players
+// even reach round 2 depends on round-1 boxes a late entrant can reshape -
+// so the moment anything past round 1 has a real result, this refuses:
+// there'd be no way to regenerate that part of the bracket without a real
+// chance of silently discarding it.
 //
 // Round 1 is handled by hand (never by re-running buildDoubleElimBracket)
 // because that function picks its round-1 bye at random on every call when
 // the entrant count is odd - calling it again here could reassign the bye
 // to a completely different, already-paired entrant instead of the one
 // player actually left over. Reconciliation instead: keep every existing
-// round-1 real match exactly as it is; if a round-1 bye currently exists,
-// its holder plus the arriving player(s) form a "pending pool" (bye-holder
-// first, then new arrivals in the order they're added); pair the pool off
-// two at a time, reusing the existing bye fixture's row for the first pair
-// so it converts from an automatic walkover into a real match without
-// changing its identity; append any further pairs (and, if the pool is
-// odd, one final single-occupant bye box) as brand new round-1 fixtures.
-// That new-fixtures-appended-after-the-existing-ones ordering is the
-// "branch at the bottom" - everything before it is untouched.
+// round-1 real match exactly as it is (result and all); if a round-1 bye
+// currently exists, its holder plus the arriving player(s) form a "pending
+// pool" (bye-holder first, then new arrivals in the order they're added);
+// pair the pool off two at a time, reusing the existing bye fixture's row
+// for the first pair so it converts from an automatic walkover into a real
+// match without changing its identity; append any further pairs (and, if
+// the pool is odd, one final single-occupant bye box) as brand new round-1
+// fixtures. That new-fixtures-appended-after-the-existing-ones ordering is
+// the "branch at the bottom" - everything before it is untouched.
 //
 // Everything from round 2 onward - the rest of the winners bracket, the
 // entire losers bracket, and the Grand Final - depends on the *exact*
 // number of losers each winners round produces, which a late entrant can
 // change in ways that ripple much further than round 1 (see the project
-// notes this was modelled against). None of that has any real result on it
-// yet, so rather than trying to patch it in place, it's archived wholesale
-// and rebuilt fresh from the finished round-1 shape, reusing the same
-// linking logic generateDoubleElimFixtures uses.
-function isDivisionBracketUntouched(db, division) {
+// notes this was modelled against). None of that is allowed to have a real
+// result on it yet, so rather than trying to patch it in place, it's
+// archived wholesale and rebuilt fresh from the finished round-1 shape,
+// reusing the same linking logic generateDoubleElimFixtures uses - and then
+// any round-1 results are replayed onto it.
+function isDivisionBracketReadyForLateEntrantRebuild(db, division) {
   const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
   if (fixtures.length === 0) return false;
   // A fixture can legitimately already be `completed` here if it's a
@@ -2542,22 +2548,30 @@ function isDivisionBracketUntouched(db, division) {
   // reconciled (see resolveByeIfNeeded), and that's exactly the structural
   // state this route exists to unwind, not a real result.
   //
-  // Anything else with a winner recorded IS a real result, even when
-  // frames.length is 0 - see the "click a player's name to set them as the
-  // winner directly" admin override (POST /api/fixtures/:id/select-winner),
-  // which records status:'completed' + winnerPlayerId with frames left
-  // empty (no score kept) and, if this fixture has a nextFixtureId,
-  // immediately propagates that winner into the next round. Checking
-  // frames.length alone missed this: it let the route archive a fixture
-  // (or a downstream one already populated from it) that actually held a
-  // real decision, silently discarding it. So the bar is "no winner
-  // recorded anywhere outside a structural bye" - that's what makes
-  // archiving and rebuilding provably lossless. resetFixtureId can only
-  // ever be set after a real Grand Final result, so its presence is an
-  // extra tripwire in case this is ever called somewhere the other checks
-  // wouldn't catch.
+  // Round 1 of the winners bracket is allowed to already carry real
+  // results - see the replay step at the end of the late-entrants route
+  // below, which re-runs propagateWinner/propagateLoser for every decided
+  // round-1 match against the freshly rebuilt round 2+/losers-bracket tree,
+  // exactly as if an admin had just clicked "select winner" on each one
+  // again. That's safe because a *kept* round-1 box's composition (who
+  // plays whom) never changes when the entrant count grows - only what its
+  // winner goes on to face next does, and the rebuild below regenerates
+  // that next step from scratch anyway.
+  //
+  // Nothing past round 1 gets the same treatment. Round 2 onward is
+  // archived and rebuilt wholesale (see rebuildDoubleElimFromRound1), and
+  // *which* players even reach round 2 depends on round-1 boxes whose
+  // composition a late entrant can change - so a round 2+ pairing that
+  // already produced a real result has no guarantee of recurring in the
+  // reshaped bracket. Once anything past round 1 has a recorded winner,
+  // this still has to refuse - that's what makes archiving and rebuilding
+  // everything past round 1 provably lossless. resetFixtureId can only
+  // ever be set after a real Grand Final result (always well past round 1),
+  // so its presence is an extra tripwire in case this is ever called
+  // somewhere the other checks wouldn't catch.
   return fixtures.every((f) => {
     if (f.byeSlot) return true;
+    if (f.round === 1 && f.bracketRole === 'winners') return true;
     return f.frames.length === 0 && f.winnerPlayerId == null && f.status !== 'completed' && !f.resetFixtureId;
   });
 }
@@ -2670,9 +2684,10 @@ function rebuildDoubleElimFromRound1({ db, league, division, wbRound1Fixtures })
 // Admin-only: adds one or more registered players to an already-generated
 // double-elimination singles division and rebuilds the bracket around them,
 // in place of turning them away or relying on a reserved slot. Only allowed
-// while isDivisionBracketUntouched holds - see that function and the design
-// note above rebuildDoubleElimFromRound1 for why. Every fixture this
-// replaces is archived (db.archivedFixtures), never deleted outright.
+// while isDivisionBracketReadyForLateEntrantRebuild holds - see that
+// function and the design note above rebuildDoubleElimFromRound1 for why.
+// Every fixture this replaces is archived (db.archivedFixtures), never
+// deleted outright.
 app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, res) => {
   const { playerIds } = req.body || {};
   if (!Array.isArray(playerIds) || playerIds.length === 0) {
@@ -2697,10 +2712,10 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
   if (!division.fixturesGenerated) {
     throw new ApiError(400, 'Generate fixtures for this division first');
   }
-  if (!isDivisionBracketUntouched(db, division)) {
+  if (!isDivisionBracketReadyForLateEntrantRebuild(db, division)) {
     throw new ApiError(
       400,
-      'This can only rebuild the bracket before any fixture in it has been played - once a frame has been recorded anywhere in the division, the losers-bracket shape can no longer be safely regenerated. Use Quick Add / a reserved slot instead, if one is open.'
+      'This can only rebuild the bracket while round 1 is the furthest point any result has reached - once round 2 or the losers bracket has a recorded result, the bracket shape beyond round 1 can no longer be safely regenerated. Use Quick Add / a reserved slot instead, if one is open.'
     );
   }
 
@@ -2720,6 +2735,12 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
     throw new ApiError(400, 'This division has an open reserved slot - close late entry (or have it claimed) before using this instead');
   }
   const byeBox = existingR1.find((f) => f.byeSlot === 'away') || null;
+  if (byeBox && byeBox.frames.length > 0) {
+    // Shouldn't be reachable in normal use (a walkover never gets scored),
+    // but if it somehow happened, recycling this box below would silently
+    // throw those frames away - refuse instead of guessing.
+    throw new ApiError(500, 'Internal error: this division\'s round-1 bye box has frames recorded on it, which should never happen - contact support before retrying');
+  }
   const realBoxesInOrder = existingR1.filter((f) => f !== byeBox);
 
   const pendingPool = [...(byeBox ? [byeBox.homePlayerId] : []), ...newPlayers.map((p) => p.id)];
@@ -2772,6 +2793,25 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
   // mirrors the equivalent step at the end of generateDoubleElimFixtures.
   wbRound1Fixtures.filter((f) => f.byeSlot === 'away').forEach((f) => resolveByeIfNeeded(db, division, f));
 
+  // ---- Replay any already-decided round-1 results onto the rebuilt tree ----
+  // realBoxesInOrder are the round-1 boxes that existed before this request
+  // and were kept exactly as they were (see the design note above) - any of
+  // them may already be completed with a real winner (recorded via score
+  // entry, or via the "select winner directly" admin override). Their
+  // composition hasn't changed, but rebuildDoubleElimFromRound1 just gave
+  // them a brand new, blank downstream to feed into - so push each result
+  // forward again, exactly as if an admin had just clicked "select winner"
+  // on it a second time against the new tree. propagateWinner/
+  // propagateLoser handle everything from here, including cascading through
+  // any newly-created structural byes further down (see resolveByeIfNeeded
+  // calls inside them).
+  const decidedRound1Boxes = realBoxesInOrder.filter((f) => f.status === 'completed' && f.winnerPlayerId);
+  decidedRound1Boxes.forEach((f) => {
+    const loserId = f.winnerPlayerId === f.homePlayerId ? f.awayPlayerId : f.homePlayerId;
+    propagateWinner(db, division, f, f.winnerPlayerId);
+    propagateLoser(db, division, f, loserId);
+  });
+
   if (league && league.payment && league.payment.required) {
     newPlayers.forEach((p) => {
       const existing = db.leaguePayments.find((pay) => pay.leagueId === league.id && pay.playerId === p.id);
@@ -2796,13 +2836,14 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
     action: 'division.add_late_entrants_rebuild_bracket',
     targetType: 'division',
     targetId: division.id,
-    details: `${archivedReason} in "${division.name}" - archived ${toArchive.length} fixture(s) and rebuilt the bracket around ${division.playerIds.length} total entrants`,
+    details: `${archivedReason} in "${division.name}" - archived ${toArchive.length} fixture(s), rebuilt the bracket around ${division.playerIds.length} total entrants, and replayed ${decidedRound1Boxes.length} already-decided round-1 result(s) onto it`,
   });
 
   writeDb(db);
   res.status(201).json({
     division: hydrateDivision(db, division),
     archivedFixtureCount: toArchive.length,
+    replayedResultCount: decidedRound1Boxes.length,
     addedPlayers: newPlayers.map((p) => ({ id: p.id, name: p.name })),
   });
 }));
