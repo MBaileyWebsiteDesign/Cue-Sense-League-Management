@@ -203,11 +203,44 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
 // players immediately (skipping the normal per-round release from Manage
 // Fixtures entirely) or hidden as usual, since that choice has to be made
 // at generation time - see markAllRoundsVisible in server/src/index.js.
+// Number of Tables available / Estimated Game Time / Estimated No. of Games
+// - shared between the pre-fixtures GenerateFixturesButton view below and
+// the locked "fixtures already generated" roster views (SinglesRoster/
+// TeamRoster/PairingRoster further down), so the same at-a-glance figures
+// stay visible once a division is actually running, not just while it's
+// being set up. tablesAvailable is local, in-memory only (see
+// estimateGameTimeMinutes above) - each place this renders gets its own
+// independent value, resetting to 1 on reload.
+function GameTimeEstimate({ division }) {
+  const [tablesAvailable, setTablesAvailable] = useState(1);
+  return (
+    <div>
+      <p style={{ margin: 0 }}>
+        <label>
+          <strong>Number of Tables available:</strong>{' '}
+          <input
+            type="number"
+            min="1"
+            value={tablesAvailable}
+            onChange={(e) => setTablesAvailable(e.target.value)}
+            style={{ width: 60 }}
+          />
+        </label>
+      </p>
+      <p style={{ margin: 0 }}>
+        <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
+      </p>
+      <p style={{ margin: 0 }}>
+        <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
+      </p>
+    </div>
+  );
+}
+
 function GenerateFixturesButton({ division, disabled, title, onChange, setError }) {
   const [visibleByDefault, setVisibleByDefault] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [changingGameType, setChangingGameType] = useState(false);
-  const [tablesAvailable, setTablesAvailable] = useState(1);
 
   const onGenerate = async () => {
     setError('');
@@ -225,26 +258,7 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
   return (
     <div style={{ marginTop: 8 }}>
       <div className="page-header" style={{ marginBottom: 8 }}>
-        <div>
-          <p style={{ margin: 0 }}>
-            <label>
-              <strong>Number of Tables available:</strong>{' '}
-              <input
-                type="number"
-                min="1"
-                value={tablesAvailable}
-                onChange={(e) => setTablesAvailable(e.target.value)}
-                style={{ width: 60 }}
-              />
-            </label>
-          </p>
-          <p style={{ margin: 0 }}>
-            <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
-          </p>
-          <p style={{ margin: 0 }}>
-            <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
-          </p>
-        </div>
+        <GameTimeEstimate division={division} />
         <button className="btn" type="button" onClick={() => setChangingGameType((v) => !v)}>
           {changingGameType ? 'Cancel' : 'Change Game Type'}
         </button>
@@ -459,10 +473,13 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           setError={setError}
         />
       ) : (
-        <p className="muted">
-          Fixtures generated - the roster is locked, no further additions or removals
-          {canQuickAddLateEntrant ? ' (aside from Quick Add above, while a reserved slot is still open).' : '.'}
-        </p>
+        <>
+          <p className="muted">
+            Fixtures generated - the roster is locked, no further additions or removals
+            {canQuickAddLateEntrant ? ' (aside from Quick Add above, while a reserved slot is still open).' : '.'}
+          </p>
+          <GameTimeEstimate division={division} />
+        </>
       )}
 
     </section>
@@ -735,7 +752,10 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated — team rosters are locked.</p>
+        <>
+          <p className="muted">Fixtures generated — team rosters are locked.</p>
+          <GameTimeEstimate division={division} />
+        </>
       )}
     </section>
   );
@@ -899,7 +919,10 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated — pairings are locked.</p>
+        <>
+          <p className="muted">Fixtures generated — pairings are locked.</p>
+          <GameTimeEstimate division={division} />
+        </>
       )}
     </section>
   );
