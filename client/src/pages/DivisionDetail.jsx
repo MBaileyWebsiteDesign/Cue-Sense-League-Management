@@ -51,14 +51,28 @@ function estimateGameCount(division) {
   }
 }
 
-// Estimated total playing time in minutes: (min frames needed to win a
-// game) x 10 x (number of games) - division.raceTo is already "first to N
-// frames wins", i.e. exactly the minimum frames needed to win a game
-// (see the raceTo comment on POST /api/leagues/:leagueId/divisions,
-// server/src/index.js, where "Best of X" is converted to raceTo = (X+1)/2
-// before it's ever stored).
+// MaxFramesPerGame: the maximum number of frames a single game could ever
+// go to before someone reaches the winning threshold. A division only ever
+// persists a "race to" value (division.raceTo) - even one set up as
+// "Best of X" gets converted to raceTo = (X + 1) / 2 before it's ever saved
+// (see ChangeGameTypeForm's onSubmit above, and the matching conversion at
+// division creation, server/src/index.js) - so from here on N is always a
+// race-to value, and MaxFramesPerGame = (N x 2) - 1 (e.g. race to 5 ->
+// worst case is 4-4, decided on the 9th frame - the same total a "Best of
+// 9" division would have stored this same raceTo value from in the first
+// place).
+function maxFramesPerGame(division) {
+  const n = division.raceTo || 0;
+  return n > 0 ? (n * 2) - 1 : 0;
+}
+
+// Estimated total playing time in minutes: MaxFramesPerGame x 10 x
+// (number of games). Tables available is deliberately left out of this
+// formula for now (see the "Number of Tables available" input in
+// GenerateFixturesButton below, which is currently just a standalone
+// reference field).
 function estimateGameTimeMinutes(division) {
-  return (division.raceTo || 0) * 10 * estimateGameCount(division);
+  return maxFramesPerGame(division) * 10 * estimateGameCount(division);
 }
 
 function formatMinutes(mins) {
@@ -68,19 +82,6 @@ function formatMinutes(mins) {
   if (h === 0) return `${m} min${m === 1 ? '' : 's'}`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
-}
-
-// Same total playing time as estimateGameTimeMinutes above, but spread
-// across however many tables are actually available to play on at once -
-// with N tables running games in parallel, the division finishes in
-// roughly 1/N the time a single table would take. Purely a local, in-memory
-// what-if figure (see the "Number of Tables available" input in
-// GenerateFixturesButton below) - it's never sent to the server or stored
-// on the division, so there's nothing to save/submit for it. Rounds up so
-// a partial remaining game still gets a whole time slot.
-function estimateGameTimeMinutesAcrossTables(division, tablesAvailable) {
-  const tables = Math.max(1, Number(tablesAvailable) || 1);
-  return Math.ceil(estimateGameTimeMinutes(division) / tables);
 }
 
 // Editable copy of the same 4 fields LeagueDetail.jsx's "+ New Division"
@@ -238,7 +239,7 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
             </label>
           </p>
           <p style={{ margin: 0 }}>
-            <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutesAcrossTables(division, tablesAvailable))}
+            <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
           </p>
           <p style={{ margin: 0 }}>
             <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
