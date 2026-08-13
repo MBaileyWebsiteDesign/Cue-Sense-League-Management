@@ -293,6 +293,9 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const [quickAdding, setQuickAdding] = useState(false);
   const [quickResult, setQuickResult] = useState('');
   const [closingLateEntry, setClosingLateEntry] = useState(false);
+  const [lateEntrantPlayerId, setLateEntrantPlayerId] = useState('');
+  const [addingLateEntrant, setAddingLateEntrant] = useState(false);
+  const [lateEntrantResult, setLateEntrantResult] = useState('');
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
   // Reserved bracket slots (see MAX_RESERVED_BYE_COUNT, server-side) - up to
@@ -303,6 +306,18 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
   const openReservedSlots = isKnockout ? (division.fixtures || []).filter((f) => f.reserved) : [];
   const canQuickAddLateEntrant = division.fixturesGenerated && openReservedSlots.length > 0;
+  // Pre-tournament late entry (see POST /api/divisions/:id/late-entrants) -
+  // unlocks the roster on a double-elim knockout and rebuilds the bracket
+  // around a registered player added after fixtures were generated, instead
+  // of relying on a reserved slot. The server is the real gatekeeper (it
+  // refuses once any frame anywhere in the bracket has been recorded) - this
+  // just decides whether to show the control at all, so it only needs to
+  // rule out formats/states the route can never succeed for.
+  const canAddLateEntrant =
+    isAdmin &&
+    division.scheduling === 'knockout_double_elim' &&
+    division.fixturesGenerated &&
+    division.status === 'active';
 
   const onAddPlayer = async (e) => {
     e.preventDefault();
@@ -355,6 +370,26 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       setError(err.message);
     } finally {
       setClosingLateEntry(false);
+    }
+  };
+
+  const onAddLateEntrant = async (e) => {
+    e.preventDefault();
+    if (!lateEntrantPlayerId) return;
+    setError('');
+    setLateEntrantResult('');
+    setAddingLateEntrant(true);
+    try {
+      const res = await api.addLateEntrants(division.id, [lateEntrantPlayerId]);
+      setLateEntrantPlayerId('');
+      setLateEntrantResult(
+        `${res.addedPlayers.map((p) => p.name).join(', ')}: added - the bracket was rebuilt around them (${res.archivedFixtureCount} old fixture(s) archived, kept for the record).`
+      );
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAddingLateEntrant(false);
     }
   };
 
@@ -446,6 +481,30 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           to release the remaining reserved slot{openReservedSlots.length === 1 ? '' : 's'} as ordinary byes now, rather than waiting.
         </p>
       )}
+      {canAddLateEntrant && (
+        <>
+          <h3 style={{ marginBottom: 4 }}>Add a late entrant</h3>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
+            Adds a registered player to the draw and rebuilds the bracket around them - only works while nothing in this
+            bracket has been played yet. Once a frame has been recorded anywhere in it, this stops being offered; use Quick
+            Add above (if a reserved slot is open) instead.
+          </p>
+          <form className="inline-form" onSubmit={onAddLateEntrant}>
+            <select value={lateEntrantPlayerId} onChange={(e) => setLateEntrantPlayerId(e.target.value)} required>
+              <option value="" disabled>
+                {available.length === 0 ? 'No registered players available' : 'Select a registered player…'}
+              </option>
+              {available.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <button className="btn btn-primary" type="submit" disabled={addingLateEntrant || !lateEntrantPlayerId}>
+              {addingLateEntrant ? 'Adding…' : 'Add & rebuild bracket'}
+            </button>
+          </form>
+          {lateEntrantResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{lateEntrantResult}</p>}
+        </>
+      )}
       <ul className="player-list">
         {division.players.map((p, i) => (
           <li key={p.id}>
@@ -476,7 +535,13 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         <>
           <p className="muted">
             Fixtures generated - the roster is locked, no further additions or removals
-            {canQuickAddLateEntrant ? ' (aside from Quick Add above, while a reserved slot is still open).' : '.'}
+            {canQuickAddLateEntrant && canAddLateEntrant
+              ? ' (aside from Quick Add or Add a late entrant, above).'
+              : canQuickAddLateEntrant
+                ? ' (aside from Quick Add above, while a reserved slot is still open).'
+                : canAddLateEntrant
+                  ? ' (aside from Add a late entrant, above, while nothing has been played yet).'
+                  : '.'}
           </p>
           <GameTimeEstimate division={division} />
         </>
