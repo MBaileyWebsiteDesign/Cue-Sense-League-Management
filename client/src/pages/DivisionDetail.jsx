@@ -70,6 +70,19 @@ function formatMinutes(mins) {
   return `${h}h ${m}m`;
 }
 
+// Same total playing time as estimateGameTimeMinutes above, but spread
+// across however many tables are actually available to play on at once -
+// with N tables running games in parallel, the division finishes in
+// roughly 1/N the time a single table would take. Purely a local, in-memory
+// what-if figure (see the "Number of Tables available" input in
+// GenerateFixturesButton below) - it's never sent to the server or stored
+// on the division, so there's nothing to save/submit for it. Rounds up so
+// a partial remaining game still gets a whole time slot.
+function estimateGameTimeMinutesAcrossTables(division, tablesAvailable) {
+  const tables = Math.max(1, Number(tablesAvailable) || 1);
+  return Math.ceil(estimateGameTimeMinutes(division) / tables);
+}
+
 // Editable copy of the same 4 fields LeagueDetail.jsx's "+ New Division"
 // form collects (entry type, match format, race to/best of frames, format),
 // used here to revise a division's game type before fixtures are generated.
@@ -193,6 +206,7 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
   const [visibleByDefault, setVisibleByDefault] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [changingGameType, setChangingGameType] = useState(false);
+  const [tablesAvailable, setTablesAvailable] = useState(1);
 
   const onGenerate = async () => {
     setError('');
@@ -212,7 +226,19 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
       <div className="page-header" style={{ marginBottom: 8 }}>
         <div>
           <p style={{ margin: 0 }}>
-            <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
+            <label>
+              <strong>Number of Tables available:</strong>{' '}
+              <input
+                type="number"
+                min="1"
+                value={tablesAvailable}
+                onChange={(e) => setTablesAvailable(e.target.value)}
+                style={{ width: 60 }}
+              />
+            </label>
+          </p>
+          <p style={{ margin: 0 }}>
+            <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutesAcrossTables(division, tablesAvailable))}
           </p>
           <p style={{ margin: 0 }}>
             <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
