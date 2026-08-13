@@ -44,7 +44,20 @@ const STATUSES = ['active', 'suspended'];
 // was extended (see its own comments) specifically so this could go beyond
 // the single reserved pair an earlier, reverted version of this feature
 // shipped with.
-const MAX_RESERVED_BYE_COUNT = 4;
+//
+// Set to 0 to turn the whole feature off (temporarily, pending a rethink -
+// Aug 2026): reservedByeCountFor floors at 0 regardless of entrant count,
+// so generateKnockoutFixtures/generateDoubleElimFixtures never create a
+// reserved box, and quick-add-player's "claim a reserved slot" path never
+// finds one to claim (falling straight through to its existing "no
+// reserved late-entrant slot is open" error once fixtures exist). Nothing
+// else here was touched - the surrounding plumbing (routes, claim logic,
+// close-late-entry, the client's "Reserved" labeling) is all still in
+// place and will work again unchanged the moment this is raised above 0.
+// Does not affect divisions whose fixtures were already generated while
+// this was non-zero - any reserved boxes they already have stay as they
+// are unless an admin claims or closes them.
+const MAX_RESERVED_BYE_COUNT = 0;
 
 // Caps how many round-1 boxes can be reserved for late entrants relative to
 // the field size, so a small division doesn't end up mostly byes - always
