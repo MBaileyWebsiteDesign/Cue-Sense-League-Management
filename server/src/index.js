@@ -2496,6 +2496,302 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
+// ---- Pre-tournament late entry: unlock the roster and rebuild the bracket ----
+//
+// Alternative to the reserved-bye-slot approach above (currently switched
+// off - see MAX_RESERVED_BYE_COUNT) for a double-elimination knockout
+// division: rather than pre-committing speculative empty slots at
+// generation time, add the late entrant(s) to the roster for real and
+// rebuild exactly as much of the bracket as their arrival actually changes.
+// Only usable while nothing in the division has been played yet (see
+// isDivisionBracketUntouched) - the whole design here relies on that: it
+// never needs to preserve a real result, so it's free to back up (archive,
+// not delete) and fully regenerate any part of the bracket whose shape the
+// new entrant count requires, while leaving every fixture it doesn't need
+// to touch completely alone.
+//
+// Round 1 is handled by hand (never by re-running buildDoubleElimBracket)
+// because that function picks its round-1 bye at random on every call when
+// the entrant count is odd - calling it again here could reassign the bye
+// to a completely different, already-paired entrant instead of the one
+// player actually left over. Reconciliation instead: keep every existing
+// round-1 real match exactly as it is; if a round-1 bye currently exists,
+// its holder plus the arriving player(s) form a "pending pool" (bye-holder
+// first, then new arrivals in the order they're added); pair the pool off
+// two at a time, reusing the existing bye fixture's row for the first pair
+// so it converts from an automatic walkover into a real match without
+// changing its identity; append any further pairs (and, if the pool is
+// odd, one final single-occupant bye box) as brand new round-1 fixtures.
+// That new-fixtures-appended-after-the-existing-ones ordering is the
+// "branch at the bottom" - everything before it is untouched.
+//
+// Everything from round 2 onward - the rest of the winners bracket, the
+// entire losers bracket, and the Grand Final - depends on the *exact*
+// number of losers each winners round produces, which a late entrant can
+// change in ways that ripple much further than round 1 (see the project
+// notes this was modelled against). None of that has any real result on it
+// yet, so rather than trying to patch it in place, it's archived wholesale
+// and rebuilt fresh from the finished round-1 shape, reusing the same
+// linking logic generateDoubleElimFixtures uses.
+function isDivisionBracketUntouched(db, division) {
+  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+  if (fixtures.length === 0) return false;
+  // A fixture can legitimately already be `completed` here - a bye/walkover
+  // resolves itself automatically the moment fixtures are generated (see
+  // resolveByeIfNeeded), and that's exactly the structural state this route
+  // exists to unwind, not a real result. The actual bar is "no frame has
+  // ever been recorded" - that's what makes archiving and rebuilding
+  // provably lossless. resetFixtureId can only ever be set after a real
+  // Grand Final result, so its presence is an extra tripwire in case this
+  // is ever called somewhere frames.length alone wouldn't catch.
+  return fixtures.every((f) => f.frames.length === 0 && !f.resetFixtureId);
+}
+
+// Builds winners-bracket rounds 2+, the whole losers bracket, and the Grand
+// Final from a already-finished round-1 fixture list, exactly mirroring the
+// linking logic in generateDoubleElimFixtures's second half - see that
+// function's comments for what each step is doing; this is the same thing,
+// just driven from a caller-supplied round 1 instead of building one from
+// entrantIds. `wbRound1Fixtures` fixtures are used as-is (not recreated);
+// everything this function creates is pushed onto db.fixtures directly.
+function rebuildDoubleElimFromRound1({ db, league, division, wbRound1Fixtures }) {
+  const makeFixture = makeSinglesFixture; // late-entrant rebuild is singles-only for now (see the route below)
+  const reservedCount = reservedByeCountFor(division.playerIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(division.playerIds, { reservedCount });
+
+  if (winnersRounds[0].length !== wbRound1Fixtures.length) {
+    // Defensive only - the route below constructs wbRound1Fixtures so its
+    // length always matches ceil(newEntrantCount / 2), which is exactly
+    // what buildDoubleElimBracket computes for round 1 too.
+    throw new ApiError(500, 'Internal error: reconciled round 1 does not match the expected bracket shape for this entrant count');
+  }
+
+  // ---- Winners bracket rounds 2+ ----
+  const wbByRound = [wbRound1Fixtures];
+  for (let r = 1; r < winnersRounds.length; r++) {
+    wbByRound.push(
+      winnersRounds[r].map(() => {
+        const f = makeFixture({ league, division, round: r + 1 });
+        f.bracketRole = 'winners';
+        return f;
+      })
+    );
+  }
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    wbSourceFixtures.forEach((fixture, i) => {
+      let dest, slot;
+      if (lbRoundIndex === 0) {
+        dest = lbDestFixtures[Math.floor(i / 2)];
+        slot = i % 2 === 0 ? 'home' : 'away';
+      } else if (i < lbRound.crossMatches) {
+        dest = lbDestFixtures[i];
+        slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
+      }
+      fixture.loserNextFixtureId = dest.id;
+      fixture.loserNextFixtureSlot = slot;
+    });
+  });
+
+  // ---- Grand Final ----
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const newFixtures = [...wbByRound.slice(1).flat(), ...lbByRound.flat(), grandFinal];
+  newFixtures.forEach((f) => db.fixtures.push(f));
+}
+
+// Admin-only: adds one or more registered players to an already-generated
+// double-elimination singles division and rebuilds the bracket around them,
+// in place of turning them away or relying on a reserved slot. Only allowed
+// while isDivisionBracketUntouched holds - see that function and the design
+// note above rebuildDoubleElimFromRound1 for why. Every fixture this
+// replaces is archived (db.archivedFixtures), never deleted outright.
+app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, res) => {
+  const { playerIds } = req.body || {};
+  if (!Array.isArray(playerIds) || playerIds.length === 0) {
+    throw new ApiError(400, 'playerIds (a non-empty array) is required');
+  }
+  if (new Set(playerIds).size !== playerIds.length) {
+    throw new ApiError(400, 'The same player was listed more than once');
+  }
+
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (division.scheduling !== 'knockout_double_elim') {
+    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions');
+  }
+  if (division.entryType !== 'singles') {
+    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for singles divisions');
+  }
+  if (!division.fixturesGenerated) {
+    throw new ApiError(400, 'Generate fixtures for this division first');
+  }
+  if (!isDivisionBracketUntouched(db, division)) {
+    throw new ApiError(
+      400,
+      'This can only rebuild the bracket before any fixture in it has been played - once a frame has been recorded anywhere in the division, the losers-bracket shape can no longer be safely regenerated. Use Quick Add / a reserved slot instead, if one is open.'
+    );
+  }
+
+  const newPlayers = playerIds.map((id) => {
+    const player = registeredPlayers(db).find((p) => p.id === id);
+    if (!player) throw new ApiError(400, `Player ${id} is not a registered, active user`);
+    if (division.playerIds.includes(id)) throw new ApiError(400, `${player.name} is already in this division`);
+    assertPaymentCleared(db, division, id);
+    return player;
+  });
+
+  newPlayers.forEach((p) => division.playerIds.push(p.id));
+
+  // ---- Reconcile round 1 (see the design note above) ----
+  const existingR1 = db.fixtures.filter((f) => f.divisionId === division.id && f.round === 1 && f.bracketRole === 'winners');
+  if (existingR1.some((f) => f.reserved)) {
+    throw new ApiError(400, 'This division has an open reserved slot - close late entry (or have it claimed) before using this instead');
+  }
+  const byeBox = existingR1.find((f) => f.byeSlot === 'away') || null;
+  const realBoxesInOrder = existingR1.filter((f) => f !== byeBox);
+
+  const pendingPool = [...(byeBox ? [byeBox.homePlayerId] : []), ...newPlayers.map((p) => p.id)];
+  const wbRound1Fixtures = [...realBoxesInOrder];
+  let i = 0;
+  if (byeBox) {
+    // byeBox was auto-resolved as a walkover the moment it was created (see
+    // resolveByeIfNeeded) - status 'completed', a winner already recorded,
+    // and that win already propagated forward. All of that is about to be
+    // undone: it's becoming a genuine, unplayed two-sided match, so it has
+    // to go back to looking like one - otherwise it reads as "already
+    // played" and nothing (this route's own propagation below, or anyone
+    // just browsing the bracket) will know to treat it as live again.
+    byeBox.awayPlayerId = pendingPool[1];
+    byeBox.byeSlot = null;
+    byeBox.status = 'scheduled';
+    byeBox.winnerPlayerId = null;
+    byeBox.frames = [];
+    byeBox.homeFrameScore = 0;
+    byeBox.awayFrameScore = 0;
+    wbRound1Fixtures.push(byeBox);
+    i = 2;
+  }
+  for (; i < pendingPool.length; i += 2) {
+    const f = makeSinglesFixture({ league, division, round: 1 });
+    f.bracketRole = 'winners';
+    f.homePlayerId = pendingPool[i];
+    if (pendingPool[i + 1] !== undefined) {
+      f.awayPlayerId = pendingPool[i + 1];
+    } else {
+      f.byeSlot = 'away';
+    }
+    db.fixtures.push(f);
+    wbRound1Fixtures.push(f);
+  }
+
+  // ---- Archive everything downstream of round 1, then rebuild it fresh ----
+  const keepIds = new Set(wbRound1Fixtures.map((f) => f.id));
+  const toArchive = db.fixtures.filter((f) => f.divisionId === division.id && !keepIds.has(f.id));
+  const archivedReason = `Bracket rebuilt to add late entrant(s): ${newPlayers.map((p) => p.name).join(', ')}`;
+  toArchive.forEach((f) => {
+    db.archivedFixtures.push({ ...f, archivedAt: new Date().toISOString(), archivedReason });
+  });
+  const archiveIds = new Set(toArchive.map((f) => f.id));
+  db.fixtures = db.fixtures.filter((f) => !archiveIds.has(f.id));
+
+  rebuildDoubleElimFromRound1({ db, league, division, wbRound1Fixtures });
+
+  // Resolve any round-1 bye now that its downstream chain exists again -
+  // mirrors the equivalent step at the end of generateDoubleElimFixtures.
+  wbRound1Fixtures.filter((f) => f.byeSlot === 'away').forEach((f) => resolveByeIfNeeded(db, division, f));
+
+  if (league && league.payment && league.payment.required) {
+    newPlayers.forEach((p) => {
+      const existing = db.leaguePayments.find((pay) => pay.leagueId === league.id && pay.playerId === p.id);
+      if (!existing) {
+        db.leaguePayments.push({
+          id: uuid(),
+          leagueId: league.id,
+          playerId: p.id,
+          status: 'unpaid',
+          amount: league.payment.amount,
+          currency: league.payment.currency,
+          confirmedBy: null,
+          confirmedAt: null,
+          notes: '',
+        });
+      }
+    });
+  }
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.add_late_entrants_rebuild_bracket',
+    targetType: 'division',
+    targetId: division.id,
+    details: `${archivedReason} in "${division.name}" - archived ${toArchive.length} fixture(s) and rebuilt the bracket around ${division.playerIds.length} total entrants`,
+  });
+
+  writeDb(db);
+  res.status(201).json({
+    division: hydrateDivision(db, division),
+    archivedFixtureCount: toArchive.length,
+    addedPlayers: newPlayers.map((p) => ({ id: p.id, name: p.name })),
+  });
+}));
+
 // Assigns a `scheduledDate` (YYYY-MM-DD) to every fixture in a division,
 // spacing rounds `gapDays` apart starting at `startDate` - this is what the
 // season wizard's "gap between games" step controls. Not used for knockout

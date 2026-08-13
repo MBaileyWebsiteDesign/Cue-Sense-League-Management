@@ -143,6 +143,12 @@ const networkApi = {
     request(`/divisions/${divisionId}/quick-add-player`, { method: 'POST', body: JSON.stringify({ firstName, lastName }) }),
   closeLateEntry: (divisionId) =>
     request(`/divisions/${divisionId}/close-late-entry`, { method: 'POST' }),
+  // Pre-tournament late entry for a double-elim knockout (see POST
+  // /api/divisions/:id/late-entrants) - unlocks the roster and rebuilds the
+  // bracket around the new player(s), rather than relying on a reserved
+  // slot. Only succeeds while nothing in the bracket has been played yet.
+  addLateEntrants: (divisionId, playerIds) =>
+    request(`/divisions/${divisionId}/late-entrants`, { method: 'POST', body: JSON.stringify({ playerIds }) }),
   generateFixtures: (divisionId, data = {}) =>
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
   seedFromGroups: (divisionId, sources) =>
