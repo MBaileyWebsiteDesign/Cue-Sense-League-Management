@@ -2536,15 +2536,30 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
 function isDivisionBracketUntouched(db, division) {
   const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
   if (fixtures.length === 0) return false;
-  // A fixture can legitimately already be `completed` here - a bye/walkover
-  // resolves itself automatically the moment fixtures are generated (see
-  // resolveByeIfNeeded), and that's exactly the structural state this route
-  // exists to unwind, not a real result. The actual bar is "no frame has
-  // ever been recorded" - that's what makes archiving and rebuilding
-  // provably lossless. resetFixtureId can only ever be set after a real
-  // Grand Final result, so its presence is an extra tripwire in case this
-  // is ever called somewhere frames.length alone wouldn't catch.
-  return fixtures.every((f) => f.frames.length === 0 && !f.resetFixtureId);
+  // A fixture can legitimately already be `completed` here if it's a
+  // structural bye (byeSlot set - one side was never populated) - that
+  // resolves itself automatically the moment fixtures are generated or
+  // reconciled (see resolveByeIfNeeded), and that's exactly the structural
+  // state this route exists to unwind, not a real result.
+  //
+  // Anything else with a winner recorded IS a real result, even when
+  // frames.length is 0 - see the "click a player's name to set them as the
+  // winner directly" admin override (POST /api/fixtures/:id/select-winner),
+  // which records status:'completed' + winnerPlayerId with frames left
+  // empty (no score kept) and, if this fixture has a nextFixtureId,
+  // immediately propagates that winner into the next round. Checking
+  // frames.length alone missed this: it let the route archive a fixture
+  // (or a downstream one already populated from it) that actually held a
+  // real decision, silently discarding it. So the bar is "no winner
+  // recorded anywhere outside a structural bye" - that's what makes
+  // archiving and rebuilding provably lossless. resetFixtureId can only
+  // ever be set after a real Grand Final result, so its presence is an
+  // extra tripwire in case this is ever called somewhere the other checks
+  // wouldn't catch.
+  return fixtures.every((f) => {
+    if (f.byeSlot) return true;
+    return f.frames.length === 0 && f.winnerPlayerId == null && f.status !== 'completed' && !f.resetFixtureId;
+  });
 }
 
 // Builds winners-bracket rounds 2+, the whole losers bracket, and the Grand
