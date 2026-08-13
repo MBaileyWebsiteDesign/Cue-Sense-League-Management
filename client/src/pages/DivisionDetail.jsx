@@ -1035,66 +1035,35 @@ function SeedFromGroupsPanel({ division, onChange, setError }) {
 }
 
 // Admin-only, collapsed-by-default panel (same "Show/Hide" convention as
-// the Admin Override panel on the fixture page) that force-completes every
-// outstanding fixture in the division at 0-0 with no winner - no player
-// confirmation needed or possible. Irreversible, so it's a two-step action:
-// "Show" reveals the warning and the actual confirm button, rather than
-// firing straight off the first click.
-function CloseDivisionEarlyPanel({ division, onChange, setError }) {
+// the Admin Override panel on the fixture page) that groups this division's
+// irreversible admin actions - Close Division Early and Delete Division -
+// into one card, same as LeagueDetail's ManageLeaguePanel bundles Close
+// League Early and Delete League one level up. `canCloseEarly` gates just
+// the Close Division Early subsection (division must have fixtures
+// generated and not already be completed); Delete Division is always
+// available here since the parent only renders this panel for canManage.
+// Available to an Overall Admin or a League Manager assigned to this
+// division's league - see assertLeagueAccess in server/src/userAuth.js for
+// the backend enforcement this mirrors.
+function ManageDivisionPanel({ division, canCloseEarly, onChange, setError }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
-  const onConfirm = async () => {
-    setSubmitting(true);
+  const onCloseEarly = async () => {
+    setClosing(true);
     setError('');
     try {
       await api.closeDivisionEarly(division.id);
-      setOpen(false);
       onChange();
     } catch (err) {
       setError(err.message);
     } finally {
-      setSubmitting(false);
+      setClosing(false);
     }
   };
-
-  return (
-    <section className="card">
-      <div className="page-header">
-        <h2 style={{ margin: 0 }}>Admin: Close Division Early</h2>
-        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
-          {open ? 'Hide' : 'Show'}
-        </button>
-      </div>
-      {open && (
-        <>
-          <p className="muted">
-            Force-completes every fixture in this division that isn't already finished at 0-0, with no
-            winner - no confirmation from either side is needed. Use this to end a season early (a round
-            robin that won't finish, a player pool that fell apart, running out of time). This can't be
-            undone.
-          </p>
-          <button className="btn btn-primary" type="button" disabled={submitting} onClick={onConfirm}>
-            {submitting ? 'Closing…' : 'Close this division now'}
-          </button>
-        </>
-      )}
-    </section>
-  );
-}
-
-// Same "type the name to confirm" irreversible-delete pattern as
-// LeagueDetail's ManageLeaguePanel Delete League section, one level down -
-// permanently deletes just this division and everything scoped to it
-// (fixtures, teams/pairings, roll-of-honour entries), leaving the rest of
-// the league untouched. Available to an Overall Admin or a League Manager
-// assigned to this division's league - see assertLeagueAccess in
-// server/src/userAuth.js for the backend enforcement this mirrors.
-function DeleteDivisionPanel({ division, onChange, setError }) {
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [confirmName, setConfirmName] = useState('');
-  const [deleting, setDeleting] = useState(false);
 
   const onDelete = async () => {
     setDeleting(true);
@@ -1111,34 +1080,52 @@ function DeleteDivisionPanel({ division, onChange, setError }) {
   return (
     <section className="card">
       <div className="page-header">
-        <h2 style={{ margin: 0 }}>Delete Division</h2>
+        <h2 style={{ margin: 0 }}>Admin: Manage this Division</h2>
         <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide' : 'Show'}
         </button>
       </div>
       {open && (
         <>
-          <p className="muted">
-            Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture,
-            team and pairing, plus its roll-of-honour history. The rest of the league is untouched. This
-            cannot be undone. To confirm, type the division's name below.
-          </p>
-          <label>
-            Division name
-            <input
-              value={confirmName}
-              onChange={(e) => setConfirmName(e.target.value)}
-              placeholder={division.name}
-            />
-          </label>
-          <button
-            className="btn btn-danger"
-            type="button"
-            disabled={deleting || confirmName.trim() !== division.name}
-            onClick={onDelete}
-          >
-            {deleting ? 'Deleting…' : 'Delete this division permanently'}
-          </button>
+          {canCloseEarly && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.25rem' }}>Close Division Early</h3>
+              <p className="muted">
+                Force-completes every fixture in this division that isn't already finished at 0-0, with no
+                winner - no confirmation from either side is needed. Use this to end a season early (a round
+                robin that won't finish, a player pool that fell apart, running out of time). This can't be
+                undone.
+              </p>
+              <button className="btn btn-primary" type="button" disabled={closing} onClick={onCloseEarly}>
+                {closing ? 'Closing…' : 'Close this division now'}
+              </button>
+            </div>
+          )}
+
+          <div>
+            <h3 style={{ marginBottom: '0.25rem' }}>Delete Division</h3>
+            <p className="muted">
+              Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture,
+              team and pairing, plus its roll-of-honour history. The rest of the league is untouched. This
+              cannot be undone. To confirm, type the division's name below.
+            </p>
+            <label>
+              Division name
+              <input
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                placeholder={division.name}
+              />
+            </label>
+            <button
+              className="btn btn-danger"
+              type="button"
+              disabled={deleting || confirmName.trim() !== division.name}
+              onClick={onDelete}
+            >
+              {deleting ? 'Deleting…' : 'Delete this division permanently'}
+            </button>
+          </div>
         </>
       )}
     </section>
@@ -1309,12 +1296,13 @@ export default function DivisionDetail() {
         </p>
       )}
 
-      {canManage && division.fixturesGenerated && division.status !== 'completed' && (
-        <CloseDivisionEarlyPanel division={division} onChange={load} setError={setError} />
-      )}
-
       {canManage && (
-        <DeleteDivisionPanel division={division} onChange={load} setError={setError} />
+        <ManageDivisionPanel
+          division={division}
+          canCloseEarly={division.fixturesGenerated && division.status !== 'completed'}
+          onChange={load}
+          setError={setError}
+        />
       )}
 
       {isTeams ? (
