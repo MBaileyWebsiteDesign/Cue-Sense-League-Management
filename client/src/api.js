@@ -115,6 +115,10 @@ const networkApi = {
   createDivision: (leagueId, data) =>
     request(`/leagues/${leagueId}/divisions`, { method: 'POST', body: JSON.stringify(data) }),
   getDivision: (id) => request(`/divisions/${id}`),
+  // "Change Game Type" (DivisionDetail.jsx's GenerateFixturesButton): only
+  // works while the division has no fixtures yet - see server/src/index.js's
+  // PATCH /api/divisions/:id for the full validation/gating.
+  updateDivision: (id, data) => request(`/divisions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Admin-only: force-completes every outstanding fixture in a division (or,
   // for the league version, every division in the league) at 0-0 with no
   // winner - no player confirmation needed. See server/src/index.js's

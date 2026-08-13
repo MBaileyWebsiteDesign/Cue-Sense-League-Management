@@ -970,6 +970,80 @@ app.get('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
   res.json(hydrated);
 }));
 
+// "Change Game Type" (see client/src/pages/DivisionDetail.jsx's
+// GenerateFixturesButton): lets an admin revise a division's entryType/
+// scheduling/raceTo/legsPerMatch/pairingSize before fixtures exist, mainly so
+// the client-side "Estimated Game Time"/"Estimated No. of Games" figures
+// shown above the Generate Fixtures button can be corrected without
+// deleting and recreating the whole division. Deliberately narrower than
+// PATCH /api/leagues/:id: once fixturesGenerated is true the game type is
+// locked (mirrors the roster-locking behaviour already enforced elsewhere
+// on this division once fixtures exist), and entryType can't be changed
+// out from under a roster that's already been built in the old shape
+// (singles players vs. teams vs. pairings aren't interchangeable records).
+app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, "Can't change game type once fixtures have been generated for this division.");
+  }
+
+  const {
+    entryType = division.entryType,
+    scheduling = division.scheduling,
+    raceTo = division.raceTo,
+    legsPerMatch,
+    pairingSize,
+  } = req.body || {};
+
+  if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+    throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+  }
+  if (!SCHEDULING_TYPES.includes(scheduling)) {
+    throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
+  }
+  if (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1) {
+    throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+  }
+  const effectiveLegsPerMatch = legsPerMatch !== undefined ? legsPerMatch : division.legsPerMatch || 5;
+  const effectivePairingSize = pairingSize !== undefined ? pairingSize : division.pairingSize || 2;
+  if (entryType === 'teams' && (!Number.isInteger(Number(effectiveLegsPerMatch)) || Number(effectiveLegsPerMatch) < 1)) {
+    throw new ApiError(400, 'legsPerMatch must be a positive whole number');
+  }
+  if (entryType === 'doubles' && ![2, 3].includes(Number(effectivePairingSize))) {
+    throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
+  }
+
+  if (entryType !== division.entryType) {
+    const hasRoster = division.playerIds.length > 0 || division.teamIds.length > 0 || division.pairingIds.length > 0;
+    if (hasRoster) {
+      throw new ApiError(400, "Can't change entry type: this division already has players, teams or pairings registered - remove them first.");
+    }
+  }
+
+  division.entryType = entryType;
+  division.scheduling = scheduling;
+  division.raceTo = Number(raceTo);
+  division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
+  division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Changed game type for "${division.name}" - entryType: ${entryType}, scheduling: ${scheduling}, raceTo: ${raceTo}`,
+  });
+
+  writeDb(db);
+  const hydrated = hydrateDivision(db, division);
+  res.json(hydrated);
+}));
+
 // League Manager (scoped to their assigned league) or Overall Admin -
 // mirrors DELETE /api/leagues/:id one level down. Permanently deletes just
 // this division and everything scoped to it (fixtures, teams/pairings,
@@ -1944,6 +2018,27 @@ function haveAlreadyPlayed(db, division, aId, bId) {
   });
 }
 
+// Whether `entrantId` has already been awarded ANY bye in this division -
+// round 1's natural/reserved one or a later-round structural one (see
+// buildBracketRounds/buildDoubleElimBracket). A bye fixture is
+// indistinguishable in the data from any other completed fixture except
+// that one side was never filled in (resolveByeIfNeeded deliberately
+// leaves the empty side null rather than backfilling it), so that's what
+// this checks for - used by avoidRepeatByeOnPlacement below to stop the
+// same entrant collecting a second bye while someone else in the draw
+// hasn't had one yet.
+function hasHadBye(db, division, entrantId) {
+  if (!entrantId) return false;
+  const isTeams = division.entryType === 'teams';
+  return db.fixtures.some((f) => {
+    if (f.divisionId !== division.id || f.status !== 'completed') return false;
+    const home = isTeams ? f.homeTeamId : f.homePlayerId;
+    const away = isTeams ? f.awayTeamId : f.awayPlayerId;
+    if (home !== entrantId && away !== entrantId) return false;
+    return !home || !away;
+  });
+}
+
 // Double-elimination rematch avoidance, shared by propagateWinner (losers-
 // bracket-internal advancement) and propagateLoser (a winners-bracket
 // loser dropping into the losers bracket).
@@ -1967,13 +2062,25 @@ function haveAlreadyPlayed(db, division, aId, bId) {
 // check whether whoever already occupies that destination's other slot is
 // someone `entrantId` has already played. If so, look for a sibling
 // fixture - same round, same bracketRole, not yet completed, wired via the
-// same id/slot field pair and the same target slot - and swap the two
-// fixtures' routing so each one's *eventual* winner/loser lands somewhere
-// rematch-free instead. This only ever repoints not-yet-decided
-// assignments, so it's always safe to do (and redo, on a result
-// correction) right up until each one's result actually lands. If no
-// rematch-free sibling exists, the placement goes ahead as originally
-// wired - not every case can be avoided (see the docs on this feature).
+// same id/slot field pair (to EITHER slot - see occupantAt, which works
+// out each sibling's own "other slot" instead of assuming it matches this
+// fixture's, so a 'home'-wired sibling and an 'away'-wired one are equally
+// valid swap partners) - and swap the two fixtures' routing so each one's
+// *eventual* winner/loser lands somewhere rematch-free instead. This only
+// ever repoints not-yet-decided assignments, so it's always safe to do
+// (and redo, on a result correction) right up until each one's result
+// actually lands. If no rematch-free sibling exists, the placement goes
+// ahead as originally wired - not every case can be avoided (see the docs
+// on this feature).
+//
+// Widened from an earlier version that only considered siblings wired to
+// the *same* target slot as this fixture. That halved the usable sibling
+// pool for no real reason (the swap itself is slot-safe either way - it
+// always exchanges a fixture's id/slot pair together) and was responsible
+// for real missed rematches in production: with only same-slot siblings
+// eligible, it's common for all of them to already be decided and routed
+// by the time a problem pairing is detected, leaving nothing left to swap
+// with.
 function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entrantId) {
   const targetId = fixture[idField];
   const targetSlot = fixture[slotField];
@@ -1981,11 +2088,11 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
   const dest = db.fixtures.find((f) => f.id === targetId);
   if (!dest) return;
   const isTeams = division.entryType === 'teams';
-  const otherSlot = targetSlot === 'home' ? 'away' : 'home';
+  const otherSlotOf = (slot) => (slot === 'home' ? 'away' : 'home');
   const readSlot = (fx, slot) => (isTeams
     ? (slot === 'home' ? fx.homeTeamId : fx.awayTeamId)
     : (slot === 'home' ? fx.homePlayerId : fx.awayPlayerId));
-  const occupant = readSlot(dest, otherSlot);
+  const occupant = readSlot(dest, otherSlotOf(targetSlot));
   if (!occupant || !haveAlreadyPlayed(db, division, entrantId, occupant)) return;
 
   const siblings = db.fixtures.filter((f) =>
@@ -1994,12 +2101,14 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
     f.bracketRole === fixture.bracketRole &&
     f.round === fixture.round &&
     f.status !== 'completed' &&
-    f[slotField] === targetSlot &&
     f[idField]
   );
+  // Each sibling's own "other slot" is relative to ITS OWN slotField, not
+  // this fixture's targetSlot - a sibling wired to 'away' fills the 'away'
+  // side of its destination, so the slot worth checking there is 'home'.
   const occupantAt = (fx) => {
     const d = db.fixtures.find((x) => x.id === fx[idField]);
-    return d ? readSlot(d, otherSlot) : null;
+    return d ? readSlot(d, otherSlotOf(fx[slotField])) : null;
   };
   const pick =
     siblings.find((f) => !occupantAt(f)) ||
@@ -2016,11 +2125,71 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
   pick[slotField] = ours.slot;
 }
 
+// Bye-fairness - the structural-bye counterpart to avoidRematchOnPlacement
+// above, same swap mechanism, different question. Bye placement (see
+// buildBracketRounds/buildDoubleElimBracket) is decided purely by whether a
+// round's box count is odd, with no memory of who's already had one; and
+// because a round's last box always feeds the next round's last box (see
+// generateKnockoutFixtures/generateDoubleElimFixtures's linking loops), an
+// entrant who lands in that corner - most commonly whoever got round 1's
+// bye in the first place - can structurally end up there again in a later
+// round, and again after that, while someone else in the draw has had
+// none at all.
+//
+// This doesn't apply in round 1 (nobody's had a bye yet, so there's
+// nothing to be fair about there - that's handled directly in
+// generateKnockoutFixtures/generateDoubleElimFixtures, not here). From
+// round 2 onward: before seating `entrantId` into a destination that turns
+// out to be a bye box, check whether they've already had one; if so, look
+// for a not-yet-decided sibling (same round, same bracketRole) whose own
+// destination is a genuine two-sided fixture, and swap into that instead,
+// so the bye goes to someone who hasn't had one yet. If no such sibling
+// exists, the placement goes ahead as originally wired - like
+// avoidRematchOnPlacement, this is a best-effort mitigation, not a
+// guarantee (it doesn't, for instance, check whether the sibling's
+// eventual winner has had a bye too - that's not knowable yet). Runs after
+// rematch-avoidance in propagateWinner/propagateLoser below, so a
+// rematch-free placement is never given up purely to also chase
+// bye-fairness.
+function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, entrantId) {
+  const targetId = fixture[idField];
+  if (!targetId || !entrantId) return;
+  const dest = db.fixtures.find((f) => f.id === targetId);
+  if (!dest || !dest.byeSlot) return; // destination isn't a bye box - nothing to protect against
+  if (!hasHadBye(db, division, entrantId)) return; // this entrant's first bye, if it is one - fine
+
+  const siblings = db.fixtures.filter((f) =>
+    f.id !== fixture.id &&
+    f.divisionId === fixture.divisionId &&
+    f.bracketRole === fixture.bracketRole &&
+    f.round === fixture.round &&
+    f.status !== 'completed' &&
+    f[idField]
+  );
+  const pick = siblings.find((f) => {
+    const d = db.fixtures.find((x) => x.id === f[idField]);
+    return d && !d.byeSlot;
+  });
+  if (!pick) return;
+
+  const ours = { id: fixture[idField], slot: fixture[slotField] };
+  fixture[idField] = pick[idField];
+  fixture[slotField] = pick[slotField];
+  pick[idField] = ours.id;
+  pick[slotField] = ours.slot;
+}
+
 function propagateWinner(db, division, fixture, winnerId) {
   if (!fixture.nextFixtureId) return;
   if (fixture.bracketRole === 'losers') {
     avoidRematchOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
   }
+  // Bye-fairness applies regardless of bracketRole (unlike rematch-
+  // avoidance just above) - a winners-bracket round can land the same
+  // entrant in a structural bye box twice over just as easily as the
+  // losers bracket can (see avoidRepeatByeOnPlacement's doc comment). A
+  // no-op whenever the destination isn't actually a bye box.
+  avoidRepeatByeOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
   const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
   if (!next) return;
   if (division.entryType === 'teams') {
@@ -2052,6 +2221,7 @@ function propagateWinner(db, division, fixture, winnerId) {
 function propagateLoser(db, division, fixture, loserId) {
   if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
   avoidRematchOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+  avoidRepeatByeOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
   const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
   if (!dest) return;
   if (division.entryType === 'teams') {

@@ -13,6 +13,177 @@ function generateFixturesLabel(division) {
   return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
 
+// How many entrants are currently registered, read off whichever roster
+// array hydrateDivision actually populated for this entryType (players/
+// teams/pairings) - see server/src/index.js's hydrateDivision.
+function currentEntrantCount(division) {
+  if (division.entryType === 'teams') return (division.teams || []).length;
+  if (division.entryType === 'doubles') return (division.pairings || []).length;
+  return (division.players || []).length;
+}
+
+// Estimated number of games the division's fixtures will contain, from the
+// current entrant count and scheduling format - mirrors the shape of what
+// generateRoundRobinFixtures/generateKnockoutFixtures actually produce
+// server-side (server/src/index.js), without needing fixtures to exist yet.
+function estimateGameCount(division) {
+  const n = currentEntrantCount(division);
+  if (n < 2) return 0;
+  switch (division.scheduling) {
+    case 'round_robin_double':
+      // Everyone plays everyone twice (home and away).
+      return n * (n - 1);
+    case 'knockout_single_elim':
+      // Every match eliminates exactly one entrant, so it always takes
+      // n - 1 matches to reduce the field to a single champion, regardless
+      // of how byes/reserved slots land in round 1.
+      return n - 1;
+    case 'knockout_double_elim':
+      // Minimum matches for a double-elimination bracket: 2n - 2 if the
+      // winners-bracket finalist takes the Grand Final outright. If they
+      // lose it, a reset decider adds one more match (2n - 1) - so the
+      // real count can be one game higher than this estimate.
+      return 2 * n - 2;
+    case 'round_robin_single':
+    default:
+      // Everyone plays everyone once.
+      return (n * (n - 1)) / 2;
+  }
+}
+
+// Estimated total playing time in minutes: (min frames needed to win a
+// game) x 10 x (number of games) - division.raceTo is already "first to N
+// frames wins", i.e. exactly the minimum frames needed to win a game
+// (see the raceTo comment on POST /api/leagues/:leagueId/divisions,
+// server/src/index.js, where "Best of X" is converted to raceTo = (X+1)/2
+// before it's ever stored).
+function estimateGameTimeMinutes(division) {
+  return (division.raceTo || 0) * 10 * estimateGameCount(division);
+}
+
+function formatMinutes(mins) {
+  if (!mins || mins <= 0) return '0 mins';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} min${m === 1 ? '' : 's'}`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+// Editable copy of the same 4 fields LeagueDetail.jsx's "+ New Division"
+// form collects (entry type, match format, race to/best of frames, format),
+// used here to revise a division's game type before fixtures are generated.
+// See PATCH /api/divisions/:id (server/src/index.js) for the matching
+// backend validation/gating - most importantly, it 400s once
+// division.fixturesGenerated is true, which is also why this whole button
+// (and therefore this form) is only ever rendered pre-fixtures to begin with.
+function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
+  const [entryType, setEntryType] = useState(division.entryType);
+  const [legsPerMatch, setLegsPerMatch] = useState(division.legsPerMatch || 5);
+  const [pairingSize, setPairingSize] = useState(division.pairingSize || 2);
+  const [scheduling, setScheduling] = useState(division.scheduling);
+  const [formatMode, setFormatMode] = useState('raceTo');
+  const [formatValue, setFormatValue] = useState(division.raceTo || 6);
+  const [saving, setSaving] = useState(false);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const numericFormatValue = Number(formatValue);
+    let raceTo;
+    if (formatMode === 'bestOf') {
+      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
+        setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
+        return;
+      }
+      raceTo = (numericFormatValue + 1) / 2;
+    } else {
+      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1) {
+        setError('Race to (frames) must be a whole number of 1 or more');
+        return;
+      }
+      raceTo = numericFormatValue;
+    }
+    setSaving(true);
+    try {
+      await api.updateDivision(division.id, {
+        entryType,
+        scheduling,
+        raceTo,
+        ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
+        ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
+      });
+      onChange();
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="form" style={{ marginTop: 8, marginBottom: 8 }} onSubmit={onSubmit}>
+      <label>
+        Entry type
+        <select value={entryType} onChange={(e) => setEntryType(e.target.value)}>
+          <option value="singles">Singles (one player vs one player)</option>
+          <option value="teams">Teams (team vs team, made up of legs)</option>
+          <option value="doubles">Doubles/Triples (2-3 player pairing vs pairing, alternate-shot)</option>
+        </select>
+      </label>
+      {entryType === 'teams' && (
+        <label>
+          Legs per match
+          <input type="number" min="1" value={legsPerMatch} onChange={(e) => setLegsPerMatch(e.target.value)} required />
+        </label>
+      )}
+      {entryType === 'doubles' && (
+        <label>
+          Players per pairing
+          <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
+            <option value={2}>2 (doubles)</option>
+            <option value={3}>3 (triples)</option>
+          </select>
+        </label>
+      )}
+      <label>
+        Match format
+        <select value={formatMode} onChange={(e) => setFormatMode(e.target.value)}>
+          <option value="raceTo">Race to (frames)</option>
+          <option value="bestOf">Best of (frames)</option>
+        </select>
+      </label>
+      <label>
+        {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
+        <input
+          type="number"
+          min="1"
+          step={formatMode === 'bestOf' ? 2 : 1}
+          value={formatValue}
+          onChange={(e) => setFormatValue(e.target.value)}
+          required
+        />
+      </label>
+      <label>
+        Format
+        <select value={scheduling} onChange={(e) => setScheduling(e.target.value)}>
+          <option value="round_robin_single">Round Robin - Single (everyone plays each other once)</option>
+          <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
+          <option value="knockout_single_elim">Knockout (single elimination)</option>
+          <option value="knockout_double_elim">Knockout (double elimination)</option>
+        </select>
+      </label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-primary" type="submit" disabled={saving}>
+          {saving ? 'Saving…' : 'Submit'}
+        </button>
+        <button className="btn" type="button" onClick={onDone} disabled={saving}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 // Shared by SinglesRoster/TeamRoster/PairingRoster below - asks up front
 // whether the fixtures about to be generated should start visible to
 // players immediately (skipping the normal per-round release from Manage
@@ -21,6 +192,7 @@ function generateFixturesLabel(division) {
 function GenerateFixturesButton({ division, disabled, title, onChange, setError }) {
   const [visibleByDefault, setVisibleByDefault] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [changingGameType, setChangingGameType] = useState(false);
 
   const onGenerate = async () => {
     setError('');
@@ -37,6 +209,27 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
 
   return (
     <div style={{ marginTop: 8 }}>
+      <div className="page-header" style={{ marginBottom: 8 }}>
+        <div>
+          <p style={{ margin: 0 }}>
+            <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
+          </p>
+          <p style={{ margin: 0 }}>
+            <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
+          </p>
+        </div>
+        <button className="btn" type="button" onClick={() => setChangingGameType((v) => !v)}>
+          {changingGameType ? 'Cancel' : 'Change Game Type'}
+        </button>
+      </div>
+      {changingGameType && (
+        <ChangeGameTypeForm
+          division={division}
+          onChange={onChange}
+          setError={setError}
+          onDone={() => setChangingGameType(false)}
+        />
+      )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 'normal', marginBottom: 8 }}>
         <input
           type="checkbox"
