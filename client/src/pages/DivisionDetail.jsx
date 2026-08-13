@@ -383,7 +383,10 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       const res = await api.addLateEntrants(division.id, [lateEntrantPlayerId]);
       setLateEntrantPlayerId('');
       setLateEntrantResult(
-        `${res.addedPlayers.map((p) => p.name).join(', ')}: added - the bracket was rebuilt around them (${res.archivedFixtureCount} old fixture(s) archived, kept for the record).`
+        `${res.addedPlayers.map((p) => p.name).join(', ')}: added - the bracket was rebuilt around them (${res.archivedFixtureCount} old fixture(s) archived, kept for the record)` +
+          (res.replayedResultCount > 0
+            ? `, and ${res.replayedResultCount} already-decided round 1 result(s) were carried forward onto the new bracket.`
+            : '.')
       );
       onChange();
     } catch (err) {
@@ -485,9 +488,10 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         <>
           <h3 style={{ marginBottom: 4 }}>Add a late entrant</h3>
           <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
-            Adds a registered player to the draw and rebuilds the bracket around them - only works while nothing in this
-            bracket has been played yet. Once a frame has been recorded anywhere in it, this stops being offered; use Quick
-            Add above (if a reserved slot is open) instead.
+            Adds a registered player to the draw and rebuilds the bracket around them, carrying forward any round 1
+            results already recorded. Works right up until round 2 or the losers bracket has a result on it - once
+            that happens, the bracket shape beyond round 1 can no longer be safely regenerated and this stops being
+            offered; use Quick Add above (if a reserved slot is open) instead.
           </p>
           <form className="inline-form" onSubmit={onAddLateEntrant}>
             <select value={lateEntrantPlayerId} onChange={(e) => setLateEntrantPlayerId(e.target.value)} required>
