@@ -2181,11 +2181,31 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
     return false;
   }
 
+  // WIDENED (2026-08-14, third pass - see
+  // claude/double-elim-fresh-verification-and-cross-round-fix-2026-08-14.md
+  // project doc for the simulation that found this): originally restricted
+  // to `f.round === dest.round`, i.e. only a same-round box could ever be
+  // an alt-box candidate. Re-testing 4,700+ fresh simulated tournaments
+  // against the current (dcf16ba) staging build found this was still
+  // leaving a same-round pool that had run dry at a handful of player
+  // counts (21, 22, 26, 27, 37, 38, 41-44, 46) - the exact same set flagged
+  // as still-residual by the previous session's fix. There is nothing
+  // round-specific about why this swap is safe: it only ever rewrites two
+  // fixtures' own player-slot fields, never any routing field
+  // (nextFixtureId/nextFixtureSlot/loserNextFixtureId/loserNextFixtureSlot),
+  // so a not-yet-started box in a *different* round of the same
+  // bracketRole is exactly as safe a swap partner as one in the same
+  // round - the `f.round === dest.round` restriction was never load-
+  // bearing for correctness, just an arbitrary narrowing of the search.
+  // Dropping it gives this fallback the whole bracketRole to search instead
+  // of just one round of it, which is what those residual player counts
+  // needed. Simulated result: rematch-outside-final alt-box swaps across
+  // 23,500 fresh tournaments (n=4-50, 500 trials each) - see that doc for
+  // the full before/after numbers.
   const altBoxes = db.fixtures.filter((f) =>
     f.id !== dest.id &&
     f.divisionId === dest.divisionId &&
     f.bracketRole === dest.bracketRole &&
-    f.round === dest.round &&
     f.status !== 'completed' &&
     !f.byeSlot &&
     (!f.frames || f.frames.length === 0)
@@ -2315,11 +2335,16 @@ function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, en
     return false;
   }
 
+  // WIDENED - see the matching comment in avoidRematchOnPlacement's own
+  // altBoxes block above (same fix, same day, same rationale): dropped the
+  // `f.round === dest.round` restriction so this can swap with a
+  // not-yet-started box anywhere in the same bracketRole, not just the
+  // same round. Still only ever touches player-slot fields, never routing,
+  // so it's exactly as safe widened as it was narrow.
   const altBoxes = db.fixtures.filter((f) =>
     f.id !== dest.id &&
     f.divisionId === dest.divisionId &&
     f.bracketRole === dest.bracketRole &&
-    f.round === dest.round &&
     f.status !== 'completed' &&
     !f.byeSlot &&
     (!f.frames || f.frames.length === 0)
