@@ -2161,12 +2161,9 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
 // round, and again after that, while someone else in the draw has had
 // none at all.
 //
-// This doesn't apply in round 1 (nobody's had a bye yet, so there's
-// nothing to be fair about there - that's handled directly in
-// generateKnockoutFixtures/generateDoubleElimFixtures, not here). From
-// round 2 onward: before seating `entrantId` into a destination that turns
-// out to be a bye box, check whether they've already had one; if so, look
-// for a not-yet-decided sibling (same round, same bracketRole) whose own
+// Before seating `entrantId` into a destination that turns out to be a bye
+// box, check whether they've already had one; if so, look for a
+// not-yet-decided sibling (same round, same bracketRole) whose own
 // destination is a genuine two-sided fixture, and swap into that instead,
 // so the bye goes to someone who hasn't had one yet. If no such sibling
 // exists, the placement goes ahead as originally wired - like
@@ -2176,12 +2173,39 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
 // rematch-avoidance in propagateWinner/propagateLoser below, so a
 // rematch-free placement is never given up purely to also chase
 // bye-fairness.
+//
+// `fixture` itself counts as a prior bye when it is one (fix, 2026-08-14 -
+// see claude/double-elim-bye-fix-2026-08-14.md project doc for the
+// simulation that found this): hasHadBye's own exclusion of `fixture.id`
+// correctly stops an entrant's first-ever bye from being mistaken for
+// prior history of itself while THAT bye is what's currently resolving
+// (the PR #40 false-positive) - but that exclusion also went too far: if
+// `fixture` just resolved as a genuine bye for `entrantId` AND its
+// destination is ALSO a bye box (round 1's bye dropping straight into a
+// round 2 box that's itself structurally a bye, most commonly), there was
+// no OTHER completed fixture yet to catch it against, so the entrant slid
+// through with zero fairness check and picked up a guaranteed second bye
+// before a single real match had been played anywhere. Every later hop in
+// a longer chain was already covered (by the time round 2's bye resolves
+// into round 3, round 1's bye is a separate, non-excluded fixture, so
+// hasHadBye already finds it) - only this first hop was blind. Checking
+// `fixture` itself alongside hasHadBye's own (unchanged) exclusion closes
+// exactly that gap without touching the swap mechanism, or anything about
+// why the exclusion was needed in the first place.
 function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, entrantId) {
   const targetId = fixture[idField];
   if (!targetId || !entrantId) return;
   const dest = db.fixtures.find((f) => f.id === targetId);
   if (!dest || !dest.byeSlot) return; // destination isn't a bye box - nothing to protect against
-  if (!hasHadBye(db, division, entrantId, fixture.id)) return; // this entrant's first bye, if it is one - fine
+  const isTeams = division.entryType === 'teams';
+  const fixtureIsOwnBye = (() => {
+    if (fixture.status !== 'completed') return false;
+    const home = isTeams ? fixture.homeTeamId : fixture.homePlayerId;
+    const away = isTeams ? fixture.awayTeamId : fixture.awayPlayerId;
+    if (home !== entrantId && away !== entrantId) return false;
+    return !home || !away;
+  })();
+  if (!fixtureIsOwnBye && !hasHadBye(db, division, entrantId, fixture.id)) return; // this entrant's first bye, if it is one - fine
 
   const siblings = db.fixtures.filter((f) =>
     f.id !== fixture.id &&
