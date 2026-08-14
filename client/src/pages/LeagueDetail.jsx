@@ -583,6 +583,7 @@ export default function LeagueDetail() {
               <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
               <option value="knockout_single_elim">Knockout (single elimination)</option>
               <option value="knockout_double_elim">Knockout (double elimination)</option>
+              <option value="knockout_double_elim_ally">Ally Knockout (double elimination)</option>
             </select>
           </label>
           <button className="btn btn-primary" type="submit">
@@ -621,9 +622,11 @@ export default function LeagueDetail() {
                 ? 'Knockout (single elim)'
                 : division.scheduling === 'knockout_double_elim'
                   ? 'Knockout (double elim)'
-                  : division.scheduling === 'round_robin_double'
-                    ? 'Round Robin - Double'
-                    : 'Round Robin - Single'}
+                  : division.scheduling === 'knockout_double_elim_ally'
+                    ? 'Ally Knockout (double elim)'
+                    : division.scheduling === 'round_robin_double'
+                      ? 'Round Robin - Double'
+                      : 'Round Robin - Single'}
               {' · '}
               {division.fixturesGenerated ? 'fixtures generated' : 'not started'}
               {division.status === 'completed' && ' · season complete'}

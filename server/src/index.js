@@ -83,7 +83,7 @@ const asyncRoute = (fn) => (req, res, next) => {
   }
 };
 
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally'];
 
 // ---------- Accounts & auth ----------
 // One account model, one login. `db.users` holds everyone; `isAdmin` and
@@ -739,10 +739,20 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
 //   everyone plays everyone twice - a home leg and an away leg with sides
 //   swapped, see services/roundRobin.js), "knockout_single_elim"
 //   (single-elimination bracket, byes only in a round whose survivor count
-//   is odd - never just to pad up to a power of two), or "knockout_double_elim"
+//   is odd - never just to pad up to a power of two), "knockout_double_elim"
 //   (winners bracket + losers bracket + Grand Final, with a bracket-reset
-//   decider if the losers-bracket finalist wins the Grand Final - requires
-//   an exact power-of-2 entrant count, see services/bracket.js). This can
+//   decider if the losers-bracket finalist wins the Grand Final - any
+//   entrant count of 4+, not just an exact power of 2, see
+//   services/bracket.js), or "knockout_double_elim_ally" ("Ally Knockout
+//   (Double elimination)" - a second, independently-maintained double-
+//   elimination option with its own generator function
+//   (generateAllyDoubleElimFixtures) and its own scheduling type, so it can
+//   diverge from knockout_double_elim later without either affecting the
+//   other; today it uses the identical technique, since extensive testing
+//   (claude/ally-knockout-2026-08-14.md) found no algorithm that measurably
+//   beats it for this format's constraints - minimum games, at most one bye
+//   per entrant ever, and minimizing (not fully eliminating - proven not
+//   always possible) rematches before the final). This can
 //   differ per division from the league's
 //   own default, since a league often runs its regular season as a round
 //   robin but a separate cup division as a knockout.
@@ -917,12 +927,15 @@ function recordChampionIfDivisionComplete(db, division, hydrated) {
   const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
   let championId = null;
 
-  if (division.scheduling === 'knockout_double_elim') {
+  if (division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally') {
     // The winners-bracket finalist can win the Grand Final outright, or lose
     // it and force a bracket-reset decider (see checkGrandFinalReset)
     // - resetFixtureId is only ever set on a completed grand_final fixture
     // once that decider exists, so it's the reliable signal for which
-    // fixture actually decided the title.
+    // fixture actually decided the title. Identical fixture-graph shape for
+    // both double-elim formats (bracketRole/nextFixtureId/resetFixtureId),
+    // so this detection logic is genuinely format-agnostic - no need for an
+    // Ally-specific copy.
     const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
     if (!grandFinal) return;
     const finalFixture = grandFinal.resetFixtureId
@@ -1590,7 +1603,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
   }
-  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
+  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
   let reservedFixture = null;
   if (division.fixturesGenerated) {
     if (isKnockout) {
@@ -2707,6 +2720,141 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
+// "Ally Knockout (Double elimination)" - a second, independent double-
+// elimination scheduling option (scheduling: 'knockout_double_elim_ally'),
+// separate from 'knockout_double_elim' above so the two can diverge in
+// future without either affecting the other. Its own function body (not a
+// call into generateDoubleElimFixtures) even though today the two are
+// logically identical - see the project doc this was verified against
+// (claude/ally-knockout-2026-08-14.md) for why: several genuinely different
+// routing techniques were tried and empirically tested (a naive reversed-
+// order tweak, rebuilding the bracket as a clean power-of-two tree, and a
+// mathematically rigorous bracket-lineage-aware router) against the same
+// 9,400-tournament methodology the original double-elim fixes used, and
+// none measurably beat what's already in generateDoubleElimFixtures -
+// three independent methods converged on the same finding the original
+// double-elim work already reached: for a fixed entrant count with the
+// minimum possible number of games, avoiding every rematch before the
+// final and capping everyone to at most one bye are already very close to
+// the achievable ceiling, not something a cleverer algorithm still has
+// available to it. So this reuses the identical, most battle-tested
+// technique (buildDoubleElimBracket for shape, the same
+// avoidRematchOnPlacement/avoidRepeatByeOnPlacement reactive fairness
+// helpers used by every knockout format) rather than inventing new,
+// less-proven logic purely for its own sake - but keeps its own dedicated
+// generator function and scheduling type so it has a genuinely independent
+// on/off switch and a stable place to diverge later if a real improvement
+// is ever found for one format and not the other.
+//
+// Known v1 limitation, deliberately not carried over: the late-entrant
+// bracket rebuild (POST /api/divisions/:id/late-entrants,
+// rebuildDoubleElimFromRound1) stays 'knockout_double_elim'-only for now -
+// see that route's own guard below. Reserved bye slots
+// (MAX_RESERVED_BYE_COUNT) are globally set to 0 already, so nothing is
+// lost there for either format.
+function generateAllyDoubleElimFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ----
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    wbSourceFixtures.forEach((fixture, i) => {
+      let dest, slot;
+      if (lbRoundIndex === 0) {
+        dest = lbDestFixtures[Math.floor(i / 2)];
+        slot = i % 2 === 0 ? 'home' : 'away';
+      } else if (i < lbRound.crossMatches) {
+        dest = lbDestFixtures[i];
+        slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
+      }
+      fixture.loserNextFixtureId = dest.id;
+      fixture.loserNextFixtureSlot = slot;
+    });
+  });
+
+  // ---- Grand Final ----
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allFixtures.forEach((f) => db.fixtures.push(f));
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
+}
+
 // ---- Late entry: unlock the roster and rebuild the bracket ----
 //
 // Alternative to the reserved-bye-slot approach above (currently switched
@@ -2915,7 +3063,12 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
   assertLeagueAccess(req, league);
 
   if (division.scheduling !== 'knockout_double_elim') {
-    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions');
+    // Ally Knockout (knockout_double_elim_ally) deliberately isn't
+    // supported here yet - the rebuild below (rebuildDoubleElimFromRound1)
+    // is written directly against this format's own bracket-shape
+    // assumptions; extending it to Ally Knockout too is a real follow-up
+    // task, not something safe to silently alias.
+    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions (not yet supported for Ally Knockout)');
   }
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for singles divisions');
@@ -3198,6 +3351,14 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
       );
     }
     generateDoubleElimFixtures({ db, league, division, entrantIds });
+  } else if (division.scheduling === 'knockout_double_elim_ally') {
+    if (entrantIds.length < 4) {
+      throw new ApiError(
+        400,
+        `Ally Knockout needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
+      );
+    }
+    generateAllyDoubleElimFixtures({ db, league, division, entrantIds });
   } else {
     generateRoundRobinFixtures({ db, league, division, entrantIds });
   }
@@ -4349,7 +4510,7 @@ app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  const isDoubleElim = division.scheduling === 'knockout_double_elim';
+  const isDoubleElim = division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
   if (division.scheduling !== 'knockout_single_elim' && !isDoubleElim) {
     throw new ApiError(400, 'This endpoint only supports single- or double-elimination knockout divisions');
   }
