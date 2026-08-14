@@ -2181,45 +2181,71 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
     return false;
   }
 
-  // WIDENED (2026-08-14, third pass - see
-  // claude/double-elim-fresh-verification-and-cross-round-fix-2026-08-14.md
-  // project doc for the simulation that found this): originally restricted
-  // to `f.round === dest.round`, i.e. only a same-round box could ever be
-  // an alt-box candidate. Re-testing 4,700+ fresh simulated tournaments
-  // against the current (dcf16ba) staging build found this was still
-  // leaving a same-round pool that had run dry at a handful of player
-  // counts (21, 22, 26, 27, 37, 38, 41-44, 46) - the exact same set flagged
-  // as still-residual by the previous session's fix. There is nothing
-  // round-specific about why this swap is safe: it only ever rewrites two
-  // fixtures' own player-slot fields, never any routing field
-  // (nextFixtureId/nextFixtureSlot/loserNextFixtureId/loserNextFixtureSlot),
-  // so a not-yet-started box in a *different* round of the same
-  // bracketRole is exactly as safe a swap partner as one in the same
-  // round - the `f.round === dest.round` restriction was never load-
-  // bearing for correctness, just an arbitrary narrowing of the search.
-  // Dropping it gives this fallback the whole bracketRole to search instead
-  // of just one round of it, which is what those residual player counts
-  // needed. Simulated result: rematch-outside-final alt-box swaps across
-  // 23,500 fresh tournaments (n=4-50, 500 trials each) - see that doc for
-  // the full before/after numbers.
-  const altBoxes = db.fixtures.filter((f) =>
+  // CHAIN SEARCH (2026-08-14, fourth pass - replaces the single-hop
+  // alt-box swap above; see
+  // claude/double-elim-rematch-chain-search-2026-08-14.md for the
+  // dedicated rematch-only test run that motivated this and the before/
+  // after numbers). The single-hop swap could only resolve a conflict by
+  // trading entrantId directly with ONE other occupant. That fails
+  // whenever the only occupants immediately available are each themselves
+  // incompatible with either side - a case a longer chain of swaps can
+  // often still resolve (move A into dest, which frees up A's old seat for
+  // B, which frees up B's old seat for entrantId, and so on). This is a
+  // backtracking search for an augmenting path of any length over every
+  // not-yet-started, non-bye box in the same bracketRole (any round, same
+  // scope PR #44 already widened to) that currently holds at least one
+  // occupant - a box still waiting on its own second feeder is just as
+  // valid a source to pull a replacement from as a fully-decided pair,
+  // since its still-empty side simply carries no compatibility constraint
+  // yet. Verified correct in isolation against a constructed 3-hop
+  // scenario before shipping. Like every fallback in this area, it only
+  // ever rewrites already-placed occupants' own player-slot fields - never
+  // any routing field - so it carries the same PR #40 safety guarantee.
+  const pool = db.fixtures.filter((f) =>
     f.id !== dest.id &&
     f.divisionId === dest.divisionId &&
     f.bracketRole === dest.bracketRole &&
     f.status !== 'completed' &&
     !f.byeSlot &&
-    (!f.frames || f.frames.length === 0)
+    (!f.frames || f.frames.length === 0) &&
+    (readSlot(f, 'home') || readSlot(f, 'away'))
   );
-  for (const alt of altBoxes) {
-    const altOccupant = readSlot(alt, targetSlot);
-    if (!altOccupant || altOccupant === entrantId) continue;
-    if (haveAlreadyPlayed(db, division, entrantId, altOccupant)) continue;
-    if (haveAlreadyPlayed(db, division, altOccupant, occupant)) continue;
-    const altOther = readSlot(alt, otherSlotOf(targetSlot));
-    if (altOther && haveAlreadyPlayed(db, division, altOther, entrantId)) continue;
 
-    dest[playerField(targetSlot)] = altOccupant;
-    alt[playerField(targetSlot)] = entrantId;
+  // Try to seat `personId` into (fx, slot), whose other slot may already
+  // hold a fixed occupant (or be empty - no constraint). If personId fits,
+  // done. Otherwise, look for some other pool box holding a compatible
+  // replacement, and recursively find a home for personId where THAT
+  // replacement came from - forming a chain of any length. `visited` stops
+  // any box being used twice in the same search.
+  function placeInChain(fx, slot, personId, visited) {
+    const otherSlot = otherSlotOf(slot);
+    const fixedOccupant = readSlot(fx, otherSlot);
+    if (!fixedOccupant || !haveAlreadyPlayed(db, division, personId, fixedOccupant)) {
+      return [{ fixtureId: fx.id, slot, value: personId }];
+    }
+    for (const cand of pool) {
+      if (visited.has(cand.id) || cand.id === fx.id) continue;
+      for (const candSlot of ['home', 'away']) {
+        const candValue = readSlot(cand, candSlot);
+        if (!candValue || candValue === personId) continue;
+        if (haveAlreadyPlayed(db, division, candValue, fixedOccupant)) continue;
+        visited.add(cand.id);
+        const rest = placeInChain(cand, candSlot, personId, visited);
+        if (rest !== null) {
+          return [{ fixtureId: fx.id, slot, value: candValue }, ...rest];
+        }
+        visited.delete(cand.id);
+      }
+    }
+    return null;
+  }
+
+  const chainMoves = placeInChain(dest, targetSlot, entrantId, new Set([dest.id]));
+  if (chainMoves) {
+    for (const m of chainMoves) {
+      const fx = m.fixtureId === dest.id ? dest : db.fixtures.find((f) => f.id === m.fixtureId);
+      fx[playerField(m.slot)] = m.value;
+    }
     return true; // handled directly - caller must skip its normal assignment
   }
 
