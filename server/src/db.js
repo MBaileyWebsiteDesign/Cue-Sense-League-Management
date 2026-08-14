@@ -50,6 +50,11 @@ const EMPTY_STATE = {
   // League payment wall: one record per (leagueId, playerId) - see
   // assertPaymentCleared in index.js and POST /api/leagues/:id/payments/:playerId.
   leaguePayments: [],
+  // Fixtures retired by a pre-tournament late-entrant bracket rebuild (see
+  // POST /api/divisions/:id/late-entrants in index.js) - a full copy of each
+  // retired fixture at the moment it was replaced, kept for audit/rollback
+  // rather than deleted outright. Never read by normal app routes.
+  archivedFixtures: [],
 };
 
 function ensureDataFile() {
@@ -89,6 +94,7 @@ export function readDb() {
   // StreamDeck / integration API keys - see userAuth.js's loadApiKeyUser.
   if (!state.apiKeys) state.apiKeys = [];
   if (!state.leaguePayments) state.leaguePayments = [];
+  if (!state.archivedFixtures) state.archivedFixtures = [];
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
   // that route and the Arena display (GET /api/overlay/leagues/:id/arena).

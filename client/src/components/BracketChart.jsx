@@ -272,26 +272,35 @@ export function MatchBox({ match, label, href, x, y, width = 176, height = 56, i
   // buildBracketMatches's canSelectWinner comment - both entrants known,
   // nothing recorded against it yet).
   const selectable = !!onSelectWinner && !!match.canSelectWinner;
+  // Clip the entrant rows' hover-highlight rects to the box's rounded
+  // corners, so the highlight fill (see .bracket-entrant-pick-target:hover)
+  // doesn't poke out past the box outline at the top/bottom edges.
+  const clipId = `bracket-box-clip-${match.id}`;
   const content = (
     <g>
+      <clipPath id={clipId}>
+        <rect x={x} y={y} width={width} height={height} rx={6} />
+      </clipPath>
       <rect
         className={`bracket-box${isFinal ? ' bracket-box-final' : ''}${match.reserved ? ' bracket-box-reserved' : ''}`}
         x={x} y={y} width={width} height={height} rx={6}
       />
       <text className="bracket-round-label" x={x + width / 2} y={y - 6} textAnchor="middle">{label}</text>
+      <g clipPath={`url(#${clipId})`}>
+        <EntrantRow
+          entrant={match.home}
+          won={winnerSide === 'home'}
+          x={x} y={y} width={width} rowHeight={height / 2}
+          onSelect={selectable ? () => onSelectWinner(match, 'home') : null}
+        />
+        <EntrantRow
+          entrant={match.away}
+          won={winnerSide === 'away'}
+          x={x} y={y + height / 2} width={width} rowHeight={height / 2}
+          onSelect={selectable ? () => onSelectWinner(match, 'away') : null}
+        />
+      </g>
       <line className="bracket-box-divider" x1={x} y1={y + height / 2} x2={x + width} y2={y + height / 2} />
-      <EntrantRow
-        entrant={match.home}
-        won={winnerSide === 'home'}
-        x={x} y={y} width={width} rowHeight={height / 2}
-        onSelect={selectable ? () => onSelectWinner(match, 'home') : null}
-      />
-      <EntrantRow
-        entrant={match.away}
-        won={winnerSide === 'away'}
-        x={x} y={y + height / 2} width={width} rowHeight={height / 2}
-        onSelect={selectable ? () => onSelectWinner(match, 'away') : null}
-      />
       {match.closedEarly && (
         <text className="bracket-closed-early" x={x + width / 2} y={y + height + 12} textAnchor="middle">closed early</text>
       )}
@@ -320,10 +329,9 @@ export function EntrantRow({ entrant, won, x, y, width, rowHeight, onSelect }) {
         <rect
           className="bracket-entrant-pick-target"
           x={x} y={y} width={width} height={rowHeight}
-          fill="transparent"
           onClick={handleClick}
         >
-          <title>{`Click to set ${name} as the winner (no score recorded)`}</title>
+          <title>{`Click anywhere in this box to set ${name} as the winner (no score recorded)`}</title>
         </rect>
       )}
       <text

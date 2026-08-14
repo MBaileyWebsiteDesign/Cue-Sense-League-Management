@@ -13,14 +13,234 @@ function generateFixturesLabel(division) {
   return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
 
+// How many entrants are currently registered, read off whichever roster
+// array hydrateDivision actually populated for this entryType (players/
+// teams/pairings) - see server/src/index.js's hydrateDivision.
+function currentEntrantCount(division) {
+  if (division.entryType === 'teams') return (division.teams || []).length;
+  if (division.entryType === 'doubles') return (division.pairings || []).length;
+  return (division.players || []).length;
+}
+
+// Estimated number of games the division's fixtures will contain, from the
+// current entrant count and scheduling format - mirrors the shape of what
+// generateRoundRobinFixtures/generateKnockoutFixtures actually produce
+// server-side (server/src/index.js), without needing fixtures to exist yet.
+function estimateGameCount(division) {
+  const n = currentEntrantCount(division);
+  if (n < 2) return 0;
+  switch (division.scheduling) {
+    case 'round_robin_double':
+      // Everyone plays everyone twice (home and away).
+      return n * (n - 1);
+    case 'knockout_single_elim':
+      // Every match eliminates exactly one entrant, so it always takes
+      // n - 1 matches to reduce the field to a single champion, regardless
+      // of how byes/reserved slots land in round 1.
+      return n - 1;
+    case 'knockout_double_elim':
+      // Minimum matches for a double-elimination bracket: 2n - 2 if the
+      // winners-bracket finalist takes the Grand Final outright. If they
+      // lose it, a reset decider adds one more match (2n - 1) - so the
+      // real count can be one game higher than this estimate.
+      return 2 * n - 2;
+    case 'round_robin_single':
+    default:
+      // Everyone plays everyone once.
+      return (n * (n - 1)) / 2;
+  }
+}
+
+// MaxFramesPerGame: the maximum number of frames a single game could ever
+// go to before someone reaches the winning threshold. A division only ever
+// persists a "race to" value (division.raceTo) - even one set up as
+// "Best of X" gets converted to raceTo = (X + 1) / 2 before it's ever saved
+// (see ChangeGameTypeForm's onSubmit above, and the matching conversion at
+// division creation, server/src/index.js) - so from here on N is always a
+// race-to value, and MaxFramesPerGame = (N x 2) - 1 (e.g. race to 5 ->
+// worst case is 4-4, decided on the 9th frame - the same total a "Best of
+// 9" division would have stored this same raceTo value from in the first
+// place).
+function maxFramesPerGame(division) {
+  const n = division.raceTo || 0;
+  return n > 0 ? (n * 2) - 1 : 0;
+}
+
+// Estimated total playing time in minutes: MaxFramesPerGame x 10 x
+// (number of games). Tables available is deliberately left out of this
+// formula for now (see the "Number of Tables available" input in
+// GenerateFixturesButton below, which is currently just a standalone
+// reference field).
+function estimateGameTimeMinutes(division) {
+  return maxFramesPerGame(division) * 10 * estimateGameCount(division);
+}
+
+function formatMinutes(mins) {
+  if (!mins || mins <= 0) return '0 mins';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} min${m === 1 ? '' : 's'}`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+// Editable copy of the same 4 fields LeagueDetail.jsx's "+ New Division"
+// form collects (entry type, match format, race to/best of frames, format),
+// used here to revise a division's game type before fixtures are generated.
+// See PATCH /api/divisions/:id (server/src/index.js) for the matching
+// backend validation/gating - most importantly, it 400s once
+// division.fixturesGenerated is true, which is also why this whole button
+// (and therefore this form) is only ever rendered pre-fixtures to begin with.
+function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
+  const [entryType, setEntryType] = useState(division.entryType);
+  const [legsPerMatch, setLegsPerMatch] = useState(division.legsPerMatch || 5);
+  const [pairingSize, setPairingSize] = useState(division.pairingSize || 2);
+  const [scheduling, setScheduling] = useState(division.scheduling);
+  const [formatMode, setFormatMode] = useState('raceTo');
+  const [formatValue, setFormatValue] = useState(division.raceTo || 6);
+  const [saving, setSaving] = useState(false);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const numericFormatValue = Number(formatValue);
+    let raceTo;
+    if (formatMode === 'bestOf') {
+      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
+        setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
+        return;
+      }
+      raceTo = (numericFormatValue + 1) / 2;
+    } else {
+      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1) {
+        setError('Race to (frames) must be a whole number of 1 or more');
+        return;
+      }
+      raceTo = numericFormatValue;
+    }
+    setSaving(true);
+    try {
+      await api.updateDivision(division.id, {
+        entryType,
+        scheduling,
+        raceTo,
+        ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
+        ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
+      });
+      onChange();
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="form" style={{ marginTop: 8, marginBottom: 8 }} onSubmit={onSubmit}>
+      <label>
+        Entry type
+        <select value={entryType} onChange={(e) => setEntryType(e.target.value)}>
+          <option value="singles">Singles (one player vs one player)</option>
+          <option value="teams">Teams (team vs team, made up of legs)</option>
+          <option value="doubles">Doubles/Triples (2-3 player pairing vs pairing, alternate-shot)</option>
+        </select>
+      </label>
+      {entryType === 'teams' && (
+        <label>
+          Legs per match
+          <input type="number" min="1" value={legsPerMatch} onChange={(e) => setLegsPerMatch(e.target.value)} required />
+        </label>
+      )}
+      {entryType === 'doubles' && (
+        <label>
+          Players per pairing
+          <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
+            <option value={2}>2 (doubles)</option>
+            <option value={3}>3 (triples)</option>
+          </select>
+        </label>
+      )}
+      <label>
+        Match format
+        <select value={formatMode} onChange={(e) => setFormatMode(e.target.value)}>
+          <option value="raceTo">Race to (frames)</option>
+          <option value="bestOf">Best of (frames)</option>
+        </select>
+      </label>
+      <label>
+        {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
+        <input
+          type="number"
+          min="1"
+          step={formatMode === 'bestOf' ? 2 : 1}
+          value={formatValue}
+          onChange={(e) => setFormatValue(e.target.value)}
+          required
+        />
+      </label>
+      <label>
+        Format
+        <select value={scheduling} onChange={(e) => setScheduling(e.target.value)}>
+          <option value="round_robin_single">Round Robin - Single (everyone plays each other once)</option>
+          <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
+          <option value="knockout_single_elim">Knockout (single elimination)</option>
+          <option value="knockout_double_elim">Knockout (double elimination)</option>
+        </select>
+      </label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-primary" type="submit" disabled={saving}>
+          {saving ? 'Saving…' : 'Submit'}
+        </button>
+        <button className="btn" type="button" onClick={onDone} disabled={saving}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 // Shared by SinglesRoster/TeamRoster/PairingRoster below - asks up front
 // whether the fixtures about to be generated should start visible to
 // players immediately (skipping the normal per-round release from Manage
 // Fixtures entirely) or hidden as usual, since that choice has to be made
 // at generation time - see markAllRoundsVisible in server/src/index.js.
+// Number of Tables available / Estimated Game Time / Estimated No. of Games
+// - shared between the pre-fixtures GenerateFixturesButton view below and
+// the locked "fixtures already generated" roster views (SinglesRoster/
+// TeamRoster/PairingRoster further down), so the same at-a-glance figures
+// stay visible once a division is actually running, not just while it's
+// being set up. tablesAvailable is local, in-memory only (see
+// estimateGameTimeMinutes above) - each place this renders gets its own
+// independent value, resetting to 1 on reload.
+function GameTimeEstimate({ division }) {
+  const [tablesAvailable, setTablesAvailable] = useState(1);
+  return (
+    <div>
+      <p style={{ margin: 0 }}>
+        <label>
+          <strong>Number of Tables available:</strong>{' '}
+          <input
+            type="number"
+            min="1"
+            value={tablesAvailable}
+            onChange={(e) => setTablesAvailable(e.target.value)}
+            style={{ width: 60 }}
+          />
+        </label>
+      </p>
+      <p style={{ margin: 0 }}>
+        <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
+      </p>
+      <p style={{ margin: 0 }}>
+        <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
+      </p>
+    </div>
+  );
+}
+
 function GenerateFixturesButton({ division, disabled, title, onChange, setError }) {
   const [visibleByDefault, setVisibleByDefault] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [changingGameType, setChangingGameType] = useState(false);
 
   const onGenerate = async () => {
     setError('');
@@ -37,6 +257,20 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
 
   return (
     <div style={{ marginTop: 8 }}>
+      <div className="page-header" style={{ marginBottom: 8 }}>
+        <GameTimeEstimate division={division} />
+        <button className="btn" type="button" onClick={() => setChangingGameType((v) => !v)}>
+          {changingGameType ? 'Cancel' : 'Change Game Type'}
+        </button>
+      </div>
+      {changingGameType && (
+        <ChangeGameTypeForm
+          division={division}
+          onChange={onChange}
+          setError={setError}
+          onDone={() => setChangingGameType(false)}
+        />
+      )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 'normal', marginBottom: 8 }}>
         <input
           type="checkbox"
@@ -59,6 +293,9 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const [quickAdding, setQuickAdding] = useState(false);
   const [quickResult, setQuickResult] = useState('');
   const [closingLateEntry, setClosingLateEntry] = useState(false);
+  const [lateEntrantPlayerId, setLateEntrantPlayerId] = useState('');
+  const [addingLateEntrant, setAddingLateEntrant] = useState(false);
+  const [lateEntrantResult, setLateEntrantResult] = useState('');
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
   // Reserved bracket slots (see MAX_RESERVED_BYE_COUNT, server-side) - up to
@@ -69,6 +306,18 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
   const openReservedSlots = isKnockout ? (division.fixtures || []).filter((f) => f.reserved) : [];
   const canQuickAddLateEntrant = division.fixturesGenerated && openReservedSlots.length > 0;
+  // Pre-tournament late entry (see POST /api/divisions/:id/late-entrants) -
+  // unlocks the roster on a double-elim knockout and rebuilds the bracket
+  // around a registered player added after fixtures were generated, instead
+  // of relying on a reserved slot. The server is the real gatekeeper (it
+  // refuses once any frame anywhere in the bracket has been recorded) - this
+  // just decides whether to show the control at all, so it only needs to
+  // rule out formats/states the route can never succeed for.
+  const canAddLateEntrant =
+    isAdmin &&
+    division.scheduling === 'knockout_double_elim' &&
+    division.fixturesGenerated &&
+    division.status === 'active';
 
   const onAddPlayer = async (e) => {
     e.preventDefault();
@@ -121,6 +370,29 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       setError(err.message);
     } finally {
       setClosingLateEntry(false);
+    }
+  };
+
+  const onAddLateEntrant = async (e) => {
+    e.preventDefault();
+    if (!lateEntrantPlayerId) return;
+    setError('');
+    setLateEntrantResult('');
+    setAddingLateEntrant(true);
+    try {
+      const res = await api.addLateEntrants(division.id, [lateEntrantPlayerId]);
+      setLateEntrantPlayerId('');
+      setLateEntrantResult(
+        `${res.addedPlayers.map((p) => p.name).join(', ')}: added - the bracket was rebuilt around them (${res.archivedFixtureCount} old fixture(s) archived, kept for the record)` +
+          (res.replayedResultCount > 0
+            ? `, and ${res.replayedResultCount} already-decided round 1 result(s) were carried forward onto the new bracket.`
+            : '.')
+      );
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAddingLateEntrant(false);
     }
   };
 
@@ -212,6 +484,31 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           to release the remaining reserved slot{openReservedSlots.length === 1 ? '' : 's'} as ordinary byes now, rather than waiting.
         </p>
       )}
+      {canAddLateEntrant && (
+        <>
+          <h3 style={{ marginBottom: 4 }}>Add a late entrant</h3>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
+            Adds a registered player to the draw and rebuilds the bracket around them, carrying forward any round 1
+            results already recorded. Works right up until round 2 or the losers bracket has a result on it - once
+            that happens, the bracket shape beyond round 1 can no longer be safely regenerated and this stops being
+            offered; use Quick Add above (if a reserved slot is open) instead.
+          </p>
+          <form className="inline-form" onSubmit={onAddLateEntrant}>
+            <select value={lateEntrantPlayerId} onChange={(e) => setLateEntrantPlayerId(e.target.value)} required>
+              <option value="" disabled>
+                {available.length === 0 ? 'No registered players available' : 'Select a registered player…'}
+              </option>
+              {available.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <button className="btn btn-primary" type="submit" disabled={addingLateEntrant || !lateEntrantPlayerId}>
+              {addingLateEntrant ? 'Adding…' : 'Add & rebuild bracket'}
+            </button>
+          </form>
+          {lateEntrantResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{lateEntrantResult}</p>}
+        </>
+      )}
       <ul className="player-list">
         {division.players.map((p, i) => (
           <li key={p.id}>
@@ -239,10 +536,19 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           setError={setError}
         />
       ) : (
-        <p className="muted">
-          Fixtures generated - the roster is locked, no further additions or removals
-          {canQuickAddLateEntrant ? ' (aside from Quick Add above, while a reserved slot is still open).' : '.'}
-        </p>
+        <>
+          <p className="muted">
+            Fixtures generated - the roster is locked, no further additions or removals
+            {canQuickAddLateEntrant && canAddLateEntrant
+              ? ' (aside from Quick Add or Add a late entrant, above).'
+              : canQuickAddLateEntrant
+                ? ' (aside from Quick Add above, while a reserved slot is still open).'
+                : canAddLateEntrant
+                  ? ' (aside from Add a late entrant, above, while nothing has been played yet).'
+                  : '.'}
+          </p>
+          <GameTimeEstimate division={division} />
+        </>
       )}
 
     </section>
@@ -515,7 +821,10 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated — team rosters are locked.</p>
+        <>
+          <p className="muted">Fixtures generated — team rosters are locked.</p>
+          <GameTimeEstimate division={division} />
+        </>
       )}
     </section>
   );
@@ -679,7 +988,10 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
           setError={setError}
         />
       ) : (
-        <p className="muted">Fixtures generated — pairings are locked.</p>
+        <>
+          <p className="muted">Fixtures generated — pairings are locked.</p>
+          <GameTimeEstimate division={division} />
+        </>
       )}
     </section>
   );
@@ -792,66 +1104,35 @@ function SeedFromGroupsPanel({ division, onChange, setError }) {
 }
 
 // Admin-only, collapsed-by-default panel (same "Show/Hide" convention as
-// the Admin Override panel on the fixture page) that force-completes every
-// outstanding fixture in the division at 0-0 with no winner - no player
-// confirmation needed or possible. Irreversible, so it's a two-step action:
-// "Show" reveals the warning and the actual confirm button, rather than
-// firing straight off the first click.
-function CloseDivisionEarlyPanel({ division, onChange, setError }) {
+// the Admin Override panel on the fixture page) that groups this division's
+// irreversible admin actions - Close Division Early and Delete Division -
+// into one card, same as LeagueDetail's ManageLeaguePanel bundles Close
+// League Early and Delete League one level up. `canCloseEarly` gates just
+// the Close Division Early subsection (division must have fixtures
+// generated and not already be completed); Delete Division is always
+// available here since the parent only renders this panel for canManage.
+// Available to an Overall Admin or a League Manager assigned to this
+// division's league - see assertLeagueAccess in server/src/userAuth.js for
+// the backend enforcement this mirrors.
+function ManageDivisionPanel({ division, canCloseEarly, onChange, setError }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
-  const onConfirm = async () => {
-    setSubmitting(true);
+  const onCloseEarly = async () => {
+    setClosing(true);
     setError('');
     try {
       await api.closeDivisionEarly(division.id);
-      setOpen(false);
       onChange();
     } catch (err) {
       setError(err.message);
     } finally {
-      setSubmitting(false);
+      setClosing(false);
     }
   };
-
-  return (
-    <section className="card">
-      <div className="page-header">
-        <h2 style={{ margin: 0 }}>Admin: Close Division Early</h2>
-        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
-          {open ? 'Hide' : 'Show'}
-        </button>
-      </div>
-      {open && (
-        <>
-          <p className="muted">
-            Force-completes every fixture in this division that isn't already finished at 0-0, with no
-            winner - no confirmation from either side is needed. Use this to end a season early (a round
-            robin that won't finish, a player pool that fell apart, running out of time). This can't be
-            undone.
-          </p>
-          <button className="btn btn-primary" type="button" disabled={submitting} onClick={onConfirm}>
-            {submitting ? 'Closing…' : 'Close this division now'}
-          </button>
-        </>
-      )}
-    </section>
-  );
-}
-
-// Same "type the name to confirm" irreversible-delete pattern as
-// LeagueDetail's ManageLeaguePanel Delete League section, one level down -
-// permanently deletes just this division and everything scoped to it
-// (fixtures, teams/pairings, roll-of-honour entries), leaving the rest of
-// the league untouched. Available to an Overall Admin or a League Manager
-// assigned to this division's league - see assertLeagueAccess in
-// server/src/userAuth.js for the backend enforcement this mirrors.
-function DeleteDivisionPanel({ division, onChange, setError }) {
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [confirmName, setConfirmName] = useState('');
-  const [deleting, setDeleting] = useState(false);
 
   const onDelete = async () => {
     setDeleting(true);
@@ -868,34 +1149,52 @@ function DeleteDivisionPanel({ division, onChange, setError }) {
   return (
     <section className="card">
       <div className="page-header">
-        <h2 style={{ margin: 0 }}>Delete Division</h2>
+        <h2 style={{ margin: 0 }}>Admin: Manage this Division</h2>
         <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide' : 'Show'}
         </button>
       </div>
       {open && (
         <>
-          <p className="muted">
-            Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture,
-            team and pairing, plus its roll-of-honour history. The rest of the league is untouched. This
-            cannot be undone. To confirm, type the division's name below.
-          </p>
-          <label>
-            Division name
-            <input
-              value={confirmName}
-              onChange={(e) => setConfirmName(e.target.value)}
-              placeholder={division.name}
-            />
-          </label>
-          <button
-            className="btn btn-danger"
-            type="button"
-            disabled={deleting || confirmName.trim() !== division.name}
-            onClick={onDelete}
-          >
-            {deleting ? 'Deleting…' : 'Delete this division permanently'}
-          </button>
+          {canCloseEarly && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.25rem' }}>Close Division Early</h3>
+              <p className="muted">
+                Force-completes every fixture in this division that isn't already finished at 0-0, with no
+                winner - no confirmation from either side is needed. Use this to end a season early (a round
+                robin that won't finish, a player pool that fell apart, running out of time). This can't be
+                undone.
+              </p>
+              <button className="btn btn-primary" type="button" disabled={closing} onClick={onCloseEarly}>
+                {closing ? 'Closing…' : 'Close this division now'}
+              </button>
+            </div>
+          )}
+
+          <div>
+            <h3 style={{ marginBottom: '0.25rem' }}>Delete Division</h3>
+            <p className="muted">
+              Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture,
+              team and pairing, plus its roll-of-honour history. The rest of the league is untouched. This
+              cannot be undone. To confirm, type the division's name below.
+            </p>
+            <label>
+              Division name
+              <input
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                placeholder={division.name}
+              />
+            </label>
+            <button
+              className="btn btn-danger"
+              type="button"
+              disabled={deleting || confirmName.trim() !== division.name}
+              onClick={onDelete}
+            >
+              {deleting ? 'Deleting…' : 'Delete this division permanently'}
+            </button>
+          </div>
         </>
       )}
     </section>
@@ -1066,12 +1365,13 @@ export default function DivisionDetail() {
         </p>
       )}
 
-      {canManage && division.fixturesGenerated && division.status !== 'completed' && (
-        <CloseDivisionEarlyPanel division={division} onChange={load} setError={setError} />
-      )}
-
       {canManage && (
-        <DeleteDivisionPanel division={division} onChange={load} setError={setError} />
+        <ManageDivisionPanel
+          division={division}
+          canCloseEarly={division.fixturesGenerated && division.status !== 'completed'}
+          onChange={load}
+          setError={setError}
+        />
       )}
 
       {isTeams ? (

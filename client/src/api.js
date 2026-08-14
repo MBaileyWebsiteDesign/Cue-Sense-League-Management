@@ -115,6 +115,10 @@ const networkApi = {
   createDivision: (leagueId, data) =>
     request(`/leagues/${leagueId}/divisions`, { method: 'POST', body: JSON.stringify(data) }),
   getDivision: (id) => request(`/divisions/${id}`),
+  // "Change Game Type" (DivisionDetail.jsx's GenerateFixturesButton): only
+  // works while the division has no fixtures yet - see server/src/index.js's
+  // PATCH /api/divisions/:id for the full validation/gating.
+  updateDivision: (id, data) => request(`/divisions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Admin-only: force-completes every outstanding fixture in a division (or,
   // for the league version, every division in the league) at 0-0 with no
   // winner - no player confirmation needed. See server/src/index.js's
@@ -139,6 +143,12 @@ const networkApi = {
     request(`/divisions/${divisionId}/quick-add-player`, { method: 'POST', body: JSON.stringify({ firstName, lastName }) }),
   closeLateEntry: (divisionId) =>
     request(`/divisions/${divisionId}/close-late-entry`, { method: 'POST' }),
+  // Pre-tournament late entry for a double-elim knockout (see POST
+  // /api/divisions/:id/late-entrants) - unlocks the roster and rebuilds the
+  // bracket around the new player(s), rather than relying on a reserved
+  // slot. Only succeeds while nothing in the bracket has been played yet.
+  addLateEntrants: (divisionId, playerIds) =>
+    request(`/divisions/${divisionId}/late-entrants`, { method: 'POST', body: JSON.stringify({ playerIds }) }),
   generateFixtures: (divisionId, data = {}) =>
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
   seedFromGroups: (divisionId, sources) =>
