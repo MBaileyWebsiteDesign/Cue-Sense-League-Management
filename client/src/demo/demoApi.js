@@ -33,7 +33,7 @@ const MAX_RESERVED_BYE_COUNT = 4;
 function reservedByeCountFor(entrantCount) {
   return Math.max(0, Math.min(MAX_RESERVED_BYE_COUNT, Math.floor(entrantCount / 2) - 1));
 }
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally'];
 const DB_KEY = 'poolLeagueDemoDb';
 const CURRENT_USER_KEY = 'poolLeagueDemoCurrentUserId';
 
@@ -321,7 +321,7 @@ function recordChampionIfDivisionComplete(division, hydrated) {
   const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
   let championId = null;
 
-  if (division.scheduling === 'knockout_double_elim') {
+  if (division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally') {
     const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
     if (!grandFinal) return;
     const finalFixture = grandFinal.resetFixtureId
@@ -879,6 +879,114 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
   allFixtures.forEach((f) => db.fixtures.push(f));
   // Resolve any non-reserved winners-bracket round-1 byes - see
   // server/src/index.js's matching comment.
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
+}
+
+// "Ally Knockout (Double elimination)" - the demo/sandbox mirror of
+// server/src/index.js's generateAllyDoubleElimFixtures. Its own function
+// body (a direct port, not a call into generateDoubleElimFixtures above) so
+// this format has a genuinely independent scheduling type here too, same
+// as the real backend - see that file's comment for why.
+function generateAllyDoubleElimFixtures({ league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ----
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    wbSourceFixtures.forEach((fixture, i) => {
+      let dest, slot;
+      if (lbRoundIndex === 0) {
+        dest = lbDestFixtures[Math.floor(i / 2)];
+        slot = i % 2 === 0 ? 'home' : 'away';
+      } else if (i < lbRound.crossMatches) {
+        dest = lbDestFixtures[i];
+        slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
+      }
+      fixture.loserNextFixtureId = dest.id;
+      fixture.loserNextFixtureSlot = slot;
+    });
+  });
+
+  // ---- Grand Final ----
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allAllyFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allAllyFixtures.forEach((f) => db.fixtures.push(f));
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
@@ -2271,7 +2379,7 @@ export const demoApi = {
     if (division.entryType !== 'singles') {
       throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
     }
-    const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
+    const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
     let reservedFixture = null;
     if (division.fixturesGenerated) {
       if (isKnockout) {
@@ -2526,6 +2634,14 @@ export const demoApi = {
         );
       }
       generateDoubleElimFixtures({ league, division, entrantIds });
+    } else if (division.scheduling === 'knockout_double_elim_ally') {
+      if (entrantIds.length < 4) {
+        throw new ApiError(
+          400,
+          `Ally Knockout needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
+        );
+      }
+      generateAllyDoubleElimFixtures({ league, division, entrantIds });
     } else {
       generateRoundRobinFixtures({ league, division, entrantIds });
     }
@@ -2817,7 +2933,7 @@ export const demoApi = {
   getPublicDivisionBracket: op((divisionId) => {
     const division = db.divisions.find((d) => d.id === divisionId);
     if (!division) throw new ApiError(404, 'Division not found');
-    const isDoubleElim = division.scheduling === 'knockout_double_elim';
+    const isDoubleElim = division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
     if (division.scheduling !== 'knockout_single_elim' && !isDoubleElim) {
       throw new ApiError(400, 'This endpoint only supports single- or double-elimination knockout divisions');
     }

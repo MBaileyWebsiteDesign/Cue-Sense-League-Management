@@ -13,6 +13,7 @@ const SCHEDULING_LABEL = {
   round_robin_double: 'Round Robin - Double',
   knockout_single_elim: 'Knockout (single elim)',
   knockout_double_elim: 'Knockout (double elim)',
+  knockout_double_elim_ally: 'Ally Knockout (double elim)',
 };
 
 // Admin-only panel shown above Career - lets an admin edit the account
