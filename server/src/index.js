@@ -2040,10 +2040,22 @@ function haveAlreadyPlayed(db, division, aId, bId) {
 // this checks for - used by avoidRepeatByeOnPlacement below to stop the
 // same entrant collecting a second bye while someone else in the draw
 // hasn't had one yet.
-function hasHadBye(db, division, entrantId) {
+//
+// excludeFixtureId must be passed as the very fixture currently being
+// resolved (see avoidRepeatByeOnPlacement's call site) - resolveByeIfNeeded
+// marks a bye fixture 'completed' *before* calling propagateWinner, so by
+// the time this runs, that fixture already satisfies every criterion below
+// for the entrant who just received it. Without excluding it, an entrant's
+// first-ever bye is mistaken for prior history of their own still-in-
+// progress placement and incorrectly treated as a repeat - most easily
+// reproduced whenever a round 1 bye's winner advances straight into a
+// round 2 box that's itself a structural bye (e.g. a fresh 9-entrant
+// double-elim division, no late entrants involved at all).
+function hasHadBye(db, division, entrantId, excludeFixtureId) {
   if (!entrantId) return false;
   const isTeams = division.entryType === 'teams';
   return db.fixtures.some((f) => {
+    if (f.id === excludeFixtureId) return false;
     if (f.divisionId !== division.id || f.status !== 'completed') return false;
     const home = isTeams ? f.homeTeamId : f.homePlayerId;
     const away = isTeams ? f.awayTeamId : f.awayPlayerId;
@@ -2169,7 +2181,7 @@ function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, en
   if (!targetId || !entrantId) return;
   const dest = db.fixtures.find((f) => f.id === targetId);
   if (!dest || !dest.byeSlot) return; // destination isn't a bye box - nothing to protect against
-  if (!hasHadBye(db, division, entrantId)) return; // this entrant's first bye, if it is one - fine
+  if (!hasHadBye(db, division, entrantId, fixture.id)) return; // this entrant's first bye, if it is one - fine
 
   const siblings = db.fixtures.filter((f) =>
     f.id !== fixture.id &&
