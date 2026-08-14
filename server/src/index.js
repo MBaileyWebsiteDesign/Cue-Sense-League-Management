@@ -2106,19 +2106,50 @@ function hasHadBye(db, division, entrantId, excludeFixtureId) {
 // eligible, it's common for all of them to already be decided and routed
 // by the time a problem pairing is detected, leaving nothing left to swap
 // with.
+// FIX (2026-08-14, see claude/double-elim-rematch-fix-2026-08-14.md): the
+// swap above - reroute an unclaimed same-round sibling's wiring instead of
+// this fixture's own - was the only mitigation this function had. It only
+// works when another fixture in the SAME round + bracketRole hasn't
+// completed yet and still has a live outbound route to trade. Simulating
+// thousands of tournaments showed that in every recorded failure that pool
+// was already empty - overwhelmingly in the losers bracket, whose later
+// rounds routinely shrink to just one or two fixtures, so by the time the
+// second half of a pairing completes there is nothing left in that round to
+// swap wiring with. No amount of searching harder within "this round's
+// unclaimed routes" fixes that - there's genuinely nothing there.
+//
+// So: when that first attempt finds no eligible sibling, fall back to a
+// second, independent mitigation that doesn't depend on unclaimed routing
+// at all. Look at the OTHER boxes in the destination's own round (same
+// bracketRole) that haven't started play yet (no frames recorded, not
+// completed, not a bye box). If one of them already holds an occupant who
+// (a) hasn't played `entrantId` and (b) wouldn't hand dest's existing
+// occupant a rematch either, swap the two ALREADY-PLACED occupants
+// directly - `entrantId` goes there, that box's occupant comes here. This
+// never touches any fixture's routing (idField/slotField), only the two
+// fixtures' own player-slot fields, so it cannot create or duplicate a
+// routing target (the historical PR #40 failure mode this whole area has to
+// stay careful around). The caller is told via the return value that
+// placement was handled directly, so it must skip its own normal
+// assignment into `dest`.
+//
+// Like the routing-swap above, this remains a best-effort mitigation, not a
+// guarantee: many losers-bracket rounds shrink to a single box with no
+// sibling box to trade with either, and no swap of any kind can help there.
 function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entrantId) {
   const targetId = fixture[idField];
   const targetSlot = fixture[slotField];
-  if (!targetId || !entrantId) return;
+  if (!targetId || !entrantId) return false;
   const dest = db.fixtures.find((f) => f.id === targetId);
-  if (!dest) return;
+  if (!dest) return false;
   const isTeams = division.entryType === 'teams';
   const otherSlotOf = (slot) => (slot === 'home' ? 'away' : 'home');
-  const readSlot = (fx, slot) => (isTeams
-    ? (slot === 'home' ? fx.homeTeamId : fx.awayTeamId)
-    : (slot === 'home' ? fx.homePlayerId : fx.awayPlayerId));
+  const playerField = (slot) => (isTeams
+    ? (slot === 'home' ? 'homeTeamId' : 'awayTeamId')
+    : (slot === 'home' ? 'homePlayerId' : 'awayPlayerId'));
+  const readSlot = (fx, slot) => fx[playerField(slot)];
   const occupant = readSlot(dest, otherSlotOf(targetSlot));
-  if (!occupant || !haveAlreadyPlayed(db, division, entrantId, occupant)) return;
+  if (!occupant || !haveAlreadyPlayed(db, division, entrantId, occupant)) return false;
 
   const siblings = db.fixtures.filter((f) =>
     f.id !== fixture.id &&
@@ -2141,13 +2172,38 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
       const o = occupantAt(f);
       return o && !haveAlreadyPlayed(db, division, entrantId, o);
     });
-  if (!pick) return;
+  if (pick) {
+    const ours = { id: fixture[idField], slot: fixture[slotField] };
+    fixture[idField] = pick[idField];
+    fixture[slotField] = pick[slotField];
+    pick[idField] = ours.id;
+    pick[slotField] = ours.slot;
+    return false;
+  }
 
-  const ours = { id: fixture[idField], slot: fixture[slotField] };
-  fixture[idField] = pick[idField];
-  fixture[slotField] = pick[slotField];
-  pick[idField] = ours.id;
-  pick[slotField] = ours.slot;
+  const altBoxes = db.fixtures.filter((f) =>
+    f.id !== dest.id &&
+    f.divisionId === dest.divisionId &&
+    f.bracketRole === dest.bracketRole &&
+    f.round === dest.round &&
+    f.status !== 'completed' &&
+    !f.byeSlot &&
+    (!f.frames || f.frames.length === 0)
+  );
+  for (const alt of altBoxes) {
+    const altOccupant = readSlot(alt, targetSlot);
+    if (!altOccupant || altOccupant === entrantId) continue;
+    if (haveAlreadyPlayed(db, division, entrantId, altOccupant)) continue;
+    if (haveAlreadyPlayed(db, division, altOccupant, occupant)) continue;
+    const altOther = readSlot(alt, otherSlotOf(targetSlot));
+    if (altOther && haveAlreadyPlayed(db, division, altOther, entrantId)) continue;
+
+    dest[playerField(targetSlot)] = altOccupant;
+    alt[playerField(targetSlot)] = entrantId;
+    return true; // handled directly - caller must skip its normal assignment
+  }
+
+  return false;
 }
 
 // Bye-fairness - the structural-bye counterpart to avoidRematchOnPlacement
@@ -2192,12 +2248,43 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
 // `fixture` itself alongside hasHadBye's own (unchanged) exclusion closes
 // exactly that gap without touching the swap mechanism, or anything about
 // why the exclusion was needed in the first place.
+// FIX (2026-08-14, second pass - see claude/double-elim-test-and-fix-2026-08-14.md
+// project doc for the simulation that found this): the sibling swap below was
+// still the only mitigation once the blind spot above was closed, and it
+// depends on a same-round sibling having a live, unclaimed route to trade -
+// exactly the same dependency avoidRematchOnPlacement's own routing swap had
+// (see that function's destination-round fallback, added the same day for
+// the identical reason). Simulating the fixed version still found a
+// meaningful residual failure rate concentrated at larger player counts, and
+// tracing it showed the same cause: the sibling pool had simply run dry for
+// that round.
+//
+// So this gets the same second fallback avoidRematchOnPlacement got: when
+// the sibling-routing swap finds nothing, look at the OTHER boxes in the bye
+// box's own round (same bracketRole) that are genuine two-sided fixtures
+// (not a bye themselves), haven't started play yet, and already hold an
+// occupant on either side. If that occupant hasn't had a bye themselves
+// (don't just relocate the same problem onto someone else) and swapping them
+// in wouldn't create a fresh rematch for either side, swap them directly
+// with `entrantId`: the occupant takes the bye, `entrantId` takes over the
+// seat they vacated. This only ever rewrites two fixtures' own player-slot
+// fields - never any fixture's routing - so it can't create or duplicate a
+// routing target (the PR #40 failure mode this area has to stay careful
+// around). Because it places `entrantId` directly and resolves the bye it
+// just handed out (mirroring what the caller's own normal-assignment path
+// would have done), it returns true so the caller knows to skip that normal
+// assignment.
 function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, entrantId) {
   const targetId = fixture[idField];
-  if (!targetId || !entrantId) return;
+  const targetSlot = fixture[slotField];
+  if (!targetId || !entrantId) return false;
   const dest = db.fixtures.find((f) => f.id === targetId);
-  if (!dest || !dest.byeSlot) return; // destination isn't a bye box - nothing to protect against
+  if (!dest || !dest.byeSlot) return false; // destination isn't a bye box - nothing to protect against
   const isTeams = division.entryType === 'teams';
+  const playerField = (slot) => (isTeams
+    ? (slot === 'home' ? 'homeTeamId' : 'awayTeamId')
+    : (slot === 'home' ? 'homePlayerId' : 'awayPlayerId'));
+  const otherSlotOf = (slot) => (slot === 'home' ? 'away' : 'home');
   const fixtureIsOwnBye = (() => {
     if (fixture.status !== 'completed') return false;
     const home = isTeams ? fixture.homeTeamId : fixture.homePlayerId;
@@ -2205,7 +2292,7 @@ function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, en
     if (home !== entrantId && away !== entrantId) return false;
     return !home || !away;
   })();
-  if (!fixtureIsOwnBye && !hasHadBye(db, division, entrantId, fixture.id)) return; // this entrant's first bye, if it is one - fine
+  if (!fixtureIsOwnBye && !hasHadBye(db, division, entrantId, fixture.id)) return false; // this entrant's first bye, if it is one - fine
 
   const siblings = db.fixtures.filter((f) =>
     f.id !== fixture.id &&
@@ -2219,26 +2306,60 @@ function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, en
     const d = db.fixtures.find((x) => x.id === f[idField]);
     return d && !d.byeSlot;
   });
-  if (!pick) return;
+  if (pick) {
+    const ours = { id: fixture[idField], slot: fixture[slotField] };
+    fixture[idField] = pick[idField];
+    fixture[slotField] = pick[slotField];
+    pick[idField] = ours.id;
+    pick[slotField] = ours.slot;
+    return false;
+  }
 
-  const ours = { id: fixture[idField], slot: fixture[slotField] };
-  fixture[idField] = pick[idField];
-  fixture[slotField] = pick[slotField];
-  pick[idField] = ours.id;
-  pick[slotField] = ours.slot;
+  const altBoxes = db.fixtures.filter((f) =>
+    f.id !== dest.id &&
+    f.divisionId === dest.divisionId &&
+    f.bracketRole === dest.bracketRole &&
+    f.round === dest.round &&
+    f.status !== 'completed' &&
+    !f.byeSlot &&
+    (!f.frames || f.frames.length === 0)
+  );
+  for (const alt of altBoxes) {
+    for (const slot of ['home', 'away']) {
+      const altOccupant = alt[playerField(slot)];
+      if (!altOccupant || altOccupant === entrantId) continue;
+      if (hasHadBye(db, division, altOccupant, alt.id)) continue; // don't just relocate the problem to someone else
+      const altOtherOccupant = alt[playerField(otherSlotOf(slot))];
+      if (altOtherOccupant && haveAlreadyPlayed(db, division, altOtherOccupant, entrantId)) continue; // don't fix a bye by creating a rematch
+
+      dest[playerField(targetSlot)] = altOccupant;
+      alt[playerField(slot)] = entrantId;
+      resolveByeIfNeeded(db, division, dest);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function propagateWinner(db, division, fixture, winnerId) {
   if (!fixture.nextFixtureId) return;
+  let handled = false;
   if (fixture.bracketRole === 'losers') {
-    avoidRematchOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
+    handled = avoidRematchOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
   }
   // Bye-fairness applies regardless of bracketRole (unlike rematch-
   // avoidance just above) - a winners-bracket round can land the same
   // entrant in a structural bye box twice over just as easily as the
   // losers bracket can (see avoidRepeatByeOnPlacement's doc comment). A
   // no-op whenever the destination isn't actually a bye box.
-  avoidRepeatByeOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
+  const byeHandled = avoidRepeatByeOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
+  // Either avoidRematchOnPlacement's or avoidRepeatByeOnPlacement's own
+  // destination-round fallback (both 2026-08-14) can place `winnerId`
+  // directly into its destination itself, when it does so it hands back
+  // true - skip the normal assignment below so it isn't immediately
+  // overwritten back into the seat the fallback just moved them out of.
+  if (handled || byeHandled) return;
   const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
   if (!next) return;
   if (division.entryType === 'teams') {
@@ -2269,8 +2390,11 @@ function propagateWinner(db, division, fixture, winnerId) {
 // eliminate their loser outright - there's nowhere further for them to go).
 function propagateLoser(db, division, fixture, loserId) {
   if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
-  avoidRematchOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
-  avoidRepeatByeOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+  const handled = avoidRematchOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+  const byeHandled = avoidRepeatByeOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+  // See propagateWinner's matching comment - either fallback may already
+  // have seated `loserId` itself.
+  if (handled || byeHandled) return;
   const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
   if (!dest) return;
   if (division.entryType === 'teams') {
