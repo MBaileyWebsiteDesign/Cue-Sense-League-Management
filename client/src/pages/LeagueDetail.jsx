@@ -585,6 +585,7 @@ export default function LeagueDetail() {
               <option value="knockout_double_elim">Knockout (double elimination)</option>
               <option value="knockout_double_elim_ally">Ally Knockout (double elimination)</option>
               <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
+              <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
             </select>
           </label>
           <button className="btn btn-primary" type="submit">
@@ -627,9 +628,11 @@ export default function LeagueDetail() {
                     ? 'Ally Knockout (double elim)'
                     : division.scheduling === 'knockout_double_elim_test'
                       ? 'Testing Double Elim'
-                      : division.scheduling === 'round_robin_double'
-                        ? 'Round Robin - Double'
-                        : 'Round Robin - Single'}
+                      : division.scheduling === 'knockout_double_elim_pcdek'
+                        ? 'Pre Configured Double Elim Knockout'
+                        : division.scheduling === 'round_robin_double'
+                          ? 'Round Robin - Double'
+                          : 'Round Robin - Single'}
               {' · '}
               {division.fixturesGenerated ? 'fixtures generated' : 'not started'}
               {division.status === 'completed' && ' · season complete'}

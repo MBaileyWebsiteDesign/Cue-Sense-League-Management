@@ -80,7 +80,7 @@ export default function PublicDivisionBracket() {
 
       {data.matches.length === 0 ? (
         <p className="public-empty-state">No bracket to show yet.</p>
-      ) : data.scheduling === 'knockout_double_elim' || data.scheduling === 'knockout_double_elim_ally' || data.scheduling === 'knockout_double_elim_test' ? (
+      ) : data.scheduling === 'knockout_double_elim' || data.scheduling === 'knockout_double_elim_ally' || data.scheduling === 'knockout_double_elim_test' || data.scheduling === 'knockout_double_elim_pcdek' ? (
         <DoubleElimBracketChart matches={data.matches} />
       ) : (
         <BracketChart matches={data.matches} totalRounds={data.totalRounds} />
