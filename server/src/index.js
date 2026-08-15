@@ -83,13 +83,14 @@ const asyncRoute = (fn) => (req, res, next) => {
   }
 };
 
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_test'];
-// Divisions using either double-elimination format share almost all
-// downstream logic (champion detection, knockout-only UI, public bracket
-// view) - only fixture *generation* (see generateDoubleElimFixtures vs
-// generateTestingDoubleElimFixtures above) and late-entrant rebuild (which
-// 'knockout_double_elim_test' deliberately doesn't support) differ.
-const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_test'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test'];
+// Divisions using any double-elimination format share almost all downstream
+// logic (champion detection, knockout-only UI, public bracket view) - only
+// fixture *generation* (generateDoubleElimFixtures /
+// generateAllyDoubleElimFixtures / generateTestingDoubleElimFixtures, see
+// each below) and late-entrant rebuild (which only 'knockout_double_elim'
+// supports) differ.
+const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test'];
 
 // ---------- Accounts & auth ----------
 // One account model, one login. `db.users` holds everyone; `isAdmin` and
@@ -745,10 +746,20 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
 //   everyone plays everyone twice - a home leg and an away leg with sides
 //   swapped, see services/roundRobin.js), "knockout_single_elim"
 //   (single-elimination bracket, byes only in a round whose survivor count
-//   is odd - never just to pad up to a power of two), or "knockout_double_elim"
+//   is odd - never just to pad up to a power of two), "knockout_double_elim"
 //   (winners bracket + losers bracket + Grand Final, with a bracket-reset
-//   decider if the losers-bracket finalist wins the Grand Final - requires
-//   an exact power-of-2 entrant count, see services/bracket.js). This can
+//   decider if the losers-bracket finalist wins the Grand Final - any
+//   entrant count of 4+, not just an exact power of 2, see
+//   services/bracket.js), or "knockout_double_elim_ally" ("Ally Knockout
+//   (Double elimination)" - a second, independently-maintained double-
+//   elimination option with its own generator function
+//   (generateAllyDoubleElimFixtures) and its own scheduling type, so it can
+//   diverge from knockout_double_elim later without either affecting the
+//   other; today it uses the identical technique, since extensive testing
+//   (claude/ally-knockout-2026-08-14.md) found no algorithm that measurably
+//   beats it for this format's constraints - minimum games, at most one bye
+//   per entrant ever, and minimizing (not fully eliminating - proven not
+//   always possible) rematches before the final). This can
 //   differ per division from the league's
 //   own default, since a league often runs its regular season as a round
 //   robin but a separate cup division as a knockout.
@@ -928,7 +939,10 @@ function recordChampionIfDivisionComplete(db, division, hydrated) {
     // it and force a bracket-reset decider (see checkGrandFinalReset)
     // - resetFixtureId is only ever set on a completed grand_final fixture
     // once that decider exists, so it's the reliable signal for which
-    // fixture actually decided the title.
+    // fixture actually decided the title. Identical fixture-graph shape for
+    // both double-elim formats (bracketRole/nextFixtureId/resetFixtureId),
+    // so this detection logic is genuinely format-agnostic - no need for an
+    // Ally-specific copy.
     const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
     if (!grandFinal) return;
     const finalFixture = grandFinal.resetFixtureId
@@ -2112,19 +2126,50 @@ function hasHadBye(db, division, entrantId, excludeFixtureId) {
 // eligible, it's common for all of them to already be decided and routed
 // by the time a problem pairing is detected, leaving nothing left to swap
 // with.
+// FIX (2026-08-14, see claude/double-elim-rematch-fix-2026-08-14.md): the
+// swap above - reroute an unclaimed same-round sibling's wiring instead of
+// this fixture's own - was the only mitigation this function had. It only
+// works when another fixture in the SAME round + bracketRole hasn't
+// completed yet and still has a live outbound route to trade. Simulating
+// thousands of tournaments showed that in every recorded failure that pool
+// was already empty - overwhelmingly in the losers bracket, whose later
+// rounds routinely shrink to just one or two fixtures, so by the time the
+// second half of a pairing completes there is nothing left in that round to
+// swap wiring with. No amount of searching harder within "this round's
+// unclaimed routes" fixes that - there's genuinely nothing there.
+//
+// So: when that first attempt finds no eligible sibling, fall back to a
+// second, independent mitigation that doesn't depend on unclaimed routing
+// at all. Look at the OTHER boxes in the destination's own round (same
+// bracketRole) that haven't started play yet (no frames recorded, not
+// completed, not a bye box). If one of them already holds an occupant who
+// (a) hasn't played `entrantId` and (b) wouldn't hand dest's existing
+// occupant a rematch either, swap the two ALREADY-PLACED occupants
+// directly - `entrantId` goes there, that box's occupant comes here. This
+// never touches any fixture's routing (idField/slotField), only the two
+// fixtures' own player-slot fields, so it cannot create or duplicate a
+// routing target (the historical PR #40 failure mode this whole area has to
+// stay careful around). The caller is told via the return value that
+// placement was handled directly, so it must skip its own normal
+// assignment into `dest`.
+//
+// Like the routing-swap above, this remains a best-effort mitigation, not a
+// guarantee: many losers-bracket rounds shrink to a single box with no
+// sibling box to trade with either, and no swap of any kind can help there.
 function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entrantId) {
   const targetId = fixture[idField];
   const targetSlot = fixture[slotField];
-  if (!targetId || !entrantId) return;
+  if (!targetId || !entrantId) return false;
   const dest = db.fixtures.find((f) => f.id === targetId);
-  if (!dest) return;
+  if (!dest) return false;
   const isTeams = division.entryType === 'teams';
   const otherSlotOf = (slot) => (slot === 'home' ? 'away' : 'home');
-  const readSlot = (fx, slot) => (isTeams
-    ? (slot === 'home' ? fx.homeTeamId : fx.awayTeamId)
-    : (slot === 'home' ? fx.homePlayerId : fx.awayPlayerId));
+  const playerField = (slot) => (isTeams
+    ? (slot === 'home' ? 'homeTeamId' : 'awayTeamId')
+    : (slot === 'home' ? 'homePlayerId' : 'awayPlayerId'));
+  const readSlot = (fx, slot) => fx[playerField(slot)];
   const occupant = readSlot(dest, otherSlotOf(targetSlot));
-  if (!occupant || !haveAlreadyPlayed(db, division, entrantId, occupant)) return;
+  if (!occupant || !haveAlreadyPlayed(db, division, entrantId, occupant)) return false;
 
   const siblings = db.fixtures.filter((f) =>
     f.id !== fixture.id &&
@@ -2147,13 +2192,84 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
       const o = occupantAt(f);
       return o && !haveAlreadyPlayed(db, division, entrantId, o);
     });
-  if (!pick) return;
+  if (pick) {
+    const ours = { id: fixture[idField], slot: fixture[slotField] };
+    fixture[idField] = pick[idField];
+    fixture[slotField] = pick[slotField];
+    pick[idField] = ours.id;
+    pick[slotField] = ours.slot;
+    return false;
+  }
 
-  const ours = { id: fixture[idField], slot: fixture[slotField] };
-  fixture[idField] = pick[idField];
-  fixture[slotField] = pick[slotField];
-  pick[idField] = ours.id;
-  pick[slotField] = ours.slot;
+  // CHAIN SEARCH (2026-08-14, fourth pass - replaces the single-hop
+  // alt-box swap above; see
+  // claude/double-elim-rematch-chain-search-2026-08-14.md for the
+  // dedicated rematch-only test run that motivated this and the before/
+  // after numbers). The single-hop swap could only resolve a conflict by
+  // trading entrantId directly with ONE other occupant. That fails
+  // whenever the only occupants immediately available are each themselves
+  // incompatible with either side - a case a longer chain of swaps can
+  // often still resolve (move A into dest, which frees up A's old seat for
+  // B, which frees up B's old seat for entrantId, and so on). This is a
+  // backtracking search for an augmenting path of any length over every
+  // not-yet-started, non-bye box in the same bracketRole (any round, same
+  // scope PR #44 already widened to) that currently holds at least one
+  // occupant - a box still waiting on its own second feeder is just as
+  // valid a source to pull a replacement from as a fully-decided pair,
+  // since its still-empty side simply carries no compatibility constraint
+  // yet. Verified correct in isolation against a constructed 3-hop
+  // scenario before shipping. Like every fallback in this area, it only
+  // ever rewrites already-placed occupants' own player-slot fields - never
+  // any routing field - so it carries the same PR #40 safety guarantee.
+  const pool = db.fixtures.filter((f) =>
+    f.id !== dest.id &&
+    f.divisionId === dest.divisionId &&
+    f.bracketRole === dest.bracketRole &&
+    f.status !== 'completed' &&
+    !f.byeSlot &&
+    (!f.frames || f.frames.length === 0) &&
+    (readSlot(f, 'home') || readSlot(f, 'away'))
+  );
+
+  // Try to seat `personId` into (fx, slot), whose other slot may already
+  // hold a fixed occupant (or be empty - no constraint). If personId fits,
+  // done. Otherwise, look for some other pool box holding a compatible
+  // replacement, and recursively find a home for personId where THAT
+  // replacement came from - forming a chain of any length. `visited` stops
+  // any box being used twice in the same search.
+  function placeInChain(fx, slot, personId, visited) {
+    const otherSlot = otherSlotOf(slot);
+    const fixedOccupant = readSlot(fx, otherSlot);
+    if (!fixedOccupant || !haveAlreadyPlayed(db, division, personId, fixedOccupant)) {
+      return [{ fixtureId: fx.id, slot, value: personId }];
+    }
+    for (const cand of pool) {
+      if (visited.has(cand.id) || cand.id === fx.id) continue;
+      for (const candSlot of ['home', 'away']) {
+        const candValue = readSlot(cand, candSlot);
+        if (!candValue || candValue === personId) continue;
+        if (haveAlreadyPlayed(db, division, candValue, fixedOccupant)) continue;
+        visited.add(cand.id);
+        const rest = placeInChain(cand, candSlot, personId, visited);
+        if (rest !== null) {
+          return [{ fixtureId: fx.id, slot, value: candValue }, ...rest];
+        }
+        visited.delete(cand.id);
+      }
+    }
+    return null;
+  }
+
+  const chainMoves = placeInChain(dest, targetSlot, entrantId, new Set([dest.id]));
+  if (chainMoves) {
+    for (const m of chainMoves) {
+      const fx = m.fixtureId === dest.id ? dest : db.fixtures.find((f) => f.id === m.fixtureId);
+      fx[playerField(m.slot)] = m.value;
+    }
+    return true; // handled directly - caller must skip its normal assignment
+  }
+
+  return false;
 }
 
 // Bye-fairness - the structural-bye counterpart to avoidRematchOnPlacement
@@ -2198,12 +2314,43 @@ function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entr
 // `fixture` itself alongside hasHadBye's own (unchanged) exclusion closes
 // exactly that gap without touching the swap mechanism, or anything about
 // why the exclusion was needed in the first place.
+// FIX (2026-08-14, second pass - see claude/double-elim-test-and-fix-2026-08-14.md
+// project doc for the simulation that found this): the sibling swap below was
+// still the only mitigation once the blind spot above was closed, and it
+// depends on a same-round sibling having a live, unclaimed route to trade -
+// exactly the same dependency avoidRematchOnPlacement's own routing swap had
+// (see that function's destination-round fallback, added the same day for
+// the identical reason). Simulating the fixed version still found a
+// meaningful residual failure rate concentrated at larger player counts, and
+// tracing it showed the same cause: the sibling pool had simply run dry for
+// that round.
+//
+// So this gets the same second fallback avoidRematchOnPlacement got: when
+// the sibling-routing swap finds nothing, look at the OTHER boxes in the bye
+// box's own round (same bracketRole) that are genuine two-sided fixtures
+// (not a bye themselves), haven't started play yet, and already hold an
+// occupant on either side. If that occupant hasn't had a bye themselves
+// (don't just relocate the same problem onto someone else) and swapping them
+// in wouldn't create a fresh rematch for either side, swap them directly
+// with `entrantId`: the occupant takes the bye, `entrantId` takes over the
+// seat they vacated. This only ever rewrites two fixtures' own player-slot
+// fields - never any fixture's routing - so it can't create or duplicate a
+// routing target (the PR #40 failure mode this area has to stay careful
+// around). Because it places `entrantId` directly and resolves the bye it
+// just handed out (mirroring what the caller's own normal-assignment path
+// would have done), it returns true so the caller knows to skip that normal
+// assignment.
 function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, entrantId) {
   const targetId = fixture[idField];
-  if (!targetId || !entrantId) return;
+  const targetSlot = fixture[slotField];
+  if (!targetId || !entrantId) return false;
   const dest = db.fixtures.find((f) => f.id === targetId);
-  if (!dest || !dest.byeSlot) return; // destination isn't a bye box - nothing to protect against
+  if (!dest || !dest.byeSlot) return false; // destination isn't a bye box - nothing to protect against
   const isTeams = division.entryType === 'teams';
+  const playerField = (slot) => (isTeams
+    ? (slot === 'home' ? 'homeTeamId' : 'awayTeamId')
+    : (slot === 'home' ? 'homePlayerId' : 'awayPlayerId'));
+  const otherSlotOf = (slot) => (slot === 'home' ? 'away' : 'home');
   const fixtureIsOwnBye = (() => {
     if (fixture.status !== 'completed') return false;
     const home = isTeams ? fixture.homeTeamId : fixture.homePlayerId;
@@ -2211,7 +2358,7 @@ function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, en
     if (home !== entrantId && away !== entrantId) return false;
     return !home || !away;
   })();
-  if (!fixtureIsOwnBye && !hasHadBye(db, division, entrantId, fixture.id)) return; // this entrant's first bye, if it is one - fine
+  if (!fixtureIsOwnBye && !hasHadBye(db, division, entrantId, fixture.id)) return false; // this entrant's first bye, if it is one - fine
 
   const siblings = db.fixtures.filter((f) =>
     f.id !== fixture.id &&
@@ -2225,26 +2372,65 @@ function avoidRepeatByeOnPlacement(db, division, fixture, idField, slotField, en
     const d = db.fixtures.find((x) => x.id === f[idField]);
     return d && !d.byeSlot;
   });
-  if (!pick) return;
+  if (pick) {
+    const ours = { id: fixture[idField], slot: fixture[slotField] };
+    fixture[idField] = pick[idField];
+    fixture[slotField] = pick[slotField];
+    pick[idField] = ours.id;
+    pick[slotField] = ours.slot;
+    return false;
+  }
 
-  const ours = { id: fixture[idField], slot: fixture[slotField] };
-  fixture[idField] = pick[idField];
-  fixture[slotField] = pick[slotField];
-  pick[idField] = ours.id;
-  pick[slotField] = ours.slot;
+  // WIDENED - see the matching comment in avoidRematchOnPlacement's own
+  // altBoxes block above (same fix, same day, same rationale): dropped the
+  // `f.round === dest.round` restriction so this can swap with a
+  // not-yet-started box anywhere in the same bracketRole, not just the
+  // same round. Still only ever touches player-slot fields, never routing,
+  // so it's exactly as safe widened as it was narrow.
+  const altBoxes = db.fixtures.filter((f) =>
+    f.id !== dest.id &&
+    f.divisionId === dest.divisionId &&
+    f.bracketRole === dest.bracketRole &&
+    f.status !== 'completed' &&
+    !f.byeSlot &&
+    (!f.frames || f.frames.length === 0)
+  );
+  for (const alt of altBoxes) {
+    for (const slot of ['home', 'away']) {
+      const altOccupant = alt[playerField(slot)];
+      if (!altOccupant || altOccupant === entrantId) continue;
+      if (hasHadBye(db, division, altOccupant, alt.id)) continue; // don't just relocate the problem to someone else
+      const altOtherOccupant = alt[playerField(otherSlotOf(slot))];
+      if (altOtherOccupant && haveAlreadyPlayed(db, division, altOtherOccupant, entrantId)) continue; // don't fix a bye by creating a rematch
+
+      dest[playerField(targetSlot)] = altOccupant;
+      alt[playerField(slot)] = entrantId;
+      resolveByeIfNeeded(db, division, dest);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function propagateWinner(db, division, fixture, winnerId) {
   if (!fixture.nextFixtureId) return;
+  let handled = false;
   if (fixture.bracketRole === 'losers') {
-    avoidRematchOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
+    handled = avoidRematchOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
   }
   // Bye-fairness applies regardless of bracketRole (unlike rematch-
   // avoidance just above) - a winners-bracket round can land the same
   // entrant in a structural bye box twice over just as easily as the
   // losers bracket can (see avoidRepeatByeOnPlacement's doc comment). A
   // no-op whenever the destination isn't actually a bye box.
-  avoidRepeatByeOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
+  const byeHandled = avoidRepeatByeOnPlacement(db, division, fixture, 'nextFixtureId', 'nextFixtureSlot', winnerId);
+  // Either avoidRematchOnPlacement's or avoidRepeatByeOnPlacement's own
+  // destination-round fallback (both 2026-08-14) can place `winnerId`
+  // directly into its destination itself, when it does so it hands back
+  // true - skip the normal assignment below so it isn't immediately
+  // overwritten back into the seat the fallback just moved them out of.
+  if (handled || byeHandled) return;
   const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
   if (!next) return;
   if (division.entryType === 'teams') {
@@ -2275,8 +2461,11 @@ function propagateWinner(db, division, fixture, winnerId) {
 // eliminate their loser outright - there's nowhere further for them to go).
 function propagateLoser(db, division, fixture, loserId) {
   if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
-  avoidRematchOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
-  avoidRepeatByeOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+  const handled = avoidRematchOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+  const byeHandled = avoidRepeatByeOnPlacement(db, division, fixture, 'loserNextFixtureId', 'loserNextFixtureSlot', loserId);
+  // See propagateWinner's matching comment - either fallback may already
+  // have seated `loserId` itself.
+  if (handled || byeHandled) return;
   const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
   if (!dest) return;
   if (division.entryType === 'teams') {
@@ -2538,11 +2727,147 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
+// "Ally Knockout (Double elimination)" - a second, independent double-
+// elimination scheduling option (scheduling: 'knockout_double_elim_ally'),
+// separate from 'knockout_double_elim' above so the two can diverge in
+// future without either affecting the other. Its own function body (not a
+// call into generateDoubleElimFixtures) even though today the two are
+// logically identical - see the project doc this was verified against
+// (claude/ally-knockout-2026-08-14.md) for why: several genuinely different
+// routing techniques were tried and empirically tested (a naive reversed-
+// order tweak, rebuilding the bracket as a clean power-of-two tree, and a
+// mathematically rigorous bracket-lineage-aware router) against the same
+// 9,400-tournament methodology the original double-elim fixes used, and
+// none measurably beat what's already in generateDoubleElimFixtures -
+// three independent methods converged on the same finding the original
+// double-elim work already reached: for a fixed entrant count with the
+// minimum possible number of games, avoiding every rematch before the
+// final and capping everyone to at most one bye are already very close to
+// the achievable ceiling, not something a cleverer algorithm still has
+// available to it. So this reuses the identical, most battle-tested
+// technique (buildDoubleElimBracket for shape, the same
+// avoidRematchOnPlacement/avoidRepeatByeOnPlacement reactive fairness
+// helpers used by every knockout format) rather than inventing new,
+// less-proven logic purely for its own sake - but keeps its own dedicated
+// generator function and scheduling type so it has a genuinely independent
+// on/off switch and a stable place to diverge later if a real improvement
+// is ever found for one format and not the other.
+//
+// Known v1 limitation, deliberately not carried over: the late-entrant
+// bracket rebuild (POST /api/divisions/:id/late-entrants,
+// rebuildDoubleElimFromRound1) stays 'knockout_double_elim'-only for now -
+// see that route's own guard below. Reserved bye slots
+// (MAX_RESERVED_BYE_COUNT) are globally set to 0 already, so nothing is
+// lost there for either format.
+function generateAllyDoubleElimFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ----
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    wbSourceFixtures.forEach((fixture, i) => {
+      let dest, slot;
+      if (lbRoundIndex === 0) {
+        dest = lbDestFixtures[Math.floor(i / 2)];
+        slot = i % 2 === 0 ? 'home' : 'away';
+      } else if (i < lbRound.crossMatches) {
+        dest = lbDestFixtures[i];
+        slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
+      }
+      fixture.loserNextFixtureId = dest.id;
+      fixture.loserNextFixtureSlot = slot;
+    });
+  });
+
+  // ---- Grand Final ----
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allFixtures.forEach((f) => db.fixtures.push(f));
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
+}
+
 // ---- "Testing Double Elimination" fixture generation ----
 //
-// A second double-elimination format (division.scheduling ===
-// 'knockout_double_elim_test') that exists specifically to fix a real
-// limitation in generateDoubleElimFixtures above: that function's losers-
+// A third double-elimination format (division.scheduling ===
+// 'knockout_double_elim_test'), independent of both generateDoubleElimFixtures
+// and generateAllyDoubleElimFixtures above, that exists specifically to fix a
+// real limitation in generateDoubleElimFixtures: that function's losers-
 // bracket wiring pairs winners-round losers, and losers-bracket survivors
 // against each other, in plain sequential/adjacent order (loser 0 vs loser
 // 1, box 0's winner vs box 1's winner, etc.). Sequential-adjacent pairing
@@ -2960,7 +3285,12 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
   assertLeagueAccess(req, league);
 
   if (division.scheduling !== 'knockout_double_elim') {
-    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions');
+    // Ally Knockout (knockout_double_elim_ally) deliberately isn't
+    // supported here yet - the rebuild below (rebuildDoubleElimFromRound1)
+    // is written directly against this format's own bracket-shape
+    // assumptions; extending it to Ally Knockout too is a real follow-up
+    // task, not something safe to silently alias.
+    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions (not yet supported for Ally Knockout)');
   }
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for singles divisions');
@@ -3243,6 +3573,14 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
       );
     }
     generateDoubleElimFixtures({ db, league, division, entrantIds });
+  } else if (division.scheduling === 'knockout_double_elim_ally') {
+    if (entrantIds.length < 4) {
+      throw new ApiError(
+        400,
+        `Ally Knockout needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
+      );
+    }
+    generateAllyDoubleElimFixtures({ db, league, division, entrantIds });
   } else if (division.scheduling === 'knockout_double_elim_test') {
     if (entrantIds.length < 4) {
       throw new ApiError(
