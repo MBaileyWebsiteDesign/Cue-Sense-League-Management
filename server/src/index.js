@@ -83,7 +83,14 @@ const asyncRoute = (fn) => (req, res, next) => {
   }
 };
 
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test'];
+// Divisions using any double-elimination format share almost all downstream
+// logic (champion detection, knockout-only UI, public bracket view) - only
+// fixture *generation* (generateDoubleElimFixtures /
+// generateAllyDoubleElimFixtures / generateTestingDoubleElimFixtures, see
+// each below) and late-entrant rebuild (which only 'knockout_double_elim'
+// supports) differ.
+const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test'];
 
 // ---------- Accounts & auth ----------
 // One account model, one login. `db.users` holds everyone; `isAdmin` and
@@ -927,7 +934,7 @@ function recordChampionIfDivisionComplete(db, division, hydrated) {
   const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
   let championId = null;
 
-  if (division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally') {
+  if (DOUBLE_ELIM_TYPES.includes(division.scheduling)) {
     // The winners-bracket finalist can win the Grand Final outright, or lose
     // it and force a bracket-reset decider (see checkGrandFinalReset)
     // - resetFixtureId is only ever set on a completed grand_final fixture
@@ -1603,7 +1610,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
   }
-  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
+  const isKnockout = division.scheduling === 'knockout_single_elim' || DOUBLE_ELIM_TYPES.includes(division.scheduling);
   let reservedFixture = null;
   if (division.fixturesGenerated) {
     if (isKnockout) {
@@ -2855,6 +2862,221 @@ function generateAllyDoubleElimFixtures({ db, league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
+// ---- "Testing Double Elimination" fixture generation ----
+//
+// A third double-elimination format (division.scheduling ===
+// 'knockout_double_elim_test'), independent of both generateDoubleElimFixtures
+// and generateAllyDoubleElimFixtures above, that exists specifically to fix a
+// real limitation in generateDoubleElimFixtures: that function's losers-
+// bracket wiring pairs winners-round losers, and losers-bracket survivors
+// against each other, in plain sequential/adjacent order (loser 0 vs loser
+// 1, box 0's winner vs box 1's winner, etc.). Sequential-adjacent pairing
+// has no relationship to the winners-bracket tree structure, so two players
+// can end up facing each other again in the losers bracket well before the
+// Losers Final/Grand Final, even though a "proper" double-elimination
+// bracket is specifically designed so that only bracket topology (not luck)
+// decides when rematches can happen.
+//
+// This function is otherwise IDENTICAL to generateDoubleElimFixtures - same
+// buildDoubleElimBracket() round/box counts, same winners-bracket
+// construction, same Grand Final wiring, same reserved-bye handling. The
+// only thing that changes is *which* losers-bracket box each loser/survivor
+// gets wired into, using standard bracket "mirroring": entrants who are
+// close together structurally (adjacent winners-bracket boxes, or adjacent
+// losers-bracket survivor boxes) are pushed to opposite ends of the next
+// round instead of paired with their neighbour, and freshly-dropped
+// winners-bracket losers are cross-matched against waiting losers-bracket
+// survivors in reverse order rather than same-index order. This is the same
+// "reversal/mirroring" technique standard seeded double-elimination
+// generators use to keep opposite bracket halves apart until the brackets
+// themselves force a merge.
+//
+// Note this does NOT pad the field to a power of two (deliberately, per
+// product decision) - buildDoubleElimBracket's existing odd-count/bye
+// handling is unchanged, so an irregular entrant count can still produce a
+// bye in a round after the first exactly as it does for the original
+// format. Without power-of-two padding there's no formal mathematical
+// guarantee of zero rematches before the final (that guarantee normally
+// relies on a fully seeded power-of-two draw) - this is a best-effort
+// application of standard mirroring topology on top of the existing
+// irregular-bracket shape, and meaningfully reduces (in most draws,
+// eliminates) early rematches compared to the sequential-adjacent wiring
+// above.
+//
+// Late-entrant mid-tournament bracket rebuild (see rebuildDoubleElimFromRound1
+// and addLateEntrant below) is NOT supported for this format - it remains
+// exclusive to 'knockout_double_elim'. That feature is unrelated to bracket
+// topology/rematch-avoidance and duplicating its ~300 lines of reroster/
+// rebuild logic was out of scope for this change.
+function generateTestingDoubleElimFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ---- (identical to generateDoubleElimFixtures)
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  // Link each losers-bracket round's winner forward to the next LB round.
+  // MIRRORED vs generateDoubleElimFixtures: on a pure-consolidation round
+  // (existing survivors playing each other, no fresh winners-bracket
+  // losers arriving), pair box i's winner against box (count-1-i)'s winner
+  // - opposite ends of the round - instead of adjacent boxes i/i+1. Merge
+  // rounds (1:1 against a fresh loser, wired below) are unaffected here.
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    if (nextIsMergeRound) {
+      current.forEach((fixture, i) => {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      });
+    } else {
+      const n = current.length;
+      const pairCount = Math.floor(n / 2);
+      for (let p = 0; p < pairCount; p++) {
+        const home = current[p];
+        const away = current[n - 1 - p];
+        const target = next[p];
+        home.nextFixtureId = target.id;
+        home.nextFixtureSlot = 'home';
+        away.nextFixtureId = target.id;
+        away.nextFixtureSlot = 'away';
+      }
+      if (n % 2 === 1) {
+        // Structural bye box - the one leftover survivor advances alone.
+        const mid = current[pairCount];
+        const target = next[pairCount];
+        mid.nextFixtureId = target.id;
+        mid.nextFixtureSlot = 'home';
+      }
+    }
+  }
+  // Wire each winners round's losers into their losers-bracket destination.
+  // MIRRORED vs generateDoubleElimFixtures in all three sub-cases below.
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    const n = wbSourceFixtures.length;
+
+    if (lbRoundIndex === 0) {
+      // Entry round - outside-in mirror pairing (0 vs last, 1 vs
+      // second-last, ...) instead of adjacent pairing (0 vs 1, 2 vs 3, ...),
+      // so winners-round losers who were structurally close in the
+      // original draw are pushed as far apart as possible in the losers
+      // bracket.
+      const pairCount = Math.floor(n / 2);
+      for (let p = 0; p < pairCount; p++) {
+        const home = wbSourceFixtures[p];
+        const away = wbSourceFixtures[n - 1 - p];
+        const dest = lbDestFixtures[p];
+        home.loserNextFixtureId = dest.id;
+        home.loserNextFixtureSlot = 'home';
+        away.loserNextFixtureId = dest.id;
+        away.loserNextFixtureSlot = 'away';
+      }
+      if (n % 2 === 1) {
+        const mid = wbSourceFixtures[pairCount];
+        const dest = lbDestFixtures[pairCount];
+        mid.loserNextFixtureId = dest.id;
+        mid.loserNextFixtureSlot = 'home';
+      }
+    } else {
+      // Cross-match portion - REVERSED vs generateDoubleElimFixtures: the
+      // i-th fresh loser fills the away slot of box (crossMatches-1-i)
+      // instead of box i, so a fresh loser is matched against the survivor
+      // structurally furthest from it rather than the one that happens to
+      // share its array index.
+      const crossN = lbRound.crossMatches;
+      for (let i = 0; i < crossN; i++) {
+        const fixture = wbSourceFixtures[i];
+        const dest = lbDestFixtures[crossN - 1 - i];
+        fixture.loserNextFixtureId = dest.id;
+        fixture.loserNextFixtureSlot = 'away';
+      }
+      // Leftover portion - not enough waiting survivors to pair against
+      // every new loser; the leftover new losers pair off among
+      // themselves. Mirrored the same way as the entry round above,
+      // instead of adjacent pairing.
+      const leftoverCount = n - crossN;
+      const leftoverPairCount = Math.floor(leftoverCount / 2);
+      for (let p = 0; p < leftoverPairCount; p++) {
+        const home = wbSourceFixtures[crossN + p];
+        const away = wbSourceFixtures[crossN + leftoverCount - 1 - p];
+        const dest = lbDestFixtures[crossN + p];
+        home.loserNextFixtureId = dest.id;
+        home.loserNextFixtureSlot = 'home';
+        away.loserNextFixtureId = dest.id;
+        away.loserNextFixtureSlot = 'away';
+      }
+      if (leftoverCount % 2 === 1) {
+        const mid = wbSourceFixtures[crossN + leftoverPairCount];
+        const dest = lbDestFixtures[crossN + leftoverPairCount];
+        mid.loserNextFixtureId = dest.id;
+        mid.loserNextFixtureSlot = 'home';
+      }
+    }
+  });
+
+  // ---- Grand Final ---- (identical to generateDoubleElimFixtures)
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allFixtures.forEach((f) => db.fixtures.push(f));
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
+}
+
 // ---- Late entry: unlock the roster and rebuild the bracket ----
 //
 // Alternative to the reserved-bye-slot approach above (currently switched
@@ -3359,6 +3581,14 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
       );
     }
     generateAllyDoubleElimFixtures({ db, league, division, entrantIds });
+  } else if (division.scheduling === 'knockout_double_elim_test') {
+    if (entrantIds.length < 4) {
+      throw new ApiError(
+        400,
+        `Double elimination needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
+      );
+    }
+    generateTestingDoubleElimFixtures({ db, league, division, entrantIds });
   } else {
     generateRoundRobinFixtures({ db, league, division, entrantIds });
   }
@@ -4510,7 +4740,7 @@ app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  const isDoubleElim = division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
+  const isDoubleElim = DOUBLE_ELIM_TYPES.includes(division.scheduling);
   if (division.scheduling !== 'knockout_single_elim' && !isDoubleElim) {
     throw new ApiError(400, 'This endpoint only supports single- or double-elimination knockout divisions');
   }
