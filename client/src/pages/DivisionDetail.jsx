@@ -73,13 +73,13 @@ function maxFramesPerGame(division) {
   return n > 0 ? (n * 2) - 1 : 0;
 }
 
-// Estimated total playing time in minutes: MaxFramesPerGame x 10 x
+// Estimated total playing time in minutes: MaxFramesPerGame x 15 x
 // (number of games). Tables available is deliberately left out of this
 // formula for now (see the "Number of Tables available" input in
 // GenerateFixturesButton below, which is currently just a standalone
 // reference field).
 function estimateGameTimeMinutes(division) {
-  return maxFramesPerGame(division) * 10 * estimateGameCount(division);
+  return maxFramesPerGame(division) * 15 * estimateGameCount(division);
 }
 
 function formatMinutes(mins) {
