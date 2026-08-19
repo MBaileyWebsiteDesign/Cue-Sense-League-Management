@@ -1700,9 +1700,15 @@ export const demoApi = {
       : homeScore > awayScore
         ? (isTeams ? fixture.homeTeamId : fixture.homePlayerId)
         : (isTeams ? fixture.awayTeamId : fixture.awayPlayerId);
-    if (fixture.nextFixtureId && oldWinnerId && newWinnerId !== oldWinnerId) {
-      const next = db.fixtures.find((f) => f.id === fixture.nextFixtureId);
-      const nextHasStarted = next && (isTeams ? next.legs.some((l) => l.status !== 'pending') : next.frames.length > 0);
+    const next = fixture.nextFixtureId ? db.fixtures.find((f) => f.id === fixture.nextFixtureId) : null;
+    const nextCurrentOccupant = next
+      ? (isTeams
+          ? (fixture.nextFixtureSlot === 'home' ? next.homeTeamId : next.awayTeamId)
+          : (fixture.nextFixtureSlot === 'home' ? next.homePlayerId : next.awayPlayerId))
+      : null;
+    const winnerNeedsPropagating = !!(next && newWinnerId && nextCurrentOccupant !== newWinnerId);
+    if (winnerNeedsPropagating) {
+      const nextHasStarted = isTeams ? next.legs.some((l) => l.status !== 'pending') : next.frames.length > 0;
       if (nextHasStarted) {
         throw new ApiError(409, 'This result has already progressed to a fixture that has started - override or reset that fixture first');
       }
@@ -1724,10 +1730,10 @@ export const demoApi = {
     fixture.status = 'completed';
     fixture.adminOverride = { at: new Date().toISOString(), by: adminLabel() };
     fixture.disputeReason = null;
-    if (fixture.nextFixtureId && newWinnerId && newWinnerId !== oldWinnerId) {
+    if (winnerNeedsPropagating) {
       propagateWinner(division, fixture, newWinnerId);
     }
-    if (newWinnerId && newWinnerId !== oldWinnerId) {
+    if (newWinnerId) {
       const newLoserId = newWinnerId === (isTeams ? fixture.homeTeamId : fixture.homePlayerId)
         ? (isTeams ? fixture.awayTeamId : fixture.awayPlayerId)
         : (isTeams ? fixture.homeTeamId : fixture.homePlayerId);
