@@ -83,14 +83,14 @@ const asyncRoute = (fn) => (req, res, next) => {
   }
 };
 
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek'];
 // Divisions using any double-elimination format share almost all downstream
 // logic (champion detection, knockout-only UI, public bracket view) - only
 // fixture *generation* (generateDoubleElimFixtures /
-// generateAllyDoubleElimFixtures / generateTestingDoubleElimFixtures, see
-// each below) and late-entrant rebuild (which only 'knockout_double_elim'
-// supports) differ.
-const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test'];
+// generateAllyDoubleElimFixtures / generateTestingDoubleElimFixtures /
+// generatePCDEKFixtures, see each below) and late-entrant rebuild (which
+// only 'knockout_double_elim' supports) differ.
+const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek'];
 
 // ---------- Accounts & auth ----------
 // One account model, one login. `db.users` holds everyone; `isAdmin` and
@@ -759,7 +759,12 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
 //   (claude/ally-knockout-2026-08-14.md) found no algorithm that measurably
 //   beats it for this format's constraints - minimum games, at most one bye
 //   per entrant ever, and minimizing (not fully eliminating - proven not
-//   always possible) rematches before the final). This can
+//   always possible) rematches before the final), or
+//   "knockout_double_elim_pcdek" ("Pre Configured Double Elimination
+//   Knockout" - see generatePCDEKFixtures below for what "pre configured"
+//   actually means here and why it does NOT guarantee zero rematches
+//   before the Grand Final, despite that being the format's original
+//   brief). This can
 //   differ per division from the league's
 //   own default, since a league often runs its regular season as a round
 //   robin but a separate cup division as a knockout.
@@ -1344,6 +1349,20 @@ function registeredPlayers(db) {
 app.get('/api/registered-players', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   res.json(registeredPlayers(db));
+}));
+
+// Lets the "Pre Configured Double Elimination Knockout" player-count
+// selector in the client show what a given entrant count's bracket looks
+// like (round counts, byes, estimated games) before a division/roster even
+// exists - see pcdekTemplateSummary's own doc comment for what "template"
+// does and doesn't mean here. No division context needed, so this is a
+// plain reference-data lookup, not scoped to any league/division.
+app.get('/api/game-formats/pcdek/:playerCount', requireAuth, asyncRoute((req, res) => {
+  const playerCount = Number(req.params.playerCount);
+  if (!Number.isInteger(playerCount) || playerCount < 1 || playerCount > 50) {
+    throw new ApiError(400, 'playerCount must be a whole number from 1 to 50');
+  }
+  res.json(pcdekTemplateSummary(playerCount));
 }));
 
 // Powers the admin "Game Adjustments" page (search a player, then pick the
@@ -3077,6 +3096,270 @@ function generateTestingDoubleElimFixtures({ db, league, division, entrantIds })
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
+// ---- "Pre Configured Double Elimination Knockout" fixture generation ----
+// (division.scheduling === 'knockout_double_elim_pcdek')
+//
+// IMPORTANT - read before touching this function or its rematch policy:
+// this format was originally specced as a library of 50 hand-authored,
+// per-entrant-count (1-50) bracket "templates" that would guarantee - not
+// just minimize - that no two players ever meet twice before the Grand
+// Final/Grand Final Reset, each one exhaustively validated against every
+// possible sequence of winners/losers before being allowed into the
+// library. That guarantee is proven mathematically impossible for a fixed
+// (non-adaptive) match-routing graph, for essentially every entrant count
+// above 2 - re-derived independently for this feature (a clean pigeonhole
+// argument: whichever losers-bracket box a winners-bracket dropout is
+// routed into, there is always at least one outcome branch where the only
+// available same-loss-count opponent there is someone they already beat,
+// because the routing has to be fixed in advance while the actual identity
+// of who's "safe" to pair them with depends on match results that haven't
+// happened yet) - and it matches, exactly, what this project's own prior
+// research already found twice on 2026-08-14: the Ally Knockout
+// bipartite-matching proof (claude/ally-knockout-2026-08-14.md - "impossible
+// to guarantee...for most entrant counts") and the Pre-Configured Knockout
+// spreadsheet analysis (claude/pre-configured-knockout-spreadsheet-analysis-2026-08-14.md
+// - the industry-standard "Superior seeding" algorithm, the same one used by
+// brackets-manager.js and Vertex42's templates, still produced a pre-final
+// rematch in 49.55% of 23,500 simulated tournaments). Building 50 templates
+// that claim to pass exhaustive zero-violation validation would mean either
+// faking that result or silently weakening the rule - neither acceptable.
+//
+// So this format is real, but scoped honestly: "pre configured" means each
+// entrant count's bracket SHAPE (round/box counts, bye placement, losers-
+// bracket merge structure) is a fully deterministic structural template -
+// see pcdekTemplateSummary() below, and buildDoubleElimBracket() in
+// services/bracket.js which actually derives it - rather than a bracket
+// dynamically invented ad hoc. It is not a hand-authored, independently
+// "validated" template per player count; it's the same deterministic
+// derivation every double-elim format here already uses, exposed as its
+// own inspectable template. On top of that shape, this uses the single
+// most effective losers-bracket wiring technique already proven in this
+// codebase - the same outside-in "mirrored" topology as
+// generateTestingDoubleElimFixtures (mirrors structurally-close dropouts
+// to opposite ends of the next round instead of pairing neighbours) - plus
+// the full reactive rematch/bye-fairness safety net every double-elim
+// format here shares (avoidRematchOnPlacement's multi-hop chain search,
+// avoidRepeatByeOnPlacement), which applies automatically to any fixture
+// with bracketRole 'winners'/'losers' via propagateWinner/propagateLoser,
+// regardless of scheduling type - nothing PCDEK-specific needed there.
+// rematchPolicy for this format is GRAND_FINAL_ONLY-*preferred*: the
+// generator and the runtime placement engine both actively work to
+// avoid every rematch before the Grand Final/Grand Final Reset, and in
+// practice succeed far more often than not (see the offline stress-test
+// numbers in claude/pcdek-format-2026-08-15.md), but - like every other
+// double-elim format in this codebase - cannot guarantee it in every
+// branch. Do not present this format to users as a hard guarantee.
+//
+// Identical to generateTestingDoubleElimFixtures in every other respect
+// (reserved-bye handling, Grand Final wiring, no power-of-two padding).
+// Late-entrant mid-tournament bracket rebuild is NOT supported for this
+// format either, for the same reason as Ally Knockout/Testing Double
+// Elimination - see the dedicated generator functions' own comments.
+function generatePCDEKFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ---- (identical to generateTestingDoubleElimFixtures)
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ---- (mirrored topology, identical to
+  // generateTestingDoubleElimFixtures - see that function's own comments
+  // for why outside-in mirroring beats sequential/adjacent pairing)
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    if (nextIsMergeRound) {
+      current.forEach((fixture, i) => {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      });
+    } else {
+      const n = current.length;
+      const pairCount = Math.floor(n / 2);
+      for (let p = 0; p < pairCount; p++) {
+        const home = current[p];
+        const away = current[n - 1 - p];
+        const target = next[p];
+        home.nextFixtureId = target.id;
+        home.nextFixtureSlot = 'home';
+        away.nextFixtureId = target.id;
+        away.nextFixtureSlot = 'away';
+      }
+      if (n % 2 === 1) {
+        const mid = current[pairCount];
+        const target = next[pairCount];
+        mid.nextFixtureId = target.id;
+        mid.nextFixtureSlot = 'home';
+      }
+    }
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    const n = wbSourceFixtures.length;
+
+    if (lbRoundIndex === 0) {
+      const pairCount = Math.floor(n / 2);
+      for (let p = 0; p < pairCount; p++) {
+        const home = wbSourceFixtures[p];
+        const away = wbSourceFixtures[n - 1 - p];
+        const dest = lbDestFixtures[p];
+        home.loserNextFixtureId = dest.id;
+        home.loserNextFixtureSlot = 'home';
+        away.loserNextFixtureId = dest.id;
+        away.loserNextFixtureSlot = 'away';
+      }
+      if (n % 2 === 1) {
+        const mid = wbSourceFixtures[pairCount];
+        const dest = lbDestFixtures[pairCount];
+        mid.loserNextFixtureId = dest.id;
+        mid.loserNextFixtureSlot = 'home';
+      }
+    } else {
+      const crossN = lbRound.crossMatches;
+      for (let i = 0; i < crossN; i++) {
+        const fixture = wbSourceFixtures[i];
+        const dest = lbDestFixtures[crossN - 1 - i];
+        fixture.loserNextFixtureId = dest.id;
+        fixture.loserNextFixtureSlot = 'away';
+      }
+      const leftoverCount = n - crossN;
+      const leftoverPairCount = Math.floor(leftoverCount / 2);
+      for (let p = 0; p < leftoverPairCount; p++) {
+        const home = wbSourceFixtures[crossN + p];
+        const away = wbSourceFixtures[crossN + leftoverCount - 1 - p];
+        const dest = lbDestFixtures[crossN + p];
+        home.loserNextFixtureId = dest.id;
+        home.loserNextFixtureSlot = 'home';
+        away.loserNextFixtureId = dest.id;
+        away.loserNextFixtureSlot = 'away';
+      }
+      if (leftoverCount % 2 === 1) {
+        const mid = wbSourceFixtures[crossN + leftoverPairCount];
+        const dest = lbDestFixtures[crossN + leftoverPairCount];
+        mid.loserNextFixtureId = dest.id;
+        mid.loserNextFixtureSlot = 'home';
+      }
+    }
+  });
+
+  // ---- Grand Final ---- (identical to generateDoubleElimFixtures)
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allFixtures.forEach((f) => db.fixtures.push(f));
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
+}
+
+// Read-only structural summary of the PCDEK bracket "template" for a given
+// player count (1-50), computed on demand from buildDoubleElimBracket
+// rather than looked up from any hand-authored per-count table - see the
+// big comment above generatePCDEKFixtures for why there's no such table.
+// Used by GET /api/game-formats/pcdek/:playerCount so the client can show
+// "what the bracket for N players looks like" (round counts, bye count,
+// estimated games) before any division/entrants exist, without pretending
+// each count has its own independently-validated design. playerCount === 1
+// and 2 are handled as explicit special cases (see section 22 of the brief
+// this format was built from) rather than forced through
+// buildDoubleElimBracket, which requires 4+ entrants: 1 player is already
+// champion with zero matches; 2 players need exactly one match, with no
+// meaningful losers-bracket game to invent just to look like a "real" DE
+// bracket; 3 players is the smallest count buildDoubleElimBracket doesn't
+// support either, so it gets the same minimum-real-games treatment by hand
+// (2 winners-bracket rounds feeding a 1-box losers bracket).
+function pcdekTemplateSummary(playerCount) {
+  const n = Math.max(1, Math.min(50, Math.round(Number(playerCount) || 0)));
+  const templateId = `PCDEK-${String(n).padStart(2, '0')}`;
+  const base = {
+    templateId,
+    formatId: 'knockout_double_elim_pcdek',
+    formatName: 'Pre Configured Double Elimination Knockout',
+    playerCount: n,
+    rematchPolicy: 'GRAND_FINAL_ONLY_PREFERRED',
+  };
+  if (n === 1) {
+    return { ...base, winnersBracketRounds: 0, losersBracketRounds: 0, estimatedGames: 0, note: 'A single player is champion immediately - no matches required.' };
+  }
+  if (n === 2) {
+    return { ...base, winnersBracketRounds: 1, losersBracketRounds: 0, estimatedGames: 1, note: 'One match decides the champion outright - no losers-bracket game is meaningful with only 2 players.' };
+  }
+  if (n === 3) {
+    return {
+      ...base,
+      winnersBracketRounds: 2,
+      losersBracketRounds: 1,
+      estimatedGames: 4,
+      note: 'Smallest count with a genuine winners/losers-bracket split; below buildDoubleElimBracket\'s 4-entrant minimum so this shape is fixed by hand.',
+    };
+  }
+  const reservedCount = reservedByeCountFor(n);
+  const entrantIds = Array.from({ length: n }, (_, i) => `SEED-${String(i + 1).padStart(2, '0')}`);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+  const byeCount =
+    winnersRounds.reduce((sum, round) => sum + round.filter(([, b]) => b === null || b === RESERVED_SLOT).length, 0) +
+    losersRounds.filter((r) => r.hasBye).length;
+  return {
+    ...base,
+    winnersBracketRounds: winnersRounds.length,
+    losersBracketRounds: losersRounds.length,
+    byeCount,
+    estimatedGames: 2 * n - 2,
+    note: 'Bracket shape (rounds/bye placement) is deterministically derived from player count, not independently hand-authored - see generatePCDEKFixtures\'s doc comment.',
+  };
+}
+
 // ---- Late entry: unlock the roster and rebuild the bracket ----
 //
 // Alternative to the reserved-bye-slot approach above (currently switched
@@ -3285,12 +3568,14 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
   assertLeagueAccess(req, league);
 
   if (division.scheduling !== 'knockout_double_elim') {
-    // Ally Knockout (knockout_double_elim_ally) deliberately isn't
-    // supported here yet - the rebuild below (rebuildDoubleElimFromRound1)
-    // is written directly against this format's own bracket-shape
-    // assumptions; extending it to Ally Knockout too is a real follow-up
-    // task, not something safe to silently alias.
-    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions (not yet supported for Ally Knockout)');
+    // Ally Knockout (knockout_double_elim_ally), Testing Double Elimination
+    // (knockout_double_elim_test) and Pre Configured Double Elimination
+    // Knockout (knockout_double_elim_pcdek) deliberately aren't supported
+    // here yet - the rebuild below (rebuildDoubleElimFromRound1) is written
+    // directly against this format's own bracket-shape assumptions;
+    // extending it to the others too is a real follow-up task, not
+    // something safe to silently alias.
+    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions (not yet supported for Ally Knockout, Testing Double Elimination, or Pre Configured Double Elimination Knockout)');
   }
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for singles divisions');
@@ -3589,6 +3874,14 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
       );
     }
     generateTestingDoubleElimFixtures({ db, league, division, entrantIds });
+  } else if (division.scheduling === 'knockout_double_elim_pcdek') {
+    if (entrantIds.length < 4) {
+      throw new ApiError(
+        400,
+        `Pre Configured Double Elimination Knockout needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
+      );
+    }
+    generatePCDEKFixtures({ db, league, division, entrantIds });
   } else {
     generateRoundRobinFixtures({ db, league, division, entrantIds });
   }

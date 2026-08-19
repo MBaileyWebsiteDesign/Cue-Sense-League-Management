@@ -11,6 +11,7 @@ function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_double_elim') return 'Generate Fixtures (double-elimination knockout)';
   if (division.scheduling === 'knockout_double_elim_ally') return 'Generate Fixtures (Ally Knockout - double elimination)';
   if (division.scheduling === 'knockout_double_elim_test') return 'Generate Fixtures (Testing Double Elimination)';
+  if (division.scheduling === 'knockout_double_elim_pcdek') return 'Generate Fixtures (Pre Configured Double Elimination Knockout)';
   if (division.scheduling === 'round_robin_double') return 'Generate Fixtures (Round Robin - Double, home and away)';
   return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
@@ -43,13 +44,14 @@ function estimateGameCount(division) {
     case 'knockout_double_elim':
     case 'knockout_double_elim_ally':
     case 'knockout_double_elim_test':
+    case 'knockout_double_elim_pcdek':
       // Minimum matches for a double-elimination bracket: 2n - 2 if the
       // winners-bracket finalist takes the Grand Final outright. If they
       // lose it, a reset decider adds one more match (2n - 1) - so the
       // real count can be one game higher than this estimate. Same formula
-      // for every double-elimination format - both alternates use the
+      // for every double-elimination format - all three alternates use the
       // identical minimum-games shape, see generateAllyDoubleElimFixtures/
-      // generateTestingDoubleElimFixtures server-side.
+      // generateTestingDoubleElimFixtures/generatePCDEKFixtures server-side.
       return 2 * n - 2;
     case 'round_robin_single':
     default:
@@ -210,6 +212,7 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
           <option value="knockout_double_elim">Knockout (double elimination)</option>
           <option value="knockout_double_elim_ally">Ally Knockout (double elimination)</option>
           <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
+          <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
         </select>
       </label>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -327,7 +330,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   // holding one seeded entrant and one side deliberately left open for a
   // day-of late entrant. Only relevant once fixtures exist; a round robin
   // (or a knockout with none reserved) never has any.
-  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test';
+  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test' || division.scheduling === 'knockout_double_elim_pcdek';
   const openReservedSlots = isKnockout ? (division.fixtures || []).filter((f) => f.reserved) : [];
   const canQuickAddLateEntrant = division.fixturesGenerated && openReservedSlots.length > 0;
   // Pre-tournament late entry (see POST /api/divisions/:id/late-entrants) -
@@ -337,9 +340,9 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   // refuses once any frame anywhere in the bracket has been recorded) - this
   // just decides whether to show the control at all, so it only needs to
   // rule out formats/states the route can never succeed for. Deliberately
-  // still 'knockout_double_elim' only - not extended to Ally Knockout or
-  // Testing Double Elimination yet, see the matching server-side route's
-  // own comment.
+  // still 'knockout_double_elim' only - not extended to Ally Knockout,
+  // Testing Double Elimination, or Pre Configured Double Elimination
+  // Knockout yet, see the matching server-side route's own comment.
   const canAddLateEntrant =
     isAdmin &&
     division.scheduling === 'knockout_double_elim' &&
@@ -1310,7 +1313,7 @@ export default function DivisionDetail() {
   // instead of one interleaved round list. Everything else (round robin,
   // single-elimination) has bracketRole 'single' and renders exactly as
   // before - one flat list of rounds.
-  const isDoubleElim = division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test';
+  const isDoubleElim = division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test' || division.scheduling === 'knockout_double_elim_pcdek';
   const BRACKET_SECTION_LABEL = {
     winners: 'Winners Bracket',
     losers: 'Losers Bracket',
