@@ -77,7 +77,11 @@ function backfillState(base) {
     if (division.visibleRounds === undefined) {
       division.visibleRounds = [];
     }
+    if (division.isOpen === undefined) {
+      division.isOpen = false;
+    }
   }
+  if (!base.joinRequests) base.joinRequests = [];
   return base;
 }
 
@@ -86,7 +90,7 @@ function backfillState(base) {
 const EMPTY_DEMO_STATE = {
   leagues: [], divisions: [], players: [], teams: [], pairings: [], divisionPlayers: [],
   fixtures: [], users: [], auditLog: [], venues: [], passwordResets: [], tours: [],
-  rollOfHonour: [], apiKeys: [], leaguePayments: [],
+  rollOfHonour: [], apiKeys: [], leaguePayments: [], joinRequests: [],
 };
 
 function loadInitialDb() {
@@ -1144,7 +1148,13 @@ export const demoApi = {
     );
     return divisions.map((d) => {
       const league = db.leagues.find((l) => l.id === d.leagueId);
-      return { leagueName: league?.name || 'Unknown league', divisionName: d.name };
+      return {
+        leagueId: d.leagueId,
+        leagueName: league?.name || 'Unknown league',
+        divisionId: d.id,
+        divisionName: d.name,
+        status: d.status || 'active',
+      };
     });
   }),
 
@@ -2228,6 +2238,7 @@ export const demoApi = {
       status: 'active',
       completedAt: null,
       completedBy: null,
+      isOpen: !!data.isOpen,
     };
     db.divisions.push(division);
     return division;
@@ -2242,6 +2253,93 @@ export const demoApi = {
       hydrated.fixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
     }
     return hydrated;
+  }),
+
+  // NQT open divisions browse + join requests - mirrors server/src/index.js's
+  // GET /api/divisions/open, POST /api/divisions/:id/join-requests,
+  // GET /api/leagues/:id/join-requests, and the approve/reject routes.
+  getOpenDivisions: op(() => {
+    const user = currentUser();
+    const myPlayerId = user?.playerId;
+    return db.divisions
+      .filter((d) => d.isOpen && d.status !== 'completed' && d.entryType === 'singles')
+      .map((d) => {
+        const league = db.leagues.find((l) => l.id === d.leagueId);
+        const alreadyIn = myPlayerId ? d.playerIds.includes(myPlayerId) : false;
+        const pendingRequest = myPlayerId
+          ? db.joinRequests.find((r) => r.divisionId === d.id && r.playerId === myPlayerId && r.status === 'pending')
+          : null;
+        return {
+          divisionId: d.id,
+          divisionName: d.name,
+          leagueId: d.leagueId,
+          leagueName: league?.name || 'Unknown league',
+          playerCount: d.playerIds.length,
+          fixturesGenerated: d.fixturesGenerated,
+          alreadyIn,
+          requestStatus: alreadyIn ? 'member' : pendingRequest ? 'pending' : null,
+        };
+      });
+  }),
+
+  requestToJoinDivision: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!division.isOpen) throw new ApiError(400, 'This division is not open for join requests');
+    const user = currentUser();
+    const playerId = user?.playerId;
+    if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
+    if (division.playerIds.includes(playerId)) throw new ApiError(400, "You're already in this division");
+    const existing = db.joinRequests.find((r) => r.divisionId === division.id && r.playerId === playerId && r.status === 'pending');
+    if (existing) throw new ApiError(400, 'You already have a pending request for this division');
+    const request = {
+      id: uuid(), divisionId: division.id, playerId, userId: user.id,
+      status: 'pending', createdAt: new Date().toISOString(), decidedAt: null, decidedBy: null,
+    };
+    db.joinRequests.push(request);
+    return request;
+  }),
+
+  getLeagueJoinRequests: op((leagueId) => {
+    const divisionIds = new Set(db.divisions.filter((d) => d.leagueId === leagueId).map((d) => d.id));
+    return db.joinRequests
+      .filter((r) => r.status === 'pending' && divisionIds.has(r.divisionId))
+      .map((r) => {
+        const division = db.divisions.find((d) => d.id === r.divisionId);
+        const player = db.players.find((p) => p.id === r.playerId);
+        return {
+          id: r.id, divisionId: r.divisionId, divisionName: division?.name || 'Unknown division',
+          playerId: r.playerId, playerName: player?.name || 'Unknown player', createdAt: r.createdAt,
+        };
+      });
+  }),
+
+  approveJoinRequest: op((requestId) => {
+    const request = db.joinRequests.find((r) => r.id === requestId);
+    if (!request) throw new ApiError(404, 'Join request not found');
+    if (request.status !== 'pending') throw new ApiError(400, 'This request has already been decided');
+    const division = db.divisions.find((d) => d.id === request.divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    }
+    if (!division.playerIds.includes(request.playerId)) {
+      division.playerIds.push(request.playerId);
+    }
+    request.status = 'approved';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = adminLabel();
+    return hydrateDivision(division);
+  }),
+
+  rejectJoinRequest: op((requestId) => {
+    const request = db.joinRequests.find((r) => r.id === requestId);
+    if (!request) throw new ApiError(404, 'Join request not found');
+    if (request.status !== 'pending') throw new ApiError(400, 'This request has already been decided');
+    request.status = 'rejected';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = adminLabel();
+    return { rejected: true, requestId: request.id };
   }),
 
   // Force-completes every outstanding fixture in a division at 0-0 (0 legs

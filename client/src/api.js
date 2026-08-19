@@ -115,6 +115,15 @@ const networkApi = {
   createDivision: (leagueId, data) =>
     request(`/leagues/${leagueId}/divisions`, { method: 'POST', body: JSON.stringify(data) }),
   getDivision: (id) => request(`/divisions/${id}`),
+  // NQT: open divisions browse + join requests.
+  getOpenDivisions: () => request('/open-divisions'),
+  requestToJoinDivision: (divisionId) =>
+    request(`/divisions/${divisionId}/join-requests`, { method: 'POST' }),
+  getLeagueJoinRequests: (leagueId) => request(`/leagues/${leagueId}/join-requests`),
+  approveJoinRequest: (requestId) =>
+    request(`/join-requests/${requestId}/approve`, { method: 'POST' }),
+  rejectJoinRequest: (requestId) =>
+    request(`/join-requests/${requestId}/reject`, { method: 'POST' }),
   // "Change Game Type" (DivisionDetail.jsx's GenerateFixturesButton): only
   // works while the division has no fixtures yet - see server/src/index.js's
   // PATCH /api/divisions/:id for the full validation/gating.

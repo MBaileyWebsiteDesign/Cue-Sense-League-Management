@@ -316,6 +316,40 @@ function MyFixtures() {
   );
 }
 
+// NQT: "Add a section in the player portal below fixtures that lists
+// divisions/leagues or any other competitions they are in or have been
+// in." Reuses the same getMyLeagueMembership() data ProfileForm's "Your
+// Details" line already summarises inline - that endpoint never drops a
+// division from the list when it completes, so this already covers past
+// divisions, not just the ones currently running.
+function MyLeaguesAndDivisions({ leagues }) {
+  if (!leagues || leagues.length === 0) {
+    return (
+      <section className="card">
+        <h2>My Leagues &amp; Divisions</h2>
+        <p className="muted">You're not registered in any leagues or divisions yet.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="card">
+      <h2>My Leagues &amp; Divisions</h2>
+      <ul className="plain-list">
+        {leagues.map((l, i) => (
+          <li key={l.divisionId || i}>
+            {l.divisionId ? (
+              <Link to={`/divisions/${l.divisionId}`}>{l.leagueName} - {l.divisionName}</Link>
+            ) : (
+              <span>{l.leagueName} - {l.divisionName}</span>
+            )}
+            {l.status === 'completed' && <span className="muted"> · season complete</span>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // The Player Management Portal - every account's home base: profile details,
 // password, and a personal fixture list (upcoming + recent results) across
 // every division/team they're registered in. Admins and captains land here
@@ -350,6 +384,7 @@ export default function PlayerPortal() {
       </div>
 
       <MyFixtures />
+      <MyLeaguesAndDivisions leagues={leagues} />
       <MySubmissions />
       <ProfileForm player={user} leagues={leagues} onSaved={updateUser} />
       <ChangePasswordForm />

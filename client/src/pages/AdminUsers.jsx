@@ -180,6 +180,69 @@ function ManualAddForm({ onImported, setError }) {
   );
 }
 
+// Quick, single-row account creation right under the search box - separate
+// from ManualAddForm/BulkImportPanel above (that one is a vertical form
+// tucked inside the collapsible bulk-import panel and never asks for a
+// password, since bulk-imported accounts always get a random temp
+// password shown once). NQT: "Add a box under search to quickly add a
+// user manually using this field, but horizontal, not vertically. It only
+// needs to ask for first name, last name, email, password, with the
+// option to tick flags as well." Reuses POST /api/admin/users/import
+// (a single-row array) rather than a new endpoint - the only backend
+// change needed was letting that route accept an explicit password
+// instead of always generating one.
+function QuickAddUserBox({ onAdded }) {
+  const emptyForm = { firstName: '', lastName: '', email: '', password: '', isCaptain: false, isAdmin: false, isLeagueManager: false };
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+  const setFlag = (field) => (e) => setForm({ ...form, [field]: e.target.checked });
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setSubmitting(true);
+    try {
+      const result = await api.adminImportUsers([form]);
+      if (result.errors && result.errors.length > 0) {
+        setError(result.errors[0].reason);
+      } else if (result.skipped && result.skipped.length > 0) {
+        setError(result.skipped[0].reason);
+      } else {
+        setSuccess(`Added ${form.firstName} ${form.lastName}.`);
+        setForm(emptyForm);
+        onAdded();
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="quick-add-user-box" onSubmit={onSubmit}>
+      <input placeholder="First name *" value={form.firstName} onChange={set('firstName')} required />
+      <input placeholder="Last name *" value={form.lastName} onChange={set('lastName')} required />
+      <input type="email" placeholder="Email *" value={form.email} onChange={set('email')} required />
+      <input type="password" placeholder="Password *" value={form.password} onChange={set('password')} minLength={8} required />
+      <span className="quick-add-flags">
+        <label><input type="checkbox" checked={form.isCaptain} onChange={setFlag('isCaptain')} /> Captain</label>
+        <label><input type="checkbox" checked={form.isAdmin} onChange={setFlag('isAdmin')} /> Admin</label>
+        <label><input type="checkbox" checked={form.isLeagueManager} onChange={setFlag('isLeagueManager')} /> League Manager</label>
+      </span>
+      <button className="btn btn-primary" type="submit" disabled={submitting}>
+        {submitting ? 'Adding…' : 'Quick add user'}
+      </button>
+      {error && <p className="error quick-add-message">{error}</p>}
+      {success && <p className="muted quick-add-message">{success}</p>}
+    </form>
+  );
+}
+
 // A standalone bulk-import panel for the Manage Users screen - separate from
 // the Season Setup Wizard's CSV/Excel import (which assigns straight into a
 // season's divisions). This one just creates accounts: no division/season
@@ -368,6 +431,8 @@ export default function AdminUsers() {
         />
         <button className="btn btn-primary" type="submit">Search</button>
       </form>
+
+      <QuickAddUserBox onAdded={() => load(query)} />
 
       {error && <p className="error">{error}</p>}
 
