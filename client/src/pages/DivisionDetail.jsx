@@ -75,13 +75,21 @@ function maxFramesPerGame(division) {
   return n > 0 ? (n * 2) - 1 : 0;
 }
 
-// Estimated total playing time in minutes: MaxFramesPerGame x 15 x
-// (number of games). Tables available is deliberately left out of this
+// Estimated total frames across the division: MaxFramesPerGame x (number
+// of games) - the worst-case frame count if every game went the full
+// distance. Used standalone (see GameTimeEstimate below) and as the basis
+// for estimateGameTimeMinutes.
+function estimateFrameCount(division) {
+  return maxFramesPerGame(division) * estimateGameCount(division);
+}
+
+// Estimated total playing time in minutes: estimateFrameCount x 15
+// minutes per frame. Tables available is deliberately left out of this
 // formula for now (see the "Number of Tables available" input in
 // GenerateFixturesButton below, which is currently just a standalone
 // reference field).
 function estimateGameTimeMinutes(division) {
-  return maxFramesPerGame(division) * 15 * estimateGameCount(division);
+  return estimateFrameCount(division) * 15;
 }
 
 function formatMinutes(mins) {
@@ -215,7 +223,8 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
 // players immediately (skipping the normal per-round release from Manage
 // Fixtures entirely) or hidden as usual, since that choice has to be made
 // at generation time - see markAllRoundsVisible in server/src/index.js.
-// Number of Tables available / Estimated Game Time / Estimated No. of Games
+// Number of Tables available / Estimated Game Time / Estimated Frames /
+// Estimated No. of Games
 // - shared between the pre-fixtures GenerateFixturesButton view below and
 // the locked "fixtures already generated" roster views (SinglesRoster/
 // TeamRoster/PairingRoster further down), so the same at-a-glance figures
@@ -241,6 +250,9 @@ function GameTimeEstimate({ division }) {
       </p>
       <p style={{ margin: 0 }}>
         <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
+      </p>
+      <p style={{ margin: 0 }}>
+        <strong>Estimated Frames:</strong> {estimateFrameCount(division)}
       </p>
       <p style={{ margin: 0 }}>
         <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
