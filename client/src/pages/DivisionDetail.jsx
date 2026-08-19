@@ -73,13 +73,28 @@ function maxFramesPerGame(division) {
   return n > 0 ? (n * 2) - 1 : 0;
 }
 
-// Estimated total playing time in minutes: MaxFramesPerGame x 15 x
-// (number of games). Tables available is deliberately left out of this
-// formula for now (see the "Number of Tables available" input in
-// GenerateFixturesButton below, which is currently just a standalone
-// reference field).
-function estimateGameTimeMinutes(division) {
-  return maxFramesPerGame(division) * 15 * estimateGameCount(division);
+// Minutes assumed per frame, and the break taken between consecutive
+// games on the same table (not after the division's very last game).
+const MINUTES_PER_FRAME = 15;
+const BREAK_MINUTES_BETWEEN_GAMES = 8;
+
+// Estimated total playing time in minutes, accounting for how many
+// tables are available. Games are assumed to be spread as evenly as
+// possible across tables - this ignores bracket dependencies (e.g. that
+// a round 2 game can't start until its round 1 feeders finish), the same
+// simplification estimateGameCount above already makes - so the
+// division's overall time is however long its busiest table takes:
+// ceil(totalGames / tablesAvailable) games on that table, each worst-case
+// MaxFramesPerGame x MINUTES_PER_FRAME long, with an
+// BREAK_MINUTES_BETWEEN_GAMES break between each of that table's games
+// (but not after its last one - nothing left to wait for).
+function estimateGameTimeMinutes(division, tablesAvailable) {
+  const totalGames = estimateGameCount(division);
+  if (totalGames === 0) return 0;
+  const tables = Math.max(1, Number(tablesAvailable) || 1);
+  const gamesOnBusiestTable = Math.ceil(totalGames / tables);
+  const frameTime = maxFramesPerGame(division) * MINUTES_PER_FRAME;
+  return (gamesOnBusiestTable * frameTime) + ((gamesOnBusiestTable - 1) * BREAK_MINUTES_BETWEEN_GAMES);
 }
 
 function formatMinutes(mins) {
@@ -217,9 +232,9 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
 // the locked "fixtures already generated" roster views (SinglesRoster/
 // TeamRoster/PairingRoster further down), so the same at-a-glance figures
 // stay visible once a division is actually running, not just while it's
-// being set up. tablesAvailable is local, in-memory only (see
-// estimateGameTimeMinutes above) - each place this renders gets its own
-// independent value, resetting to 1 on reload.
+// being set up. tablesAvailable is local, in-memory only and feeds
+// straight into estimateGameTimeMinutes above - each place this renders
+// gets its own independent value, resetting to 1 on reload.
 function GameTimeEstimate({ division }) {
   const [tablesAvailable, setTablesAvailable] = useState(1);
   return (
@@ -237,7 +252,7 @@ function GameTimeEstimate({ division }) {
         </label>
       </p>
       <p style={{ margin: 0 }}>
-        <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division))}
+        <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division, tablesAvailable))}
       </p>
       <p style={{ margin: 0 }}>
         <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
