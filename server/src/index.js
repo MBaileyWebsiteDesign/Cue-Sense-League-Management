@@ -203,9 +203,22 @@ app.get('/api/users/me/leagues', requireAuth, asyncRoute((req, res) => {
     (d.teamIds || []).some((id) => myTeamIds.includes(id)) ||
     (d.pairingIds || []).some((id) => myPairingIds.includes(id))
   );
+  // divisionId/leagueId/status added alongside the original leagueName/
+  // divisionName pair (kept for ProfileForm.jsx's existing inline summary)
+  // so the player portal's own "My Leagues & Divisions" section (NQT: list
+  // divisions/leagues they're in or have been in) can link straight into
+  // each one and show whether it's still running. Membership here is never
+  // cleared when a division completes, so this already covers past
+  // divisions, not just current ones.
   const result = divisions.map((d) => {
     const league = db.leagues.find((l) => l.id === d.leagueId);
-    return { leagueName: league?.name || 'Unknown league', divisionName: d.name };
+    return {
+      leagueId: d.leagueId,
+      leagueName: league?.name || 'Unknown league',
+      divisionId: d.id,
+      divisionName: d.name,
+      status: d.status || 'active',
+    };
   });
   res.json(result);
 }));
@@ -829,6 +842,11 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
     status: 'active',
     completedAt: null,
     completedBy: null,
+    // NQT: "Is Open" - lets any registered player request to join this
+    // division without an admin/League Manager adding them directly. See
+    // POST /api/divisions/:id/join-requests and the /api/join-requests/:id
+    // approve/reject routes further down.
+    isOpen: !!req.body.isOpen,
   };
   db.divisions.push(division);
   writeDb(db);
@@ -1586,6 +1604,155 @@ app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
   division.playerIds = division.playerIds.filter((id) => id !== req.params.playerId);
   writeDb(db);
   res.json(hydrateDivision(db, division));
+}));
+
+// ---------- Open divisions: browse + join requests (NQT) ----------
+// "Is Open" divisions (see POST /api/leagues/:leagueId/divisions above) are
+// discoverable by any logged-in player and can be requested rather than
+// added directly by an admin/League Manager. A request just queues up -
+// approving it is the same effect as an admin adding the player directly
+// (division.playerIds.push), rejecting it just closes the request out with
+// no side effects. Singles-only for now, same scope as Quick Add (walk-in)
+// and the late-entrant flow.
+
+// Every open, still-active singles division across every league, for a
+// player to browse and request. Doesn't need requireAnyAdmin - any
+// logged-in account can see what's open, the gate is on requesting/
+// approving, not browsing.
+app.get('/api/open-divisions', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const myPlayerId = req.auth.user.playerId;
+  const result = db.divisions
+    .filter((d) => d.isOpen && d.status !== 'completed' && d.entryType === 'singles')
+    .map((d) => {
+      const league = db.leagues.find((l) => l.id === d.leagueId);
+      const alreadyIn = myPlayerId ? d.playerIds.includes(myPlayerId) : false;
+      const pendingRequest = myPlayerId
+        ? db.joinRequests.find((r) => r.divisionId === d.id && r.playerId === myPlayerId && r.status === 'pending')
+        : null;
+      return {
+        divisionId: d.id,
+        divisionName: d.name,
+        leagueId: d.leagueId,
+        leagueName: league?.name || 'Unknown league',
+        playerCount: d.playerIds.length,
+        fixturesGenerated: d.fixturesGenerated,
+        alreadyIn,
+        requestStatus: alreadyIn ? 'member' : pendingRequest ? 'pending' : null,
+      };
+    });
+  res.json(result);
+}));
+
+// A logged-in player requests to join one open division. One pending
+// request per (player, division) at a time - re-requesting after a
+// rejection is allowed (a League Manager may reconsider), but not while
+// one is already pending.
+app.post('/api/divisions/:id/join-requests', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (!division.isOpen) throw new ApiError(400, 'This division is not open for join requests');
+  if (division.entryType !== 'singles') throw new ApiError(400, 'Only singles divisions accept join requests right now');
+  const playerId = req.auth.user.playerId;
+  if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
+  if (division.playerIds.includes(playerId)) throw new ApiError(400, "You're already in this division");
+  const existing = db.joinRequests.find((r) => r.divisionId === division.id && r.playerId === playerId && r.status === 'pending');
+  if (existing) throw new ApiError(400, 'You already have a pending request for this division');
+
+  const request = {
+    id: uuid(),
+    divisionId: division.id,
+    playerId,
+    userId: req.auth.user.id,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    decidedAt: null,
+    decidedBy: null,
+  };
+  db.joinRequests.push(request);
+  writeDb(db);
+  res.status(201).json(request);
+}));
+
+// Pending join requests across every division in one league, for that
+// league's "Admin: Manage this League" -> Join Requests subsection -
+// League Manager (scoped to their assigned league) or Overall Admin, same
+// access pattern as everything else on that panel.
+app.get('/api/leagues/:id/join-requests', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+  const divisionIds = new Set(db.divisions.filter((d) => d.leagueId === league.id).map((d) => d.id));
+  const result = db.joinRequests
+    .filter((r) => r.status === 'pending' && divisionIds.has(r.divisionId))
+    .map((r) => {
+      const division = db.divisions.find((d) => d.id === r.divisionId);
+      const player = db.players.find((p) => p.id === r.playerId);
+      return {
+        id: r.id,
+        divisionId: r.divisionId,
+        divisionName: division?.name || 'Unknown division',
+        playerId: r.playerId,
+        playerName: player?.name || 'Unknown player',
+        createdAt: r.createdAt,
+      };
+    });
+  res.json(result);
+}));
+
+app.post('/api/join-requests/:id/approve', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const request = db.joinRequests.find((r) => r.id === req.params.id);
+  if (!request) throw new ApiError(404, 'Join request not found');
+  if (request.status !== 'pending') throw new ApiError(400, 'This request has already been decided');
+  const division = db.divisions.find((d) => d.id === request.divisionId);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+  }
+  assertPaymentCleared(db, division, request.playerId);
+  if (!division.playerIds.includes(request.playerId)) {
+    division.playerIds.push(request.playerId);
+  }
+  request.status = 'approved';
+  request.decidedAt = new Date().toISOString();
+  request.decidedBy = req.adminSession.label;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'join_request.approve',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Approved join request from player ${request.playerId} for division "${division.name}"`,
+  });
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+app.post('/api/join-requests/:id/reject', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const request = db.joinRequests.find((r) => r.id === req.params.id);
+  if (!request) throw new ApiError(404, 'Join request not found');
+  if (request.status !== 'pending') throw new ApiError(400, 'This request has already been decided');
+  const division = db.divisions.find((d) => d.id === request.divisionId);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+  request.status = 'rejected';
+  request.decidedAt = new Date().toISOString();
+  request.decidedBy = req.adminSession.label;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'join_request.reject',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Rejected join request from player ${request.playerId} for division "${division.name}"`,
+  });
+  writeDb(db);
+  res.json({ rejected: true, requestId: request.id });
 }));
 
 // ---- Teams (team divisions only) ----
@@ -5717,9 +5884,17 @@ app.post('/api/admin/users/import', requireAdmin, asyncRoute((req, res) => {
         return;
       }
 
-      const tempPassword = generateTempPassword();
+      // NQT quick-add box (single-row imports from AdminUsers.jsx) passes an
+      // explicit password instead of relying on a generated temp one - bulk
+      // CSV/Excel imports never set this, so they keep the original
+      // generate-and-show-once behaviour untouched.
+      const explicitPassword = typeof row.password === 'string' ? row.password : '';
+      if (explicitPassword && explicitPassword.length < 8) {
+        throw new Error('password must be at least 8 characters');
+      }
+      const tempPassword = explicitPassword ? null : generateTempPassword();
       const user = createUserAccount(db, {
-        firstName, lastName, email, passwordHash: hashPassword(tempPassword),
+        firstName, lastName, email, passwordHash: hashPassword(explicitPassword || tempPassword),
         phone: (row.phone || '').trim(), teamName, classification,
         isAdmin: isAdminFlag, isCaptain, isLeagueManager: isLeagueManagerFlag,
       });
