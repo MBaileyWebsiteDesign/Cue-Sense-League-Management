@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import BracketChart from '../components/BracketChart.jsx';
 import DoubleElimBracketChart from '../components/DoubleElimBracketChart.jsx';
+import AdaptiveBracketChart from '../components/AdaptiveBracketChart.jsx';
 import './publicPages.css';
 
 // Standalone, unauthenticated "Bracket" board for one knockout division -
@@ -80,6 +81,10 @@ export default function PublicDivisionBracket() {
 
       {data.matches.length === 0 ? (
         <p className="public-empty-state">No bracket to show yet.</p>
+      ) : data.scheduling === 'knockout_double_elim_adek' ? (
+        // ADEK has no fixture-to-fixture wiring to draw - see
+        // AdaptiveBracketChart's header comment.
+        <AdaptiveBracketChart matches={data.matches} />
       ) : data.scheduling === 'knockout_double_elim' || data.scheduling === 'knockout_double_elim_ally' || data.scheduling === 'knockout_double_elim_test' || data.scheduling === 'knockout_double_elim_pcdek' ? (
         <DoubleElimBracketChart matches={data.matches} />
       ) : (
