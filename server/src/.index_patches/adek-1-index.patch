@@ -2,7 +2,8 @@ diff --git a/server/src/index.js b/server/src/index.js
 index f4cda19..16f483b 100644
 --- a/server/src/index.js
 +++ b/server/src/index.js
-@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
+@@ -7,8 +7,9 @@ import path from 'path';
+ import { fileURLToPath } from 'url';
  import { readDb, writeDb, resetDb, restoreDb } from './db.js';
  import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
  import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
@@ -10,7 +11,9 @@ index f4cda19..16f483b 100644
  import { computeStandings } from './services/standings.js';
  import { computeTeamStandings } from './services/teamStandings.js';
  import { computeTourStandings } from './services/tours.js';
-@@ -83,14 +84,36 @@ const asyncRoute = (fn) => (req, res, next) => {
+ import { buildPlayerProfile } from './services/playerProfile.js';
+@@ -82,16 +83,38 @@ const asyncRoute = (fn) => (req, res, next) => {
+     next(err);
    }
  };
  
@@ -49,7 +52,9 @@ index f4cda19..16f483b 100644
  
  // ---------- Accounts & auth ----------
  // One account model, one login. `db.users` holds everyone; `isAdmin` and
-@@ -865,6 +888,14 @@ function isRoundVisible(division, round) {
+ // `isCaptain` are just boolean flags on an account rather than a separate
+@@ -864,8 +887,16 @@ function isRoundVisible(division, round) {
+   return !!division && Array.isArray(division.visibleRounds) && division.visibleRounds.includes(round);
  }
  
  function hydrateDivision(db, division) {
@@ -64,7 +69,9 @@ index f4cda19..16f483b 100644
    // Filtered once here, then reused below - computeStandings/
    // computeTeamStandings used to each be handed the *whole* db.fixtures
    // array and re-filter it by divisionId themselves, meaning every call to
-@@ -2680,6 +2711,9 @@ function propagateLoser(db, division, fixture, loserId) {
+   // hydrateDivision (every division page load, every roster/fixture change)
+@@ -2679,8 +2710,11 @@ function propagateLoser(db, division, fixture, loserId) {
+ // (home) wins outright, the tournament is over. Safe to call after any
  // completion of a grand_final fixture - it's a no-op once a reset has
  // already been created, or if the home side won.
  function checkGrandFinalReset(db, division, fixture) {
@@ -74,7 +81,9 @@ index f4cda19..16f483b 100644
    if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
    const isTeams = division.entryType === 'teams';
    const winnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
-@@ -3263,6 +3297,180 @@ function generateTestingDoubleElimFixtures({ db, league, division, entrantIds })
+   const awayId = isTeams ? fixture.awayTeamId : fixture.awayPlayerId;
+@@ -3262,8 +3296,182 @@ function generateTestingDoubleElimFixtures({ db, league, division, entrantIds })
+   allFixtures.forEach((f) => db.fixtures.push(f));
    wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
  }
  
@@ -255,7 +264,9 @@ index f4cda19..16f483b 100644
  // ---- "Pre Configured Double Elimination Knockout" fixture generation ----
  // (division.scheduling === 'knockout_double_elim_pcdek')
  //
-@@ -4049,6 +4257,14 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
+ // IMPORTANT - read before touching this function or its rematch policy:
+@@ -4048,8 +4256,16 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
+         `Pre Configured Double Elimination Knockout needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
        );
      }
      generatePCDEKFixtures({ db, league, division, entrantIds });
@@ -270,7 +281,9 @@ index f4cda19..16f483b 100644
    } else {
      generateRoundRobinFixtures({ db, league, division, entrantIds });
    }
-@@ -5193,6 +5409,11 @@ function buildPublicDoubleElimMatch(db, division, league, fixture) {
+ 
+@@ -5192,8 +5408,13 @@ function buildPublicDoubleElimMatch(db, division, league, fixture) {
+     bracketRole: fixture.bracketRole,
      nextFixtureId: fixture.nextFixtureId || null,
      loserNextFixtureId: fixture.loserNextFixtureId || null,
      resetFixtureId: fixture.resetFixtureId || null,
@@ -281,3 +294,5 @@ index f4cda19..16f483b 100644
 +    byeSlot: fixture.byeSlot || null,
    };
  }
+ 
+ app.get('/api/public/divisions/:id/bracket', asyncRoute((req, res) => {
