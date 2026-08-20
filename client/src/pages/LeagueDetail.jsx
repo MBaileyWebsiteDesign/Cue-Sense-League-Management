@@ -250,11 +250,44 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   const [selectedUserId, setSelectedUserId] = useState('');
   const [managerBusy, setManagerBusy] = useState(false);
 
+  // NQT: pending join requests for this league's open divisions - fetched
+  // the same lazy-on-open way as the League Managers candidate list above.
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [joinRequestBusy, setJoinRequestBusy] = useState(null);
+
   useEffect(() => {
     if (!open || !isAdmin) return;
     api.adminListUsers().then(setCandidates).catch((e) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isAdmin]);
+
+  const loadJoinRequests = () => {
+    api.getLeagueJoinRequests(league.id).then(setJoinRequests).catch((e) => setError(e.message));
+  };
+
+  useEffect(() => {
+    if (!open || !canManage) return;
+    loadJoinRequests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, canManage, league.id]);
+
+  const onDecideJoinRequest = async (requestId, decision) => {
+    setJoinRequestBusy(requestId);
+    setError('');
+    try {
+      if (decision === 'approve') {
+        await api.approveJoinRequest(requestId);
+      } else {
+        await api.rejectJoinRequest(requestId);
+      }
+      loadJoinRequests();
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setJoinRequestBusy(null);
+    }
+  };
 
   const managers = candidates.filter((u) => (league.managerUserIds || []).includes(u.id));
   const eligible = candidates.filter((u) => u.isLeagueManager && !(league.managerUserIds || []).includes(u.id));
@@ -382,6 +415,47 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
           )}
 
           {canManage && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.25rem' }}>Join Requests</h3>
+              <p className="muted">
+                Any registered player can request to join a division marked "Is Open" (set when the
+                division is created) without you adding them directly. Approve to add them to that
+                division's roster the same as if you'd added them yourself, or decline to close the
+                request out with no changes.
+              </p>
+              {joinRequests.length === 0 ? (
+                <p className="muted">No pending join requests for this league right now.</p>
+              ) : (
+                <ul className="fixture-list">
+                  {joinRequests.map((r) => (
+                    <li key={r.id}>
+                      <span>{r.playerName} <span className="muted">→ {r.divisionName}</span></span>
+                      <span style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          className="btn btn-primary"
+                          type="button"
+                          disabled={joinRequestBusy === r.id}
+                          onClick={() => onDecideJoinRequest(r.id, 'approve')}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={joinRequestBusy === r.id}
+                          onClick={() => onDecideJoinRequest(r.id, 'reject')}
+                        >
+                          Decline
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {canManage && (
             <div>
               <h3 style={{ marginBottom: '0.25rem' }}>Delete League</h3>
               <p className="muted">
@@ -428,6 +502,14 @@ export default function LeagueDetail() {
   // the same underlying number; only the resulting raceTo is ever sent.
   const [formatMode, setFormatMode] = useState('raceTo');
   const [formatValue, setFormatValue] = useState(6);
+  // NQT: "when creating a League or Division an 'Is Open' tick box is used
+  // ... any registered player can request to join the open league/
+  // division, with league managers then making a decision." Implemented at
+  // division level, since that's the unit players actually join (a league
+  // itself has no roster of its own) - see OpenDivisions.jsx for the
+  // browse/request side and ManageLeaguePanel's "Join Requests" subsection
+  // for the approval side.
+  const [isOpen, setIsOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
   useSetBreadcrumbs(
@@ -468,6 +550,7 @@ export default function LeagueDetail() {
         entryType,
         scheduling,
         raceTo,
+        isOpen,
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
       });
@@ -478,6 +561,7 @@ export default function LeagueDetail() {
       setScheduling('round_robin_single');
       setFormatMode('raceTo');
       setFormatValue(6);
+      setIsOpen(false);
       setShowForm(false);
       load();
     } catch (err) {
@@ -588,6 +672,10 @@ export default function LeagueDetail() {
               <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
               <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
             </select>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={isOpen} onChange={(e) => setIsOpen(e.target.checked)} />
+            Is Open — let any registered player request to join this division (you'll approve or decline each request)
           </label>
           <button className="btn btn-primary" type="submit">
             Add Division

@@ -20,12 +20,14 @@
 .register-popup h1 {
   font-size: 1.4rem;
   margin: 0 0 4px;
+  text-align: center;
 }
 
 .register-subtitle {
   color: var(--muted);
   font-size: 0.82rem;
   margin: 0 0 12px;
+  text-align: center;
 }
 
 .register-form {

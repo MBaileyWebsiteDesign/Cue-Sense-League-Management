@@ -62,10 +62,9 @@ export default function RegisterWix() {
 
   return (
     <div className="register-popup">
-      <h1>Create Your Account</h1>
+      <h1>Registration is open for 2026/2027 Top Spin Singles league</h1>
       <p className="register-subtitle">
-        Register to browse leagues, divisions, fixtures and player profiles.{' '}
-        Already have an account? <Link to="/login">Sign in</Link>.
+        Enter your details below and keep an eye on the website and social media for updates.
       </p>
       <form className="register-form" onSubmit={onSubmit}>
         <div className="register-row">

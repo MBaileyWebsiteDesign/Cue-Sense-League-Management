@@ -207,6 +207,21 @@ h2 { margin-top: 0; }
   transform: translateY(-1px);
 }
 
+.plain-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.plain-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.plain-list li:last-child {
+  border-bottom: none;
+}
+
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -239,6 +254,53 @@ h2 { margin-top: 0; }
 }
 
 .inline-form input { margin: 0; width: auto; flex: 1; }
+
+/* NQT quick-add box on Manage Users - horizontal row of the 4 required
+   fields plus a compact flag group, wrapping onto its own lines below
+   ~700px rather than the page scrolling sideways. */
+.quick-add-user-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.quick-add-user-box input[type="text"],
+.quick-add-user-box input[type="email"],
+.quick-add-user-box input[type="password"],
+.quick-add-user-box input:not([type="checkbox"]) {
+  flex: 1 1 160px;
+  min-width: 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.quick-add-flags {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quick-add-flags label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.quick-add-flags input[type="checkbox"] {
+  width: auto;
+}
+
+.quick-add-message {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+}
 
 .form input:focus, .inline-form input:focus {
   outline: 2px solid var(--secondary);
@@ -529,10 +591,18 @@ h2 { margin-top: 0; }
   justify-content: center;
   padding: 24px 4px;
 }
-.bracket-box { fill: #fff; stroke: var(--border); stroke-width: 1; }
+/* Lines here were the light --border grey used for ordinary card borders
+   elsewhere in the app - fine on a card edge, but too faint to read at a
+   glance across a whole bracket (NQT: "make the lines on the visual
+   layout black - the current grey lines are not visable"). Bumped to
+   --ink (near-black) for the box outline, divider and connector lines
+   specifically; final/reserved/hover keep their own distinct colours
+   below since those are overridden by the more specific selectors that
+   follow. */
+.bracket-box { fill: #fff; stroke: var(--ink); stroke-width: 1; }
 .bracket-box-final { stroke: var(--primary); stroke-width: 2; }
 .bracket-box-reserved { stroke: var(--muted); stroke-dasharray: 4 3; }
-.bracket-box-divider { stroke: var(--border); stroke-width: 1; }
+.bracket-box-divider { stroke: var(--ink); stroke-width: 1; }
 .bracket-round-label {
   font-size: 10px;
   fill: var(--muted);
@@ -543,7 +613,7 @@ h2 { margin-top: 0; }
 .bracket-entrant-name.bracket-entrant-tbd { fill: var(--muted); font-style: italic; }
 .bracket-entrant-winner { font-weight: 700; }
 .bracket-entrant-score { font-size: 13px; fill: var(--ink); font-weight: 600; }
-.bracket-connector { stroke: var(--border); stroke-width: 1.5; }
+.bracket-connector { stroke: var(--ink); stroke-width: 1.5; }
 .bracket-closed-early { font-size: 9px; fill: var(--muted); }
 .bracket-box-link { cursor: pointer; }
 .bracket-box-link:hover .bracket-box { stroke: var(--secondary); }

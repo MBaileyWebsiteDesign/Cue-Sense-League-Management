@@ -55,6 +55,11 @@ const EMPTY_STATE = {
   // retired fixture at the moment it was replaced, kept for audit/rollback
   // rather than deleted outright. Never read by normal app routes.
   archivedFixtures: [],
+  // NQT: player-initiated requests to join an "Is Open" division - see
+  // POST /api/divisions/:id/join-requests and the approve/reject routes in
+  // index.js. { id, divisionId, playerId, userId, status: 'pending' |
+  // 'approved' | 'rejected', createdAt, decidedAt, decidedBy }.
+  joinRequests: [],
 };
 
 function ensureDataFile() {
@@ -95,6 +100,7 @@ export function readDb() {
   if (!state.apiKeys) state.apiKeys = [];
   if (!state.leaguePayments) state.leaguePayments = [];
   if (!state.archivedFixtures) state.archivedFixtures = [];
+  if (!state.joinRequests) state.joinRequests = [];
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
   // that route and the Arena display (GET /api/overlay/leagues/:id/arena).
@@ -141,6 +147,10 @@ export function readDb() {
     if (division.status === undefined) division.status = 'active';
     if (division.completedAt === undefined) division.completedAt = null;
     if (division.completedBy === undefined) division.completedBy = null;
+    // "Is Open" (NQT) - every division created before this feature existed
+    // defaults to closed, same as a freshly-created one with the tick box
+    // left off.
+    if (division.isOpen === undefined) division.isOpen = false;
     // Match length (raceTo) used to live on the league, shared by every
     // division under it. Now each division carries its own, so a division
     // created before this migration falls back to whatever race-to its own
