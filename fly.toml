@@ -1,11 +1,19 @@
-# fly.toml app configuration file for the LIVE (production) app.
+# fly.toml app configuration file generated for cue-sense-league-management on 2026-08-20T11:14:54Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = 'cuesense-pool-manager'
+app = 'cue-sense-league-management'
 primary_region = 'lhr'
 
 [build]
+
+[env]
+  DATA_DIR = '/data'
+
+[[mounts]]
+  source = 'pool_league_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 4000
@@ -15,20 +23,13 @@ primary_region = 'lhr'
   min_machines_running = 1
   processes = ['app']
 
-[[mounts]]
-  source = "pool_league_data"
-  destination = "/data"
-
-[env]
-  DATA_DIR = "/data"
+[[restart]]
+  policy = 'always'
+  retries = 10
+  processes = ['app']
 
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
-
-[[restart]]
-  policy = 'always'
-  processes = ['app']
-  retries = 10
