@@ -1,9 +1,8 @@
-# fly.toml app configuration file generated for cue-sense-league-management-dev on 2026-08-20T15:51:15Z
+# fly.toml app configuration file for the LIVE (production) app.
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
 
-app = 'cue-sense-league-management-dev'
+app = 'cuesense-pool-manager'
 primary_region = 'lhr'
 
 [build]
