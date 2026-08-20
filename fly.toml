@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for cue-sense-league-management-ydjybw on 2026-08-20T15:44:36Z
+# fly.toml app configuration file generated for cue-sense-league-management-dev on 2026-08-20T15:51:15Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'cue-sense-league-management-ydjybw'
+app = 'cue-sense-league-management-dev'
 primary_region = 'lhr'
 
 [build]
