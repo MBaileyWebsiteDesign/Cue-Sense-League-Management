@@ -1,0 +1,283 @@
+diff --git a/server/src/index.js b/server/src/index.js
+index f4cda19..16f483b 100644
+--- a/server/src/index.js
++++ b/server/src/index.js
+@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
+ import { readDb, writeDb, resetDb, restoreDb } from './db.js';
+ import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
+ import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
++import { nextRound as adaptiveNextRound } from './services/adaptiveDoubleElim.js';
+ import { computeStandings } from './services/standings.js';
+ import { computeTeamStandings } from './services/teamStandings.js';
+ import { computeTourStandings } from './services/tours.js';
+@@ -83,14 +84,36 @@ const asyncRoute = (fn) => (req, res, next) => {
+   }
+ };
+ 
+-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek'];
++const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek'];
+ // Divisions using any double-elimination format share almost all downstream
+ // logic (champion detection, knockout-only UI, public bracket view) - only
+ // fixture *generation* (generateDoubleElimFixtures /
+ // generateAllyDoubleElimFixtures / generateTestingDoubleElimFixtures /
+ // generatePCDEKFixtures, see each below) and late-entrant rebuild (which
+ // only 'knockout_double_elim' supports) differ.
+-const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek'];
++const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek'];
++
++// "Adaptive Double Elimination Knockout" (ADEK). The odd one out among the
++// double-elim formats: every other one builds its ENTIRE fixture graph at
++// generation time and then reactively swaps entrants between boxes to dodge
++// rematches. ADEK builds ONE ROUND AT A TIME - each round's pairings are
++// computed only once the previous round's results are in, by
++// services/adaptiveDoubleElim.js. That is what lets it GUARANTEE no rematch
++// before the Losers Final / Winners Final / Grand Final, which a fixed
++// routing graph provably cannot (see generatePCDEKFixtures' comment for that
++// proof - it is correct, and it is a proof about FIXED routing, which is
++// exactly the assumption this format drops).
++//
++// Consequences of being round-at-a-time, all deliberate:
++//   * no nextFixtureId / loserNextFixtureId anywhere, so the reactive
++//     placement engine (propagateWinner/propagateLoser/avoidRematchOn-
++//     Placement) never touches these fixtures - ADEK does its own pairing.
++//   * later rounds simply do not exist until they are earned. Rounds are
++//     appended by appendAdaptiveRoundsIfDue() below.
++//   * NO bracket reset - a single Grand Final decides the title (see the
++//     guard in checkGrandFinalReset).
++//   * late-entrant rebuild is not supported (nothing to rebuild).
++const ADEK = 'knockout_double_elim_adek';
+ 
+ // ---------- Accounts & auth ----------
+ // One account model, one login. `db.users` holds everyone; `isAdmin` and
+@@ -865,6 +888,14 @@ function isRoundVisible(division, round) {
+ }
+ 
+ function hydrateDivision(db, division) {
++  // ADEK invents its next round from the results of the last one, so that has
++  // to happen BEFORE the fixture list below is built - otherwise the very
++  // request that completed a round would return a division with nothing left
++  // to play. Loop-with-a-cap rather than once: a round can in principle
++  // resolve instantly, and an unbounded loop here would be a hang.
++  for (let guard = 0; guard < 4 && appendAdaptiveRoundsIfDue(db, division); guard += 1) {
++    writeDb(db);
++  }
+   // Filtered once here, then reused below - computeStandings/
+   // computeTeamStandings used to each be handed the *whole* db.fixtures
+   // array and re-filter it by divisionId themselves, meaning every call to
+@@ -2680,6 +2711,9 @@ function propagateLoser(db, division, fixture, loserId) {
+ // completion of a grand_final fixture - it's a no-op once a reset has
+ // already been created, or if the home side won.
+ function checkGrandFinalReset(db, division, fixture) {
++  // ADEK is specified as a SINGLE Grand Final with no reset: one match
++  // decides it, and the winners-bracket finalist gets no second life.
++  if (division.scheduling === ADEK) return;
+   if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
+   const isTeams = division.entryType === 'teams';
+   const winnerId = isTeams ? fixture.winnerTeamId : fixture.winnerPlayerId;
+@@ -3263,6 +3297,180 @@ function generateTestingDoubleElimFixtures({ db, league, division, entrantIds })
+   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
+ }
+ 
++// ---- "Adaptive Double Elimination Knockout" (ADEK) ----
++// (division.scheduling === ADEK)
++//
++// Round-at-a-time double elimination. Generation creates ROUND 1 ONLY; every
++// later round is computed by appendAdaptiveRoundsIfDue() once the round
++// before it has finished, from the results that actually happened. The
++// pairing logic itself lives in services/adaptiveDoubleElim.js and is pure -
++// no db, no randomness, no clock - so the next round is a deterministic
++// function of (entrant order, completed rounds). That is what makes it safe
++// to recompute from the fixture table on any request: the same history always
++// yields the same round, so a repeated call can never produce a different
++// draw.
++//
++// Fixture shape, and why it deliberately opts out of the placement engine:
++//   * bracketRole is 'winners' | 'losers' | 'grand_final', same as every
++//     other double-elim format, so champion detection, the public bracket
++//     endpoint and the overlay all work unchanged.
++//   * nextFixtureId / loserNextFixtureId / resetFixtureId are left null.
++//     propagateWinner returns immediately without one, so avoidRematchOn-
++//     Placement and avoidRepeatByeOnPlacement never run - correct, because
++//     ADEK has already chosen a rematch-free pairing itself and a reactive
++//     swap could only undo that.
++//   * a bye is stored as its own completed fixture with byeSlot set, so it is
++//     visible in the bracket and, more importantly, so the bye is part of the
++//     recorded history the next round is computed from.
++//   * `round` is a single sequence across both brackets (1, 2, 3...), because
++//     unlike a pre-built bracket only one bracket plays in any given round.
++
++function adaptiveEntrantIds(division) {
++  if (division.entryType === 'teams') return division.teamIds || [];
++  if (division.entryType === 'doubles') return division.pairingIds || [];
++  return division.playerIds || [];
++}
++
++// Rebuild the completed-round history the pairing engine needs, straight from
++// the fixture table. Returns complete:false the moment it hits a round that
++// is still being played, which is also the signal "do not append anything".
++function adaptiveHistory(division, fixtures) {
++  const isTeams = division.entryType === 'teams';
++  const HOME = isTeams ? 'homeTeamId' : 'homePlayerId';
++  const AWAY = isTeams ? 'awayTeamId' : 'awayPlayerId';
++  const WINNER = isTeams ? 'winnerTeamId' : 'winnerPlayerId';
++  const byRound = new Map();
++  for (const f of fixtures) {
++    if (!byRound.has(f.round)) byRound.set(f.round, []);
++    byRound.get(f.round).push(f);
++  }
++  const history = [];
++  for (const round of [...byRound.keys()].sort((a, b) => a - b)) {
++    const inRound = byRound.get(round);
++    if (inRound.some((f) => f.status !== 'completed' || f.closedEarly)) {
++      return { history, complete: false };
++    }
++    const matches = [];
++    const byes = [];
++    for (const f of inRound) {
++      if (f.byeSlot) {
++        const who = f[HOME] || f[AWAY];
++        if (!who) return { history, complete: false };
++        byes.push(who);
++      } else {
++        if (!f[HOME] || !f[AWAY] || !f[WINNER]) return { history, complete: false };
++        matches.push({ a: f[HOME], b: f[AWAY], winner: f[WINNER] });
++      }
++    }
++    const real = inRound.find((f) => !f.byeSlot) || inRound[0];
++    history.push({ bracket: real.bracketRole, matches, byes });
++  }
++  return { history, complete: true };
++}
++
++// Build and push the next round. Returns true if anything was added.
++function appendAdaptiveRound(db, league, division, fixtures) {
++  const { history, complete } = adaptiveHistory(division, fixtures);
++  if (!complete) return false;
++  let round;
++  try {
++    round = adaptiveNextRound(adaptiveEntrantIds(division), history);
++  } catch (err) {
++    // A pairing failure must never take a page down with it. The division
++    // simply stops advancing and an admin sees the outstanding round is
++    // missing, which is recoverable; a 500 on every poll is not.
++    console.error('ADEK: could not compute next round for division', division.id, err);
++    return false;
++  }
++  if (!round || !round.matches.length) return false;
++
++  const roundNo = fixtures.length ? Math.max(...fixtures.map((f) => f.round)) + 1 : 1;
++  const isTeams = division.entryType === 'teams';
++  const makeFixture = isTeams ? makeTeamFixture : makeSinglesFixture;
++  const created = [];
++
++  // The engine names its own rounds, and that name is the authoritative
++  // record of whether a match is one of the three where a rematch is
++  // permitted (Winners Final / Losers Final / Grand Final). Stamping it on
++  // the fixture means the rule is inspectable in the data rather than
++  // re-inferred - by the UI, by a report, or by anyone auditing a division.
++  for (const [a, b] of round.matches) {
++    const f = makeFixture({ league, division, round: roundNo });
++    f.bracketRole = round.bracket;
++    f.roundLabel = round.label;
++    f.roundKind = round.kind;
++    if (isTeams) { f.homeTeamId = a; f.awayTeamId = b; } else { f.homePlayerId = a; f.awayPlayerId = b; }
++    created.push(f);
++  }
++  for (const entrantId of round.byes) {
++    const f = makeFixture({ league, division, round: roundNo });
++    f.bracketRole = round.bracket;
++    f.roundLabel = round.label;
++    f.roundKind = round.kind;
++    f.byeSlot = 'away';
++    f.status = 'completed';
++    if (isTeams) { f.homeTeamId = entrantId; f.winnerTeamId = entrantId; } else { f.homePlayerId = entrantId; f.winnerPlayerId = entrantId; }
++    created.push(f);
++  }
++
++  // Dates: carry the previous round's date forward by the division's gap.
++  // assignScheduledDates only ever runs at generation time and needs a
++  // startDate that isn't persisted, so later rounds date themselves.
++  if (division.gapDays && roundNo > 1) {
++    const prev = fixtures
++      .filter((f) => f.round === roundNo - 1 && f.scheduledDate)
++      .map((f) => f.scheduledDate)
++      .sort();
++    if (prev.length) {
++      const d = new Date(`${prev[0]}T00:00:00`);
++      d.setDate(d.getDate() + Number(division.gapDays));
++      const iso = d.toISOString().slice(0, 10);
++      created.forEach((f) => { f.scheduledDate = iso; });
++    }
++  }
++
++  // Visibility: markAllRoundsVisible is a snapshot taken at generation time,
++  // so a round invented later would be invisible to every non-admin - players
++  // would never see their own match. Inherit the previous round's visibility,
++  // which is the closest thing to the admin's expressed intent.
++  if (roundNo === 1 || isRoundVisible(division, roundNo - 1)) {
++    if (!Array.isArray(division.visibleRounds)) division.visibleRounds = [];
++    if (!division.visibleRounds.includes(roundNo)) {
++      division.visibleRounds = [...division.visibleRounds, roundNo].sort((a, b) => a - b);
++    }
++  }
++
++  created.forEach((f) => db.fixtures.push(f));
++  return true;
++}
++
++// Called at the top of hydrateDivision, which already runs at the end of
++// every route that can complete a fixture (plus every plain GET) - the same
++// central hook recordChampionIfDivisionComplete uses, and for the same
++// reason: there is no single fixture-completion funnel to hook instead.
++// Every guard below is cheap and the common case (a round still in play)
++// bails on the first scan, so this is a no-op on virtually every request.
++function appendAdaptiveRoundsIfDue(db, division) {
++  if (!division || division.scheduling !== ADEK) return false;
++  if (!division.fixturesGenerated) return false;
++  if (division.status === 'completed') return false;
++  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
++  if (fixtures.length === 0) return false;
++  if (fixtures.some((f) => f.status !== 'completed')) return false;   // round still being played
++  if (fixtures.some((f) => f.closedEarly)) return false;              // division was force-closed
++  if (fixtures.some((f) => f.bracketRole === 'grand_final')) return false; // champion decided
++  const league = db.leagues.find((l) => l.id === division.leagueId);
++  if (!league) return false;
++  return appendAdaptiveRound(db, league, division, fixtures);
++}
++
++function generateAdaptiveDoubleElimFixtures({ db, league, division, entrantIds }) {
++  // Round 1 and nothing else - the rest of the event does not exist yet, and
++  // that is the entire point of the format.
++  appendAdaptiveRound(db, league, division, []);
++  void entrantIds;
++}
++
+ // ---- "Pre Configured Double Elimination Knockout" fixture generation ----
+ // (division.scheduling === 'knockout_double_elim_pcdek')
+ //
+@@ -4049,6 +4257,14 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
+       );
+     }
+     generatePCDEKFixtures({ db, league, division, entrantIds });
++  } else if (division.scheduling === ADEK) {
++    if (entrantIds.length < 2) {
++      throw new ApiError(
++        400,
++        `Adaptive Double Elimination Knockout needs at least 2 ${entrantLabel} - you have ${entrantIds.length}.`
++      );
++    }
++    generateAdaptiveDoubleElimFixtures({ db, league, division, entrantIds });
+   } else {
+     generateRoundRobinFixtures({ db, league, division, entrantIds });
+   }
+@@ -5193,6 +5409,11 @@ function buildPublicDoubleElimMatch(db, division, league, fixture) {
+     nextFixtureId: fixture.nextFixtureId || null,
+     loserNextFixtureId: fixture.loserNextFixtureId || null,
+     resetFixtureId: fixture.resetFixtureId || null,
++    // ADEK only - see appendAdaptiveRound. Null for every other format,
++    // which names its rounds from bracket position instead.
++    roundLabel: fixture.roundLabel || null,
++    roundKind: fixture.roundKind || null,
++    byeSlot: fixture.byeSlot || null,
+   };
+ }
