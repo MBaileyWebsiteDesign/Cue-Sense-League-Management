@@ -9,6 +9,9 @@ const SCHEDULING_LABEL = {
   knockout_single_elim: 'Knockout (single elim)',
   knockout_double_elim: 'Knockout (double elim)',
   knockout_double_elim_ally: 'Ally Knockout (double elim)',
+  knockout_double_elim_test: 'Testing Double Elimination',
+  knockout_double_elim_pcdek: 'Pre Configured Double Elim Knockout',
+  knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
 };
 
 // A pure history page - every row here was written automatically the moment

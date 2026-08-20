@@ -5,6 +5,7 @@ import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import BracketChart from '../components/BracketChart.jsx';
 import DoubleElimBracketChart from '../components/DoubleElimBracketChart.jsx';
+import AdaptiveBracketChart from '../components/AdaptiveBracketChart.jsx';
 
 function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_single_elim') return 'Generate Fixtures (single-elimination knockout)';
@@ -12,6 +13,7 @@ function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_double_elim_ally') return 'Generate Fixtures (Ally Knockout - double elimination)';
   if (division.scheduling === 'knockout_double_elim_test') return 'Generate Fixtures (Testing Double Elimination)';
   if (division.scheduling === 'knockout_double_elim_pcdek') return 'Generate Fixtures (Pre Configured Double Elimination Knockout)';
+  if (division.scheduling === 'knockout_double_elim_adek') return 'Generate Fixtures (Adaptive Double Elimination Knockout - round 1 only)';
   if (division.scheduling === 'round_robin_double') return 'Generate Fixtures (Round Robin - Double, home and away)';
   return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
@@ -52,6 +54,12 @@ function estimateGameCount(division) {
       // for every double-elimination format - all three alternates use the
       // identical minimum-games shape, see generateAllyDoubleElimFixtures/
       // generateTestingDoubleElimFixtures/generatePCDEKFixtures server-side.
+      return 2 * n - 2;
+    case 'knockout_double_elim_adek':
+      // ADEK is exactly 2n - 2, not "at least" - it has a single Grand Final
+      // and no bracket reset, so unlike the formats above the count is not
+      // one game short of the real total when the losers-bracket champion
+      // wins the title.
       return 2 * n - 2;
     case 'round_robin_single':
     default:
@@ -213,6 +221,7 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
           <option value="knockout_double_elim_ally">Ally Knockout (double elimination)</option>
           <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
           <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
+          <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
         </select>
       </label>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -330,7 +339,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   // holding one seeded entrant and one side deliberately left open for a
   // day-of late entrant. Only relevant once fixtures exist; a round robin
   // (or a knockout with none reserved) never has any.
-  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test' || division.scheduling === 'knockout_double_elim_pcdek';
+  const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test' || division.scheduling === 'knockout_double_elim_pcdek' || division.scheduling === 'knockout_double_elim_adek';
   const openReservedSlots = isKnockout ? (division.fixtures || []).filter((f) => f.reserved) : [];
   const canQuickAddLateEntrant = division.fixturesGenerated && openReservedSlots.length > 0;
   // Pre-tournament late entry (see POST /api/divisions/:id/late-entrants) -
@@ -1276,7 +1285,11 @@ export default function DivisionDetail() {
   // reordering entrants - don't get silently refreshed out from under
   // whoever's mid-edit.
   useEffect(() => {
-    if (division?.scheduling !== 'knockout_single_elim') return undefined;
+    // ADEK appends its next round server-side the moment the current one
+    // finishes, so without polling an admin would sit on a page that says
+    // there is nothing left to play.
+    if (division?.scheduling !== 'knockout_single_elim'
+      && division?.scheduling !== 'knockout_double_elim_adek') return undefined;
     const timer = setInterval(() => {
       if (mountedRef.current) load();
     }, KNOCKOUT_BRACKET_POLL_MS);
@@ -1313,7 +1326,13 @@ export default function DivisionDetail() {
   // instead of one interleaved round list. Everything else (round robin,
   // single-elimination) has bracketRole 'single' and renders exactly as
   // before - one flat list of rounds.
+  // Deliberately excludes ADEK: it is a double-elimination format, but it has
+  // no fixture-to-fixture wiring for DoubleElimBracketChart to follow, so it
+  // gets its own round-column chart below. (Server-side DOUBLE_ELIM_TYPES DOES
+  // include it - that list is about champion detection and the public bracket
+  // endpoint, not about which chart to draw.)
   const isDoubleElim = division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test' || division.scheduling === 'knockout_double_elim_pcdek';
+  const isAdaptiveKnockout = division.scheduling === 'knockout_double_elim_adek';
   const BRACKET_SECTION_LABEL = {
     winners: 'Winners Bracket',
     losers: 'Losers Bracket',
@@ -1514,6 +1533,26 @@ export default function DivisionDetail() {
         </section>
       )}
 
+      {isAdaptiveKnockout && division.fixturesGenerated && division.fixtures.length > 0 && (
+        <section className="card">
+          <h2>Bracket</h2>
+          <p className="muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
+            This format draws each round only once the round before it has been played, which is what lets it
+            guarantee nobody meets the same opponent twice before the Losers Final, Winners Final or Grand Final.
+            Later rounds appear here as they are earned.
+            {canManage && ' Click a name on a match that has not started yet to set that player as the winner directly - no score is recorded.'}
+          </p>
+          <AdaptiveBracketChart
+            matches={buildAdaptiveMatches(division.fixtures, isTeams, nameOf)}
+            fixtureHref={(id) => `/fixtures/${id}`}
+            onSelectWinner={canManage ? handleSelectWinner : undefined}
+          />
+          <p style={{ marginTop: 8 }}>
+            <Link to={`/public/divisions/${division.id}/bracket`}>View public Bracket &rarr;</Link>
+          </p>
+        </section>
+      )}
+
       {isDoubleElim && division.fixturesGenerated && division.fixtures.length > 0 && (
         <section className="card">
           <h2>Bracket</h2>
@@ -1647,6 +1686,23 @@ function buildBracketMatches(fixtures, isTeams, nameOf) {
 // structure from round numbers/array position the way BracketChart has to
 // (see that component's header comment for why - it also has to render the
 // public embed, which never gets these link fields; this chart never does).
+// ADEK carries no fixture-to-fixture links, but it does carry the pairing
+// engine's own name for each round (roundLabel/roundKind - see
+// appendAdaptiveRound server-side) and real bye fixtures, both of which the
+// round-column chart needs.
+function buildAdaptiveMatches(fixtures, isTeams, nameOf) {
+  return buildBracketMatches(fixtures, isTeams, nameOf).map((m, i) => {
+    const f = fixtures[i];
+    return {
+      ...m,
+      bracketRole: f.bracketRole,
+      roundLabel: f.roundLabel || null,
+      roundKind: f.roundKind || null,
+      byeSlot: f.byeSlot || null,
+    };
+  });
+}
+
 function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
   // Layers the extra link fields DoubleElimBracketChart needs on top of
   // buildBracketMatches above - to position and connect boxes by real
