@@ -10,7 +10,7 @@
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 
-app = 'cuesense-pool-manager-staging'
+app = 'cue-sense-league-management-dev'
 primary_region = 'lhr'
 
 [build]
