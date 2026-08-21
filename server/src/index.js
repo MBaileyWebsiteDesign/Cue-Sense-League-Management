@@ -5403,6 +5403,7 @@ function buildPublicBracketMatch(db, division, league, fixture) {
 }
 
 function buildPublicDoubleElimMatch(db, division, league, fixture) {
+  const isTeams = division.entryType === 'teams';
   return {
     ...buildPublicBracketMatch(db, division, league, fixture),
     bracketRole: fixture.bracketRole,
@@ -5414,6 +5415,13 @@ function buildPublicDoubleElimMatch(db, division, league, fixture) {
     roundLabel: fixture.roundLabel || null,
     roundKind: fixture.roundKind || null,
     byeSlot: fixture.byeSlot || null,
+    // ADEK's public chart (AdaptiveBracketChart.jsx) has no fixture-to-fixture
+    // links to draw from (see that file's header comment) - it reconstructs
+    // the bracket tree after the fact by tracing which match each entrant
+    // most recently appeared in, which needs their raw id, not just their
+    // display name. Every other double-elim format ignores these two fields.
+    homeId: (isTeams ? fixture.homeTeamId : fixture.homePlayerId) || null,
+    awayId: (isTeams ? fixture.awayTeamId : fixture.awayPlayerId) || null,
   };
 }
 

@@ -632,8 +632,8 @@ h2 { margin-top: 0; }
 
 /* ---- Adaptive Double Elimination Knockout bracket chart
    (AdaptiveBracketChart.jsx) ----
-   Same --ink (near-black, not grey - see the note above this block) as every
-   other bracket's connectors, so ADEK's round-to-round trunk/stub lines read
-   as the same visual language as the tree-wired formats even though the
-   shape they draw is different (see that file's header comment). */
-.bracket-connector-adaptive { stroke: var(--ink); stroke-width: 1.5; }
+   Now a real converging tree (Winners left, Losers right-mirrored, meeting
+   at a centred Grand Final), reconstructed after the fact from match
+   history rather than pre-wired fixture links - see that file's header
+   comment. It reuses .bracket-box/.bracket-connector/.bracket-connector-cross
+   above unchanged; no chart-specific CSS is needed any more. */
