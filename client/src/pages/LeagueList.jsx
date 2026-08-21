@@ -178,13 +178,6 @@ export default function LeagueList() {
           <Link key={league.id} to={`/leagues/${league.id}`} className="card card-link">
             <h2>{league.name}</h2>
             <p className="muted">{league.sport}</p>
-            <p>
-              {league.format.scheduling === 'round_robin_single'
-                ? 'Round Robin - Single (play once)'
-                : league.format.scheduling === 'round_robin_double'
-                  ? 'Round Robin - Double (home and away)'
-                  : league.format.scheduling}
-            </p>
           </Link>
         ))}
         {leagues.length === 0 && <p className="muted">No leagues yet. Create one to get started.</p>}
