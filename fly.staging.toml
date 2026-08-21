@@ -24,7 +24,7 @@ primary_region = 'lhr'
   processes = ['app']
 
 [[mounts]]
-  source = "pool_league_data_staging"
+  source = "pool_league_data"
   destination = "/data"
 
 [env]
