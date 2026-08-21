@@ -16,6 +16,23 @@
 // gave it. Rounds to the right of "now" simply do not exist yet and appear as
 // they are earned - the division page polls for them.
 //
+// Columns are NOT always "Winners Round N, Losers Round N" alternating pairs.
+// The engine only plays a Losers round once the Losers pool is big enough to
+// pair cleanly (see paceSaysLb/bestLbPlan in adaptiveDoubleElim.js) - that's
+// deliberate, not a bug, and is part of what makes the no-rematch guarantee
+// possible. So it's normal to see e.g. two Winners rounds back to back before
+// the first Losers round appears. Each column's own label (always exactly
+// "Winners Round N" / "Losers Round N" / "Winners Final" / "Losers Final" /
+// "Grand Final" - see Engine.mk() in adaptiveDoubleElim.js) is what tells the
+// viewer which bracket and round they're looking at, since position alone
+// doesn't.
+//
+// Connectors: since there's no fixed box-to-box wiring to draw (see above),
+// each column-to-column gap gets a single shared vertical "trunk" with a stub
+// from every box on either side into it, rather than individual per-box
+// lines - that reads as "this round feeds the next" without implying a
+// specific pairing that doesn't exist yet.
+//
 // Props:
 //   matches: [{ id, round, roundLabel, roundKind, bracketRole, byeSlot,
 //               home:{name,score}, away:{name,score}, status, winnerSide,
@@ -68,12 +85,21 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
   const height = TOP_MARGIN + maxRows * ROW_PITCH - ROW_GAP + BOTTOM_MARGIN;
 
   const boxes = [];
+  const connectors = [];
+  // Y-center of every box in every column, keyed by column index - built up
+  // in the same pass as the boxes below, then used by the connector pass
+  // that follows (it needs both this column's centers and the next one's).
+  const colCenters = [];
+
   columns.forEach((roundMatches, col) => {
     const x = col * (BOX_W + COL_GAP);
     const blockH = roundMatches.length * ROW_PITCH - ROW_GAP;
     const top = TOP_MARGIN + ((maxRows * ROW_PITCH - ROW_GAP) - blockH) / 2;
     const title = roundTitle(roundMatches, rounds[col]);
+    const centers = [];
     roundMatches.forEach((m, i) => {
+      const y = top + i * ROW_PITCH;
+      centers.push(y + BOX_H / 2);
       boxes.push(
         <MatchBox
           key={m.id}
@@ -83,7 +109,7 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
           label={i === 0 ? title : ''}
           href={fixtureHref?.(m.id)}
           x={x}
-          y={top + i * ROW_PITCH}
+          y={y}
           width={BOX_W}
           height={BOX_H}
           isFinal={m.bracketRole === 'grand_final'}
@@ -91,11 +117,44 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
         />
       );
     });
+    colCenters.push(centers);
   });
+
+  // One shared vertical trunk per column gap, with a stub from every box on
+  // either side into it - see the file header comment for why this shape
+  // (rather than per-box lines) is the honest way to connect rounds that
+  // don't have a fixed pairing yet.
+  for (let col = 0; col < columns.length - 1; col += 1) {
+    const leftEdge = col * (BOX_W + COL_GAP) + BOX_W;
+    const rightEdge = (col + 1) * (BOX_W + COL_GAP);
+    const trunkX = (leftEdge + rightEdge) / 2;
+    const leftCenters = colCenters[col];
+    const rightCenters = colCenters[col + 1];
+    const trunkTop = Math.min(...leftCenters, ...rightCenters);
+    const trunkBottom = Math.max(...leftCenters, ...rightCenters);
+
+    connectors.push(
+      <line key={`trunk-${col}`} className="bracket-connector-adaptive"
+        x1={trunkX} y1={trunkTop} x2={trunkX} y2={trunkBottom} />
+    );
+    leftCenters.forEach((y, i) => {
+      connectors.push(
+        <line key={`stub-l-${col}-${i}`} className="bracket-connector-adaptive"
+          x1={leftEdge} y1={y} x2={trunkX} y2={y} />
+      );
+    });
+    rightCenters.forEach((y, i) => {
+      connectors.push(
+        <line key={`stub-r-${col}-${i}`} className="bracket-connector-adaptive"
+          x1={trunkX} y1={y} x2={rightEdge} y2={y} />
+      );
+    });
+  }
 
   return (
     <div className="bracket-chart-scroll">
       <svg className="bracket-chart bracket-chart-adaptive" viewBox={`0 0 ${width} ${height}`} width={width} height={height}>
+        {connectors}
         {boxes}
       </svg>
     </div>
