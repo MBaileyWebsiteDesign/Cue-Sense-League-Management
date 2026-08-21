@@ -185,9 +185,14 @@ function HeaderNav() {
 function isStagingEnvironment() {
   if (typeof window === 'undefined') return false;
   const host = window.location.hostname;
-  if (host === 'dev.poolmanager.cuesense.co.uk') return true;
-  if (host.endsWith('.cuesense.co.uk') && host.includes('-dev')) return true;
-  if (host.endsWith('.fly.dev') && host.includes('staging')) return true;
+  if (host.endsWith('.cuesense.co.uk')) {
+    const label = host.slice(0, -'.cuesense.co.uk'.length);
+    if (label.includes('dev')) return true;
+  }
+  if (host.endsWith('.fly.dev')) {
+    const label = host.slice(0, -'.fly.dev'.length);
+    if (label.includes('dev') || label.includes('staging')) return true;
+  }
   return false;
 }
 
