@@ -73,6 +73,11 @@ const BOX_H = 56;
 const COL_GAP = 48;
 const ROW_GAP = 14;
 const ROW_PITCH = BOX_H + ROW_GAP;
+// A row carrying a drop-in caption (see dropInNote) needs a wider gap: the
+// caption sits 11px below its box and the next box's round label reaches 14px
+// above its own top, so ROW_GAP's 14px would have them overlap. Only rounds
+// that actually draw a caption pay for this.
+const NOTE_PITCH = BOX_H + 32;
 const TOP_MARGIN = 18;
 
 function colX(i) {
@@ -102,10 +107,10 @@ function roundTitle(roundMatches, roundNumber) {
 // column can end up with the same (or too-close) feeder-derived y, so this
 // nudges them apart after the fact rather than trying to prevent it up
 // front.
-function resolveRoundOverlaps(roundMatches, yById) {
+function resolveRoundOverlaps(roundMatches, yById, minPitch = ROW_PITCH) {
   const order = [...roundMatches].sort((a, b) => yById.get(a.id) - yById.get(b.id));
   for (let i = 1; i < order.length; i++) {
-    const minY = yById.get(order[i - 1].id) + ROW_PITCH;
+    const minY = yById.get(order[i - 1].id) + minPitch;
     if (yById.get(order[i].id) < minY) yById.set(order[i].id, minY);
   }
 }
@@ -164,6 +169,36 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
     ].filter(Boolean))];
   }
 
+  // A Losers-bracket entrant with no Losers-bracket feeder has just dropped in
+  // from the Winners bracket, and this chart deliberately doesn't draw that
+  // link (it would span the whole page - see the header comment). Without it
+  // the name appears from nowhere, so name the round they came from instead.
+  // That is the whole answer to "how did this player get here", which the line
+  // would otherwise have carried.
+  function dropInNote(m) {
+    if (m.bracketRole !== 'losers') return null;
+    const arrivals = [];
+    for (const side of ['home', 'away']) {
+      const id = side === 'home' ? m.homeId : m.awayId;
+      if (!id || feederFor(id, m.round, 'losers')) continue;
+      const from = feederFor(id, m.round, 'winners');
+      if (!from) continue;
+      arrivals.push({ name: m[side]?.name, from: from.roundLabel || 'the Winners bracket' });
+    }
+    if (!arrivals.length) return null;
+    // The opening Losers round is entirely fresh drop-ins from the same
+    // Winners round, so say it once rather than twice per box.
+    if (arrivals.length === 2 && arrivals[0].from === arrivals[1].from) {
+      return `both from ${arrivals[0].from}`;
+    }
+    return arrivals.map((a) => `${a.name} from ${a.from}`).join(' · ');
+  }
+
+  // A round only needs the wider pitch if it actually draws a caption.
+  const pitchFor = (roundMatches) => (
+    roundMatches.some((m) => dropInNote(m)) ? NOTE_PITCH : ROW_PITCH
+  );
+
   const xById = new Map();
   const yById = new Map();
   const feedersById = new Map();
@@ -181,7 +216,7 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
         : blockTop + (i + 0.5) * (blockHeight / roundMatches.length);
       yById.set(m.id, y);
     });
-    resolveRoundOverlaps(roundMatches, yById);
+    resolveRoundOverlaps(roundMatches, yById, pitchFor(roundMatches));
   }
 
   // ---- Winners Bracket: left-to-right, converging toward the Grand Final.
@@ -234,7 +269,7 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
         ? wbTop + wbSpan / 2
         : wbTop + i * (wbSpan / (roundMatches.length - 1)));
     });
-    resolveRoundOverlaps(roundMatches, yById);
+    resolveRoundOverlaps(roundMatches, yById, pitchFor(roundMatches));
   });
 
   // ---- Match the two blocks' heights, then centre them against each other.
@@ -307,6 +342,19 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
         isFinal={m.bracketRole === 'grand_final'}
         onSelectWinner={m.byeSlot ? undefined : onSelectWinner} />
     );
+    const note = dropInNote(m);
+    if (note) {
+      // Normally sits in the gap under the box. MatchBox already puts its
+      // "closed early" caption there, so on the rare box that is both, this
+      // goes above instead of stacking two captions into one gap.
+      const yNote = m.closedEarly
+        ? y - BOX_H / 2 - 16
+        : y + BOX_H / 2 + 11;
+      boxes.push(
+        <text key={`dropin-${m.id}`} className="bracket-dropin-note"
+          x={x + BOX_W / 2} y={yNote} textAnchor="middle">{note}</text>
+      );
+    }
   }
 
   function addConnectors(m) {
