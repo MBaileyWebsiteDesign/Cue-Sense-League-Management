@@ -14,30 +14,48 @@
 // reconstruct the tree AFTER THE FACT - for any entrant, "the match they
 // most recently appeared in" is unambiguous, so every box's true feeder(s)
 // can be found by walking history backwards from that box. That is what
-// findFeeders below does, and it is what turns this from a flat list of
-// round columns into an actual converging bracket tree, redrawn from
-// scratch on every render as new rounds are earned.
+// feederFor below does, and it is what turns this from a flat list of round
+// columns into an actual converging bracket tree, redrawn from scratch on
+// every render as new rounds are earned.
 //
 // Layout: Winners Bracket rounds run left-to-right, Losers Bracket rounds
-// are MIRRORED - right-to-left, oldest round at the outer right edge,
-// newest round nearest the centre - so both brackets converge on a single
-// Grand Final in the middle, the way a traditional two-sided bracket does.
-// Every connector (WB round -> WB round, LB round -> LB round, a fresh
-// Winners-bracket loser dropping into the Losers bracket, or either Final
-// -> Grand Final) is drawn the same solid black - unlike
-// DoubleElimBracketChart's dashed "drop" variant, there's no fixed-wiring
-// vs. drop-in distinction to signal here, since every link on this chart is
-// reconstructed from history the same way (see findFeeders below).
+// are MIRRORED - right-to-left, oldest round at the outer right edge, newest
+// round nearest the centre - so both brackets converge on a single Grand
+// Final in the middle, the way a traditional two-sided bracket does. The two
+// blocks are then centred vertically against each other so neither hangs off
+// the top edge.
 //
-// One honest limitation: unlike a fixed-size bracket (where both halves
-// have the same number of rounds by construction), ADEK's Winners and
-// Losers brackets essentially never have equal round counts - the Losers
-// bracket typically runs noticeably MORE rounds than the Winners bracket,
-// because it only plays once its pool is big enough to pair cleanly (see
-// paceSaysLb/bestLbPlan in adaptiveDoubleElim.js). So this chart converges
-// on a centred Grand Final, but it will rarely look as evenly symmetric as
-// a single-elimination bracket - that asymmetry is a real property of the
-// format, not a layout bug.
+// The one thing this layout deliberately does NOT draw is the drop-in link
+// from a Winners-bracket match to the Losers-bracket match its loser lands
+// in. In a mirrored chart those two boxes sit at opposite ends of the page -
+// a Winners Round 1 box is in the leftmost column, the Losers Round 1 box its
+// loser drops into is in the RIGHTMOST column - so every one of those links
+// would be a full-width line cutting straight across the middle of the chart.
+// With a dozen entrants that is ten-plus lines spanning eleven columns each,
+// which is what made an earlier version of this chart unreadable. So each
+// bracket is positioned and wired from its OWN history only (see the
+// roleFilter argument to feederFor), exactly like the two halves of the
+// traditional two-sided bracket this is modelled on, and the only links
+// crossing the centre are the two that belong there: Winners Final -> Grand
+// Final and Losers Final -> Grand Final. A losers-bracket box whose entrants
+// have both just dropped in from the winners bracket therefore starts a fresh
+// line, with no incoming connector - the same way a first-round box does.
+//
+// Every connector is drawn the same solid black. Unlike
+// DoubleElimBracketChart, which has genuinely different kinds of wiring to
+// signal (fixed advance vs. drop), every line here is the same
+// reconstructed-from-history kind of link, so drawing some of them
+// differently would suggest a distinction that isn't real.
+//
+// One honest limitation: unlike a fixed-size bracket (where both halves have
+// the same number of rounds by construction), ADEK's Winners and Losers
+// brackets essentially never have equal round counts - the Losers bracket
+// typically runs noticeably MORE rounds than the Winners bracket, because it
+// only plays once its pool is big enough to pair cleanly (see
+// paceSaysLb/bestLbPlan in adaptiveDoubleElim.js). So this chart converges on
+// a centred Grand Final, but the right-hand side will usually be longer than
+// the left - that asymmetry is a real property of the format, not a layout
+// bug.
 //
 // Props:
 //   matches: [{ id, round, roundLabel, roundKind, bracketRole, byeSlot,
@@ -113,82 +131,100 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
   }
 
   // For any entrant, the match they most recently appeared in before round
-  // `beforeRound` - WB or LB, real match or bye - is that box's feeder,
-  // regardless of which bracket it was in. That single rule reconstructs
-  // both same-bracket advancement AND a fresh Winners-bracket loser's
-  // first appearance in the Losers bracket, with no separate cross-bracket
-  // bookkeeping needed. Round numbers are assigned in strict play order by
-  // appendAdaptiveRound (server-side), so sorting by round and keeping the
-  // last match before `beforeRound` that an entrant appeared in finds it.
+  // `beforeRound` is that box's feeder. Round numbers are assigned in strict
+  // play order by appendAdaptiveRound (server-side) across BOTH brackets
+  // combined, so scanning in round order and keeping the last match the
+  // entrant appeared in finds it.
+  //
+  // `roleFilter` restricts that search to one bracket. Each bracket is laid
+  // out and wired from its own history only, so that the mirrored halves read
+  // as two converging trees instead of being stitched together by full-width
+  // drop-in lines (see the header comment). Passing null considers both
+  // brackets, which is what the Grand Final needs.
   const chronological = [...withByeNames].sort((a, b) => a.round - b.round);
-  function feederFor(entrantId, beforeRound) {
+  function feederFor(entrantId, beforeRound, roleFilter) {
     if (!entrantId) return null;
     let found = null;
     for (const m of chronological) {
       if (m.round >= beforeRound) break;
+      if (roleFilter && m.bracketRole !== roleFilter) continue;
       if (m.homeId === entrantId || m.awayId === entrantId) found = m;
     }
     return found;
+  }
+
+  // Both sides of a box can trace back to the same feeder (a Grand Final
+  // reached without a Losers Final ever being played, for instance), and one
+  // link should only be drawn once.
+  function feedersOf(m, roleFilter) {
+    return [...new Set([
+      feederFor(m.homeId, m.round, roleFilter),
+      feederFor(m.awayId, m.round, roleFilter),
+    ].filter(Boolean))];
   }
 
   const xById = new Map();
   const yById = new Map();
   const feedersById = new Map();
 
-  // ---- Winners Bracket: left-to-right, converging toward the Grand Final.
-  // Round 0 fills the block's height evenly; every later round centres
-  // each box on its real feeder(s) (see feederFor above).
-  const wbHeight = wbRounds[0].length * ROW_PITCH;
-  wbRounds.forEach((roundMatches, r) => {
-    roundMatches.forEach((m, i) => {
-      xById.set(m.id, colX(r));
-      const feeders = [feederFor(m.homeId, m.round), feederFor(m.awayId, m.round)].filter(Boolean);
-      feedersById.set(m.id, feeders);
-      const y = feeders.length
-        ? feeders.reduce((sum, f) => sum + yById.get(f.id), 0) / feeders.length
-        : TOP_MARGIN + (i + 0.5) * (wbHeight / roundMatches.length);
-      yById.set(m.id, y);
-    });
-    resolveRoundOverlaps(roundMatches, yById);
-  });
-
-  // ---- Grand Final column: always immediately after the Winners Bracket's
-  // last round, with no gap - that's what keeps this a true mirror. (An
-  // earlier version of this chart used max(wbRounds.length, lbRounds.length)
-  // here, which is wrong: since the Losers Bracket almost always runs MORE
-  // rounds than the Winners Bracket - see the header comment - that left a
-  // dead gap of empty columns between the Winners Bracket and the Grand
-  // Final every time. Anchoring on the Winners Bracket alone, and letting
-  // the mirrored Losers Bracket below extend outward from the Grand Final
-  // by however many rounds it actually has, is what makes both sides read
-  // as a real mirror regardless of which one has more rounds.)
-  const gfCol = wbRounds.length;
-
-  // ---- Losers Bracket: MIRRORED - round 0 (the oldest Losers round) sits
-  // at the outer right edge, and each later round moves one column closer
-  // to the centre, so the block reads right-to-left even though the rounds
-  // themselves are still numbered/played in the normal left-to-right time
-  // order. The last Losers round drawn is always immediately to the right
-  // of the Grand Final column.
-  const lbHeight = lbRounds.length ? lbRounds[0].length * ROW_PITCH : 0;
-  lbRounds.forEach((roundMatches, j) => {
-    const col = gfCol + (lbRounds.length - j);
+  // Places one round's boxes: each box centres on its own feeders, and a box
+  // with none (a first round, or a losers box made entirely of fresh drop-ins)
+  // falls back to an even share of the block's height.
+  function placeRound(roundMatches, col, roleFilter, blockHeight) {
     roundMatches.forEach((m, i) => {
       xById.set(m.id, colX(col));
-      const feeders = [feederFor(m.homeId, m.round), feederFor(m.awayId, m.round)].filter(Boolean);
+      const feeders = feedersOf(m, roleFilter);
       feedersById.set(m.id, feeders);
       const y = feeders.length
         ? feeders.reduce((sum, f) => sum + yById.get(f.id), 0) / feeders.length
-        : TOP_MARGIN + (i + 0.5) * (lbHeight / roundMatches.length);
+        : TOP_MARGIN + (i + 0.5) * (blockHeight / roundMatches.length);
       yById.set(m.id, y);
     });
     resolveRoundOverlaps(roundMatches, yById);
+  }
+
+  // ---- Winners Bracket: left-to-right, converging toward the Grand Final.
+  const wbHeight = wbRounds[0].length * ROW_PITCH;
+  wbRounds.forEach((roundMatches, r) => placeRound(roundMatches, r, 'winners', wbHeight));
+
+  // ---- Grand Final column: always immediately after the Winners Bracket's
+  // last round, with no gap. Anchoring on the Winners Bracket alone (rather
+  // than on max(wbRounds, lbRounds), which an earlier version used) is what
+  // keeps the centre where it belongs: because the Losers Bracket almost
+  // always runs MORE rounds, taking the max left a dead gap of empty columns
+  // between the Winners Bracket and the Grand Final. The mirrored Losers
+  // Bracket below extends outward from the Grand Final by however many rounds
+  // it actually has, so both sides meet in the middle either way.
+  const gfCol = wbRounds.length;
+
+  // ---- Losers Bracket: MIRRORED - the oldest Losers round sits at the outer
+  // right edge and each later round moves one column closer to the centre, so
+  // the block reads right-to-left even though the rounds are still played in
+  // the normal time order. The newest Losers round drawn always ends up
+  // immediately to the right of the Grand Final column.
+  const lbHeight = lbRounds.length ? lbRounds[0].length * ROW_PITCH : 0;
+  lbRounds.forEach((roundMatches, j) => {
+    placeRound(roundMatches, gfCol + (lbRounds.length - j), 'losers', lbHeight);
   });
 
-  // ---- Grand Final ----
+  // ---- Centre the two blocks against each other. Without this the Losers
+  // block hangs off the top edge while the (usually taller) Winners block
+  // runs well below it, which stops the chart reading as a mirror at all.
+  if (lbRounds.length) {
+    const wbIds = wbRounds.flat().map((m) => m.id);
+    const lbIds = lbRounds.flat().map((m) => m.id);
+    const wbYs = wbIds.map((id) => yById.get(id));
+    const lbYs = lbIds.map((id) => yById.get(id));
+    const delta = ((Math.min(...wbYs) + Math.max(...wbYs)) / 2)
+                - ((Math.min(...lbYs) + Math.max(...lbYs)) / 2);
+    for (const id of lbIds) yById.set(id, yById.get(id) + delta);
+  }
+
+  // ---- Grand Final: sits between the two finals that feed it, so it needs to
+  // see both brackets (hence no role filter).
   if (grandFinal) {
     xById.set(grandFinal.id, colX(gfCol));
-    const feeders = [feederFor(grandFinal.homeId, grandFinal.round), feederFor(grandFinal.awayId, grandFinal.round)].filter(Boolean);
+    const feeders = feedersOf(grandFinal, null);
     feedersById.set(grandFinal.id, feeders);
     const y = feeders.length
       ? feeders.reduce((sum, f) => sum + yById.get(f.id), 0) / feeders.length
@@ -196,15 +232,22 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
     yById.set(grandFinal.id, y);
   }
 
+  // Centring can lift a block above the top edge; slide everything back down
+  // together rather than clipping it.
+  const minY = Math.min(...yById.values());
+  const needY = TOP_MARGIN + BOX_H / 2;
+  if (minY < needY) {
+    const shift = needY - minY;
+    for (const [id, y] of yById) yById.set(id, y + shift);
+  }
+
   const lastCol = gfCol + lbRounds.length;
   const width = colX(lastCol) + BOX_W;
   const height = Math.max(...yById.values()) + BOX_H / 2 + TOP_MARGIN;
 
-  // Direction-aware: a Winners-bracket connector runs left-to-right, a
-  // Losers-bracket (mirrored) or drop-in connector can run either way
-  // depending on where the two boxes actually landed, so this picks
-  // whichever pair of edges faces the other box rather than assuming a
-  // fixed direction.
+  // Direction-aware: a Winners-bracket connector runs left-to-right while a
+  // mirrored Losers-bracket one runs right-to-left, so this picks whichever
+  // pair of edges faces the other box rather than assuming a fixed direction.
   function connectorPath(x1, y1, x2, y2) {
     const midX = (x1 + x2) / 2;
     return `M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`;
@@ -234,12 +277,6 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
       const forward = destX >= srcX;
       const x1 = forward ? srcX + BOX_W : srcX;
       const x2 = forward ? destX : destX + BOX_W;
-      // Every connector is solid black (.bracket-connector, var(--ink)) -
-      // no dashed "drop-in" variant here. DoubleElimBracketChart uses a
-      // dashed style for that because its wiring is fixed and genuinely
-      // different in kind (advance vs. drop). Here every line is the same
-      // reconstructed-from-history kind of link, so drawing some of them
-      // differently would suggest a distinction that isn't real.
       connectors.push(
         <path key={`conn-${m.id}-${i}`} className="bracket-connector"
           d={connectorPath(x1, srcY, x2, destY)} fill="none" />
