@@ -21,9 +21,10 @@
 // Layout: Winners Bracket rounds run left-to-right, Losers Bracket rounds
 // are MIRRORED - right-to-left, oldest round at the outer right edge, newest
 // round nearest the centre - so both brackets converge on a single Grand
-// Final in the middle, the way a traditional two-sided bracket does. The two
-// blocks are then centred vertically against each other so neither hangs off
-// the top edge.
+// Final in the middle, the way a traditional two-sided bracket does. Both
+// halves are drawn to the SAME vertical extent and centred against each
+// other, so the two sides carry equal visual weight even though the Losers
+// bracket holds fewer matches per round.
 //
 // The one thing this layout deliberately does NOT draw is the drop-in link
 // from a Winners-bracket match to the Losers-bracket match its loser lands
@@ -169,15 +170,15 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
 
   // Places one round's boxes: each box centres on its own feeders, and a box
   // with none (a first round, or a losers box made entirely of fresh drop-ins)
-  // falls back to an even share of the block's height.
-  function placeRound(roundMatches, col, roleFilter, blockHeight) {
+  // falls back to an even share of the band [blockTop, blockTop + blockHeight].
+  function placeRound(roundMatches, col, roleFilter, blockTop, blockHeight) {
     roundMatches.forEach((m, i) => {
       xById.set(m.id, colX(col));
       const feeders = feedersOf(m, roleFilter);
       feedersById.set(m.id, feeders);
       const y = feeders.length
         ? feeders.reduce((sum, f) => sum + yById.get(f.id), 0) / feeders.length
-        : TOP_MARGIN + (i + 0.5) * (blockHeight / roundMatches.length);
+        : blockTop + (i + 0.5) * (blockHeight / roundMatches.length);
       yById.set(m.id, y);
     });
     resolveRoundOverlaps(roundMatches, yById);
@@ -185,7 +186,7 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
 
   // ---- Winners Bracket: left-to-right, converging toward the Grand Final.
   const wbHeight = wbRounds[0].length * ROW_PITCH;
-  wbRounds.forEach((roundMatches, r) => placeRound(roundMatches, r, 'winners', wbHeight));
+  wbRounds.forEach((roundMatches, r) => placeRound(roundMatches, r, 'winners', TOP_MARGIN, wbHeight));
 
   // ---- Grand Final column: always immediately after the Winners Bracket's
   // last round, with no gap. Anchoring on the Winners Bracket alone (rather
@@ -197,25 +198,66 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
   // it actually has, so both sides meet in the middle either way.
   const gfCol = wbRounds.length;
 
+  // The Winners Bracket's vertical extent is the reference BOTH halves are
+  // drawn to. Sizing the Losers block off its own first round instead (which
+  // an earlier version did) is what made the right-hand side look squashed:
+  // the Losers bracket's opening round pairs up Winners-bracket losers, so it
+  // has at most half as many matches, and half the matches at the same row
+  // pitch means half the height - a thin strip of boxes facing a full-height
+  // fan on the left.
+  const wbYs = wbRounds.flat().map((m) => yById.get(m.id));
+  const wbTop = Math.min(...wbYs);
+  const wbSpan = Math.max(...wbYs) - wbTop;
+
   // ---- Losers Bracket: MIRRORED - the oldest Losers round sits at the outer
   // right edge and each later round moves one column closer to the centre, so
   // the block reads right-to-left even though the rounds are still played in
   // the normal time order. The newest Losers round drawn always ends up
   // immediately to the right of the Grand Final column.
-  const lbHeight = lbRounds.length ? lbRounds[0].length * ROW_PITCH : 0;
   lbRounds.forEach((roundMatches, j) => {
-    placeRound(roundMatches, gfCol + (lbRounds.length - j), 'losers', lbHeight);
+    const col = gfCol + (lbRounds.length - j);
+    if (j > 0) {
+      placeRound(roundMatches, col, 'losers', wbTop, wbSpan);
+      return;
+    }
+    // The outermost Losers round is usually the one that sets the block's
+    // height, so it is spread edge to edge across the Winners Bracket's extent
+    // rather than packed at the row pitch - top box level with the top of the
+    // Winners bracket, bottom box level with its bottom. Everything inward of
+    // it then converges on its own feeders as usual. Spacing only ever widens
+    // here (this round can never hold more boxes than the Winners opening
+    // round), so boxes cannot be pushed together by this.
+    roundMatches.forEach((m, i) => {
+      xById.set(m.id, colX(col));
+      feedersById.set(m.id, feedersOf(m, 'losers'));
+      yById.set(m.id, roundMatches.length === 1
+        ? wbTop + wbSpan / 2
+        : wbTop + i * (wbSpan / (roundMatches.length - 1)));
+    });
+    resolveRoundOverlaps(roundMatches, yById);
   });
 
-  // ---- Centre the two blocks against each other. Without this the Losers
-  // block hangs off the top edge while the (usually taller) Winners block
-  // runs well below it, which stops the chart reading as a mirror at all.
+  // ---- Match the two blocks' heights, then centre them against each other.
+  //
+  // Spreading the outermost Losers round (above) covers the usual case, but it
+  // is not always the widest one: the Losers bracket can open with a single
+  // match and only widen a round or two later, once more Winners-bracket
+  // losers have dropped in. When that happens the block still comes up short,
+  // so it is stretched about its own middle until it spans the same height as
+  // the Winners block. This only ever expands (never compresses), so it cannot
+  // push boxes into each other.
   if (lbRounds.length) {
-    const wbIds = wbRounds.flat().map((m) => m.id);
     const lbIds = lbRounds.flat().map((m) => m.id);
-    const wbYs = wbIds.map((id) => yById.get(id));
-    const lbYs = lbIds.map((id) => yById.get(id));
-    const delta = ((Math.min(...wbYs) + Math.max(...wbYs)) / 2)
+    let lbYs = lbIds.map((id) => yById.get(id));
+    const lbLo = Math.min(...lbYs), lbHi = Math.max(...lbYs);
+    const lbSpan = lbHi - lbLo;
+    if (lbSpan > 1 && lbSpan < wbSpan) {
+      const scale = wbSpan / lbSpan;
+      const mid = (lbLo + lbHi) / 2;
+      for (const id of lbIds) yById.set(id, mid + (yById.get(id) - mid) * scale);
+      lbYs = lbIds.map((id) => yById.get(id));
+    }
+    const delta = (wbTop + wbSpan / 2)
                 - ((Math.min(...lbYs) + Math.max(...lbYs)) / 2);
     for (const id of lbIds) yById.set(id, yById.get(id) + delta);
   }
