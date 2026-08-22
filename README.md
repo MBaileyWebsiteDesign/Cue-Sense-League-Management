@@ -360,6 +360,24 @@ software) to key a live scoreboard over a table camera or commentary feed:
   normalizes all three into the same `{ home, away }` shape server-side, so the overlay
   page itself never needs to branch on the division's `entryType`.
 
+## Public bracket, table & fixture links
+
+Separately from the OBS overlay above, every league's standings table and fixture
+list, and every knockout division's bracket, has its own public, no-login web address
+(`/public/leagues/:id/table`, `/public/leagues/:id/fixtures`,
+`/public/divisions/:id/table`, `/public/divisions/:id/fixtures`,
+`/public/divisions/:id/bracket`), meant for embedding elsewhere - e.g. an `<iframe>` on
+a Wix site - or opening on a shared screen. The bracket page works for both single- and
+double-elimination scheduling (including ADEK). These pages are deliberately
+**view-only**: there is no scoring, confirming, or winner-selection control on any of
+them, even for an admin viewer - that stays on the authenticated division page. A
+completed knockout match's winner is still highlighted the same way on both - a
+green-tinted background plus bold, green text on that entrant's row
+(`.bracket-entrant-won-bg`/`.bracket-entrant-winner` in `client/src/styles.css`) -
+since the public bracket page (`client/src/pages/PublicDivisionBracket.jsx`) renders
+the exact same `BracketChart`/`DoubleElimBracketChart`/`AdaptiveBracketChart` components
+as the admin page, just without the `onSelectWinner` handler wired up.
+
 ## Password reset links
 
 From a player's profile page (`/players/:playerId`), an admin sees an "Account Details"
@@ -397,6 +415,11 @@ ever count a fixture once its status is `completed`). From there:
 This intentionally adds friction to reduce mis-recorded results and one-sided score
 entry: a result can't count until the person on the other side of the table has agreed
 to it (or an admin has stepped in).
+
+On a knockout bracket specifically, an admin or League Manager can also skip
+frame-by-frame scoring entirely and directly declare a winner - see
+**Public bracket, table & fixture links** above and `POST /api/fixtures/:id/select-winner`
+in the API reference below for how that's gated and how the result is shown.
 
 ## Game Adjustments
 
@@ -447,9 +470,16 @@ pool-league/
                             CaptainPortal, AdminPortal, AdminSeasonWizard, AdminUsers,
                             AdminUserEdit, AdminAuditLog, GameAdjustments,
                             StreamOverlay (standalone, no app shell - see "Stream
-                            overlay" above)
+                            overlay" above), PublicLeagueTable, PublicLeagueFixtures,
+                            PublicDivisionTable, PublicDivisionFixtures,
+                            PublicDivisionBracket (standalone, no app shell, no login -
+                            see "Public bracket, table & fixture links" above)
       components/
         Breadcrumbs.jsx      Renders the shared breadcrumb trail
+        BracketChart.jsx     Single-elimination bracket chart - shared MatchBox/
+                            EntrantRow also used by DoubleElimBracketChart.jsx and
+                            AdaptiveBracketChart.jsx (see "Public bracket, table &
+                            fixture links" above)
       AuthContext.jsx       Single unified session (token, user, isAdmin, isCaptain)
       BreadcrumbContext.jsx Shared breadcrumb trail + useSetBreadcrumbs(...) hook
       useAdminSession.js     Re-exports `isAdmin` from AuthContext for readability
@@ -680,12 +710,18 @@ the Express server to serve) rather than Pages.
 | POST | `/api/divisions/:id/substitute-player` | Swap a player out for a replacement (singles only) - reassigns not-yet-started fixtures, leaves completed/in-progress ones alone; `reason: 'substitution'` (default) keeps the outgoing player on the League Table, `reason: 'retirement'` removes them from it (requires admin; logged) |
 | GET | `/api/fixtures/:id` | Fixture detail (requires login; singles, team, or doubles/triples - the latter includes `homePairing`/`awayPairing` instead of `homePlayer`/`awayPlayer`; includes `bothEntrantsKnown` for knockout TBD slots) |
 | GET | `/api/overlay/fixtures/:id` | Public (no login required), trimmed scoreboard summary of one fixture - powers the `/overlay/:fixtureId` OBS stream overlay page (singles, team, and doubles/triples fixtures all normalized into the same `{ home, away }` shape) |
+| GET | `/api/public/leagues/:id/table` | Public (no login required) league standings table - powers `/public/leagues/:id/table`, meant for embedding elsewhere (e.g. an `<iframe>` on a Wix site) |
+| GET | `/api/public/leagues/:id/fixtures` | Public league fixture list - powers `/public/leagues/:id/fixtures` |
+| GET | `/api/public/divisions/:id/table` | Public division standings table - powers `/public/divisions/:id/table` |
+| GET | `/api/public/divisions/:id/fixtures` | Public division fixture list - powers `/public/divisions/:id/fixtures` |
+| GET | `/api/public/divisions/:id/bracket` | Public division bracket - powers `/public/divisions/:id/bracket` (works for single- and double-elimination/ADEK scheduling; view-only, no `select-winner` on this page - see below) |
 | POST | `/api/fixtures/:id/frames` | Record a frame winner (singles or doubles/triples); rejected once the race target is reached - submit the result instead |
 | DELETE | `/api/fixtures/:id/frames/last` | Undo the last recorded frame (blocked once the result has advanced a bracket, or is pending/disputed) |
 | POST | `/api/fixtures/:id/submit-result` | Move an in-progress match that's reached its race target to `pending_confirmation` (requires login) |
 | POST | `/api/fixtures/:id/confirm-result` | Confirm a pending result -> `completed`, propagating into standings/the bracket (away side or admin only) |
 | POST | `/api/fixtures/:id/dispute-result` | Dispute a pending result -> `disputed`, locking it until an admin resolves it (away side or admin only) |
 | POST | `/api/fixtures/:id/reopen` | Reopen a pending/disputed result back to `in_progress` for further scoring (requires admin) |
+| POST | `/api/fixtures/:id/select-winner` | Bracket chart "quick pick" - directly declare an entrant the winner of an eligible knockout fixture (both entrants known, nothing recorded yet), no score entered (requires admin/League Manager). Backs the click-a-name-in-a-box control in `BracketChart`/`DoubleElimBracketChart`/`AdaptiveBracketChart` on the admin division page only - the public bracket page (above) is deliberately view-only |
 | POST | `/api/fixtures/:id/legs/:legNumber/nominate` | Nominate the two players for a team-fixture leg |
 | POST | `/api/fixtures/:id/legs/:legNumber/frames` | Record a frame winner within a leg; rejected once the leg's race target is reached |
 | DELETE | `/api/fixtures/:id/legs/:legNumber/frames/last` | Undo the last frame within a leg |
