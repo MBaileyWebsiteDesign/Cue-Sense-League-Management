@@ -255,6 +255,13 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   const [joinRequests, setJoinRequests] = useState([]);
   const [joinRequestBusy, setJoinRequestBusy] = useState(null);
 
+  // Per-division "Is Open" toggle - previously only settable when a
+  // division was first created (see LeagueDetail's New Division form). This
+  // lets an admin open or close join requests on an existing division
+  // without deleting and recreating it. See server/src/index.js's
+  // POST /api/divisions/:id/set-open.
+  const [openBusy, setOpenBusy] = useState(null);
+
   useEffect(() => {
     if (!open || !isAdmin) return;
     api.adminListUsers().then(setCandidates).catch((e) => setError(e.message));
@@ -286,6 +293,19 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
       setError(err.message);
     } finally {
       setJoinRequestBusy(null);
+    }
+  };
+
+  const onToggleOpen = async (divisionId, isOpen) => {
+    setOpenBusy(divisionId);
+    setError('');
+    try {
+      await api.setDivisionOpen(divisionId, isOpen);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setOpenBusy(null);
     }
   };
 
@@ -410,6 +430,39 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
                   Nobody is flagged as a League Manager yet - grant that flag on an account first from Admin
                   Portal &rarr; Users.
                 </p>
+              )}
+            </div>
+          )}
+
+          {canManage && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.25rem' }}>Open for Join</h3>
+              <p className="muted">
+                Switch "Is Open" on or off for any division in this league - open lets any registered
+                player request to join from the <Link to="/open-divisions">Open Divisions</Link> page,
+                for you to approve or decline below. Set at creation time by default; this is where you
+                change it afterwards. A division can't be opened once its fixtures have been generated.
+              </p>
+              {league.divisions.length === 0 ? (
+                <p className="muted">This league has no divisions yet.</p>
+              ) : (
+                <ul className="fixture-list">
+                  {league.divisions.map((d) => (
+                    <li key={d.id}>
+                      <span>{d.name}</span>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          style={{ width: 'auto' }}
+                          checked={!!d.isOpen}
+                          disabled={openBusy === d.id || (!d.isOpen && d.fixturesGenerated)}
+                          onChange={(e) => onToggleOpen(d.id, e.target.checked)}
+                        />
+                        {d.isOpen ? 'Open' : d.fixturesGenerated ? 'Closed (fixtures generated)' : 'Closed'}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           )}

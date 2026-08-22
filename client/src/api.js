@@ -128,6 +128,10 @@ const networkApi = {
   // works while the division has no fixtures yet - see server/src/index.js's
   // PATCH /api/divisions/:id for the full validation/gating.
   updateDivision: (id, data) => request(`/divisions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Toggle "Is Open" on an existing division from Admin: Manage this League
+  // - see server/src/index.js's POST /api/divisions/:id/set-open.
+  setDivisionOpen: (id, isOpen) =>
+    request(`/divisions/${id}/set-open`, { method: 'POST', body: JSON.stringify({ isOpen }) }),
   // Admin-only: force-completes every outstanding fixture in a division (or,
   // for the league version, every division in the league) at 0-0 with no
   // winner - no player confirmation needed. See server/src/index.js's

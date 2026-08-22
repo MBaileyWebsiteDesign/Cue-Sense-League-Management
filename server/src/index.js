@@ -1131,6 +1131,44 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
   res.json(hydrated);
 }));
 
+// Toggles "Is Open" on an already-existing division - previously this could
+// only be set once, at creation time (see the New Division form in
+// client/src/pages/LeagueDetail.jsx). Lets an admin open a division for
+// join requests after the fact, or close one back off without deleting and
+// recreating it. Deliberately its own route rather than folded into the
+// PATCH above: PATCH is locked out entirely once fixturesGenerated (it's
+// about the game type, which can't change once a roster/bracket exists),
+// but closing join requests should still be possible at any point, and
+// opening is only blocked because a locked roster makes it pointless -
+// see POST /api/join-requests/:id/approve's own fixturesGenerated check.
+app.post('/api/divisions/:id/set-open', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const { isOpen } = req.body || {};
+  if (typeof isOpen !== 'boolean') throw new ApiError(400, 'isOpen must be true or false');
+  if (isOpen && division.fixturesGenerated) {
+    throw new ApiError(400, "Can't open this division for join requests once fixtures have been generated.");
+  }
+
+  division.isOpen = isOpen;
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `${isOpen ? 'Opened' : 'Closed'} "${division.name}" for join requests`,
+  });
+
+  writeDb(db);
+  const hydrated = hydrateDivision(db, division);
+  res.json(hydrated);
+}));
+
 // League Manager (scoped to their assigned league) or Overall Admin -
 // mirrors DELETE /api/leagues/:id one level down. Permanently deletes just
 // this division and everything scoped to it (fixtures, teams/pairings,
