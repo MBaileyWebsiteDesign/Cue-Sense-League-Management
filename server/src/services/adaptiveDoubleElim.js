@@ -333,6 +333,11 @@ class Engine {
     this.Q = [];               // [{ players: [p], held: n }]
     this.wbRoundNo = 0;
     this.lbRoundNo = 0;
+    // Which winners round's losers most recently walked into the losers
+    // bracket, and how many losers rounds have been played since - see
+    // lbLabel.
+    this.lbWave = 0;
+    this.lbStage = 0;
     this.roundNo = 0;
     this.champion = null;
     if (entrantIds.length === 1) { this.champion = this.W[0]; this.W = []; }
@@ -340,6 +345,38 @@ class Engine {
 
   bySeed(list) { return [...list].sort((a, b) => a.seed - b.seed); }
   lbAlive() { return this.L.length + this.Q.reduce((s, w) => s + w.players.length, 0); }
+
+  // -- losers-round naming ---------------------------------------------------
+  // A losers round is named after the WINNERS round whose losers walked into
+  // it - so the loser of Winners Round 2 lands in Losers Round 2 - rather than
+  // by how many losers rounds happen to have been played. That is how anyone
+  // reads a double-elimination bracket, and counting instead made the two
+  // brackets look unrelated: because the losers pool has to play itself down
+  // between drop waves (see paceSaysLb), a Winners Round 3 loser was landing
+  // in something called "Losers Round 6".
+  //
+  // Those play-down rounds admit nobody new, so they have no winners round of
+  // their own. They continue the last one: Losers Round 2, then 2b, 2c...
+  //
+  // `fresh` is the players entering the losers bracket for the first time this
+  // round; each carries the winners round they fell from as `wave`.
+  lbLabel(fresh) {
+    const waves = [...new Set(fresh.map((p) => p.wave).filter(Boolean))].sort((a, b) => a - b);
+    if (waves.length) {
+      // Two drop waves can be admitted together when the pool pairs better
+      // that way; name both rather than silently dropping one.
+      const name = waves.length > 1
+        ? `Losers Rounds ${waves[0]}-${waves[waves.length - 1]}`
+        : `Losers Round ${waves[0]}`;
+      return { label: name, wave: waves[waves.length - 1], stage: 0 };
+    }
+    // No arrivals: a play-down continuing the last drop wave.
+    if (!this.lbWave) return { label: `Losers Round ${this.lbRoundNo + 1}`, wave: 0, stage: 0 };
+    const stage = this.lbStage + 1;
+    // 1 -> 'b', 2 -> 'c'. Past 'z' keep it unique rather than pretty.
+    const suffix = stage <= 24 ? String.fromCharCode(98 + stage - 1) : `(${stage + 1})`;
+    return { label: `Losers Round ${this.lbWave}${suffix}`, wave: this.lbWave, stage };
+  }
 
   // -- replay -------------------------------------------------------------
 
@@ -366,6 +403,12 @@ class Engine {
       const appeared = new Set();
       matches.forEach(({ a, b }) => { appeared.add(a.id); appeared.add(b.id); });
       byes.forEach((p) => appeared.add(p.id));
+      // Whoever left the waiting room this round is a first-time arrival, and
+      // that is what names the round (see lbLabel). Replay has to recompute it
+      // the same way generation does, or the suffix counter drifts.
+      const fresh = this.Q.flatMap((w) => w.players).filter((p) => appeared.has(p.id));
+      const named = this.lbLabel(fresh);
+      this.lbWave = named.wave; this.lbStage = named.stage;
       this.Q = this.Q
         .map((w) => ({ players: w.players.filter((p) => !appeared.has(p.id)), held: w.held }))
         .filter((w) => w.players.length > 0);
@@ -464,11 +507,16 @@ class Engine {
     }
     const consumed = this.Q.length - newQ.length;
     const roster = pm.flat().concat(byes);
+    // Same naming rule as lbRound - read the arrivals before splicing. The
+    // endgame solver is a separate path into a losers round, and missing it
+    // here is what left small events still counting rounds instead of naming
+    // them after the winners round that fed them.
+    const named = this.lbLabel(this.Q.slice(0, consumed).flatMap((w) => w.players));
     this.Q.splice(0, consumed);
     this.L = this.bySeed(roster);
     const isFinal = this.lbAlive() === 2 && this.W.length <= 1;
     return this.mk(BRACKET_LOSERS, isFinal ? 'lb_final' : 'lb', pm, byes,
-      isFinal ? 'Losers Final' : `Losers Round ${this.lbRoundNo + 1}`);
+      isFinal ? 'Losers Final' : named.label);
   }
 
   // -- winners round --------------------------------------------------------
@@ -601,17 +649,20 @@ class Engine {
   lbRound(plan) {
     const p = plan || this.bestLbPlan();
     if (!p) return this.fallbackLbRound();
+    // Read the arrivals before the waiting room is spliced.
+    const named = this.lbLabel(this.Q.slice(0, p.waves).flatMap((w) => w.players));
     this.Q.splice(0, p.waves);
     this.L = this.bySeed(p.roster);
     const isFinal = this.lbAlive() === 2 && this.W.length <= 1;
     return this.mk(BRACKET_LOSERS, isFinal ? 'lb_final' : 'lb', p.matches, p.byes,
-      isFinal ? 'Losers Final' : `Losers Round ${this.lbRoundNo + 1}`);
+      isFinal ? 'Losers Final' : named.label);
   }
 
   // Reached only if no roster can be played cleanly and the winners bracket is
   // spent. Simulation has never produced this state for 1..50 entrants, but a
   // generator must always return a legal round, so: fewest rematches possible.
   fallbackLbRound() {
+    const named = this.lbLabel(this.Q.flatMap((w) => w.players));
     let roster = [...this.L]; const waves = this.Q.length;
     this.Q.forEach((w) => { roster = roster.concat(w.players); });
     roster = this.bySeed(roster);
@@ -634,7 +685,7 @@ class Engine {
     }
     this.Q.splice(0, waves);
     this.L = this.bySeed(matches.flat().concat(byes));
-    return this.mk(BRACKET_LOSERS, 'lb', matches, byes, `Losers Round ${this.lbRoundNo + 1}`);
+    return this.mk(BRACKET_LOSERS, 'lb', matches, byes, named.label);
   }
 
   mk(bracket, kind, matches, byes, label) {

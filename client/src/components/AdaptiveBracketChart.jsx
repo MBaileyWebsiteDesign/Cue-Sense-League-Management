@@ -186,11 +186,14 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
       arrivals.push({ name: m[side]?.name, from: from.roundLabel || 'the Winners bracket' });
     }
     if (!arrivals.length) return null;
-    // The opening Losers round is entirely fresh drop-ins from the same
-    // Winners round, so say it once rather than twice per box.
-    if (arrivals.length === 2 && arrivals[0].from === arrivals[1].from) {
-      return `both from ${arrivals[0].from}`;
-    }
+    // Losers rounds are named after the Winners round that fed them, so when
+    // every entrant in a box arrived from that one round the caption would
+    // only repeat the round's own name. Say nothing; the interesting case is
+    // the mixed box, where one player has just dropped in and the other
+    // fought their way through the Losers bracket.
+    const entrants = [m.homeId, m.awayId].filter(Boolean).length;
+    const sources = new Set(arrivals.map((a) => a.from));
+    if (arrivals.length === entrants && sources.size === 1) return null;
     return arrivals.map((a) => `${a.name} from ${a.from}`).join(' · ');
   }
 
