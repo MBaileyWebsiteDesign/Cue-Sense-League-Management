@@ -616,6 +616,10 @@ h2 { margin-top: 0; }
 .bracket-entrant-score { font-size: 13px; fill: var(--ink); font-weight: 600; }
 .bracket-connector { stroke: var(--ink); stroke-width: 1.5; }
 .bracket-closed-early { font-size: 9px; fill: var(--muted); }
+/* ADEK only: names the Winners round a Losers-bracket entrant dropped in from.
+   That chart draws no winners->losers connector (it would span the whole page
+   in a mirrored layout), so this caption carries the same information. */
+.bracket-dropin-note { font-size: 9px; fill: var(--muted); font-style: italic; }
 .bracket-box-link { cursor: pointer; }
 .bracket-box-link:hover .bracket-box { stroke: var(--secondary); }
 .bracket-entrant-pick-target { cursor: pointer; fill: transparent; }
