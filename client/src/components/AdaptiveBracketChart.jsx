@@ -22,10 +22,12 @@
 // are MIRRORED - right-to-left, oldest round at the outer right edge,
 // newest round nearest the centre - so both brackets converge on a single
 // Grand Final in the middle, the way a traditional two-sided bracket does.
-// A same-bracket connector (WB round -> WB round, LB round -> LB round, or
-// either Final -> Grand Final) is drawn solid; a fresh Winners-bracket
-// loser dropping into the Losers bracket for the first time is drawn
-// dashed, same convention DoubleElimBracketChart uses for the same thing.
+// Every connector (WB round -> WB round, LB round -> LB round, a fresh
+// Winners-bracket loser dropping into the Losers bracket, or either Final
+// -> Grand Final) is drawn the same solid black - unlike
+// DoubleElimBracketChart's dashed "drop" variant, there's no fixed-wiring
+// vs. drop-in distinction to signal here, since every link on this chart is
+// reconstructed from history the same way (see findFeeders below).
 //
 // One honest limitation: unlike a fixed-size bracket (where both halves
 // have the same number of rounds by construction), ADEK's Winners and
@@ -150,10 +152,17 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
     resolveRoundOverlaps(roundMatches, yById);
   });
 
-  // ---- Grand Final column: reserved even before the Grand Final itself
-  // exists, so the Losers Bracket (laid out next) has somewhere fixed to
-  // converge toward.
-  const gfCol = Math.max(wbRounds.length, lbRounds.length, grandFinal ? 1 : 0);
+  // ---- Grand Final column: always immediately after the Winners Bracket's
+  // last round, with no gap - that's what keeps this a true mirror. (An
+  // earlier version of this chart used max(wbRounds.length, lbRounds.length)
+  // here, which is wrong: since the Losers Bracket almost always runs MORE
+  // rounds than the Winners Bracket - see the header comment - that left a
+  // dead gap of empty columns between the Winners Bracket and the Grand
+  // Final every time. Anchoring on the Winners Bracket alone, and letting
+  // the mirrored Losers Bracket below extend outward from the Grand Final
+  // by however many rounds it actually has, is what makes both sides read
+  // as a real mirror regardless of which one has more rounds.)
+  const gfCol = wbRounds.length;
 
   // ---- Losers Bracket: MIRRORED - round 0 (the oldest Losers round) sits
   // at the outer right edge, and each later round moves one column closer
@@ -225,9 +234,14 @@ export default function AdaptiveBracketChart({ matches, fixtureHref, onSelectWin
       const forward = destX >= srcX;
       const x1 = forward ? srcX + BOX_W : srcX;
       const x2 = forward ? destX : destX + BOX_W;
-      const dropIn = f.bracketRole === 'winners' && m.bracketRole === 'losers';
+      // Every connector is solid black (.bracket-connector, var(--ink)) -
+      // no dashed "drop-in" variant here. DoubleElimBracketChart uses a
+      // dashed style for that because its wiring is fixed and genuinely
+      // different in kind (advance vs. drop). Here every line is the same
+      // reconstructed-from-history kind of link, so drawing some of them
+      // differently would suggest a distinction that isn't real.
       connectors.push(
-        <path key={`conn-${m.id}-${i}`} className={`bracket-connector${dropIn ? ' bracket-connector-cross' : ''}`}
+        <path key={`conn-${m.id}-${i}`} className="bracket-connector"
           d={connectorPath(x1, srcY, x2, destY)} fill="none" />
       );
     });
