@@ -611,10 +611,15 @@ h2 { margin-top: 0; }
 }
 .bracket-entrant-name { font-size: 13px; fill: var(--ink); }
 .bracket-entrant-name.bracket-entrant-tbd { fill: var(--muted); font-style: italic; }
-.bracket-entrant-winner { font-weight: 700; }
+.bracket-entrant-won-bg { fill: rgba(60, 156, 72, 0.16); }
+.bracket-entrant-winner { font-weight: 700; fill: var(--secondary-dark); }
 .bracket-entrant-score { font-size: 13px; fill: var(--ink); font-weight: 600; }
 .bracket-connector { stroke: var(--ink); stroke-width: 1.5; }
 .bracket-closed-early { font-size: 9px; fill: var(--muted); }
+/* ADEK only: names the Winners round a Losers-bracket entrant dropped in from.
+   That chart draws no winners->losers connector (it would span the whole page
+   in a mirrored layout), so this caption carries the same information. */
+.bracket-dropin-note { font-size: 9px; fill: var(--muted); font-style: italic; }
 .bracket-box-link { cursor: pointer; }
 .bracket-box-link:hover .bracket-box { stroke: var(--secondary); }
 .bracket-entrant-pick-target { cursor: pointer; fill: transparent; }
@@ -628,3 +633,11 @@ h2 { margin-top: 0; }
    they read visually distinct from normal round-to-round advancement
    lines. */
 .bracket-connector-cross { stroke-dasharray: 4 3; opacity: 0.7; }
+
+/* ---- Adaptive Double Elimination Knockout bracket chart
+   (AdaptiveBracketChart.jsx) ----
+   Now a real converging tree (Winners left, Losers right-mirrored, meeting
+   at a centred Grand Final), reconstructed after the fact from match
+   history rather than pre-wired fixture links - see that file's header
+   comment. It reuses .bracket-box/.bracket-connector/.bracket-connector-cross
+   above unchanged; no chart-specific CSS is needed any more. */

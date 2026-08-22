@@ -325,6 +325,7 @@ export function EntrantRow({ entrant, won, x, y, width, rowHeight, onSelect }) {
   };
   return (
     <g>
+      {won && <rect className="bracket-entrant-won-bg" x={x} y={y} width={width} height={rowHeight} />}
       {onSelect && (
         <rect
           className="bracket-entrant-pick-target"
