@@ -82,6 +82,7 @@ function backfillState(base) {
     }
   }
   if (!base.joinRequests) base.joinRequests = [];
+  if (!base.featureRequests) base.featureRequests = [];
   return base;
 }
 
@@ -90,7 +91,7 @@ function backfillState(base) {
 const EMPTY_DEMO_STATE = {
   leagues: [], divisions: [], players: [], teams: [], pairings: [], divisionPlayers: [],
   fixtures: [], users: [], auditLog: [], venues: [], passwordResets: [], tours: [],
-  rollOfHonour: [], apiKeys: [], leaguePayments: [], joinRequests: [],
+  rollOfHonour: [], apiKeys: [], leaguePayments: [], joinRequests: [], featureRequests: [],
 };
 
 function loadInitialDb() {
@@ -1531,6 +1532,41 @@ export const demoApi = {
   }),
 
   adminGetAuditLog: op(() => [...db.auditLog].reverse().slice(0, 200)),
+
+  // Issues / Bugs / Features page. The GitHub-backed Issue / Bug Tracker
+  // half has no demo equivalent - there's no live repo to read from a
+  // static Pages build, and this demo never invents data that isn't really
+  // there - so it surfaces a clear message instead of the network version's
+  // fetch. The Feature / Requests half is genuine in-app data (submitted by
+  // whoever is using this demo session), so that's a real, fully working op
+  // like everything else here.
+  getGithubIssues: () => Promise.reject(new Error("GitHub Issues aren't available in this demo build.")),
+  getFeatureRequests: op(() => [...db.featureRequests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))),
+  submitFeatureRequest: op((title, description) => {
+    const trimmedTitle = (title || '').trim();
+    const trimmedDescription = (description || '').trim();
+    if (!trimmedTitle) throw new ApiError(400, 'A short title is required');
+    if (trimmedTitle.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+    if (trimmedDescription.length > 4000) throw new ApiError(400, 'Description must be 4000 characters or fewer');
+    const user = currentUser();
+    if (!user) throw new ApiError(401, 'Login required for this action');
+    const request = {
+      id: uuid(),
+      title: trimmedTitle,
+      description: trimmedDescription,
+      createdAt: new Date().toISOString(),
+      createdByUserId: user.id,
+      createdByName: `${user.firstName} ${user.lastName}`.trim(),
+    };
+    db.featureRequests.push(request);
+    return request;
+  }),
+  adminDeleteFeatureRequest: op((id) => {
+    const before = db.featureRequests.length;
+    db.featureRequests = db.featureRequests.filter((r) => r.id !== id);
+    if (db.featureRequests.length === before) throw new ApiError(404, 'Feature request not found');
+    return null;
+  }),
 
   adminCreateSeason: op((data) => {
     const { name, leagueCount, playersPerLeague, payment } = data;

@@ -27,10 +27,15 @@ export default function Login() {
       // RequireCaptain sets state.from), honor that - the account is
       // clearly trying to reach something specific. Otherwise, land admins
       // on the Admin Portal (that's almost always what an admin logs in to
-      // do) and everyone else on their own My Account page, rather than the
-      // plain league list.
+      // do), League Managers (who aren't also an Overall Admin) on their
+      // own League Manager Portal - scoped to just the league(s) they
+      // manage, rather than the full unscoped league list - and everyone
+      // else on their own My Account page.
       const from = location.state?.from?.pathname;
-      navigate(from || (user.isAdmin ? '/admin' : '/account'), { replace: true });
+      let landing = '/account';
+      if (user.isAdmin) landing = '/admin';
+      else if (user.isLeagueManager) landing = '/league-manager';
+      navigate(from || landing, { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

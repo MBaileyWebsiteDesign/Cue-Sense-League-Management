@@ -43,6 +43,11 @@ export default function LeagueManagerPortal() {
           fixtures, closing a league early) already lives on that league's own page, reachable
           from the list below.
         </p>
+        <p>
+          Got an idea for what that dashboard (or anything else) should do, or found something
+          that isn't working right? <Link to="/issues-bugs-features">Put in a feature or bug
+          request</Link> - no GitHub account needed.
+        </p>
       </section>
 
       <section className="card">

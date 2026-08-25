@@ -68,11 +68,12 @@ export default function AdminPortal() {
           </p>
         </Link>
 
-        <Link to="/admin/issues" className="card card-link">
-          <h2>Issue / Bug Tracker</h2>
+        <Link to="/issues-bugs-features" className="card card-link">
+          <h2>Issues / Bugs / Features</h2>
           <p className="muted">
-            Every open and recently-closed issue on the project's GitHub repo, pulled live -
-            feature requests and bugs together in one read-only list.
+            Every open and recently-closed issue on the project's GitHub repo, pulled live,
+            plus in-app Feature / Requests submitted by players and league admins. Also
+            reachable by every logged-in account from the main nav, not just admins.
           </p>
         </Link>
 

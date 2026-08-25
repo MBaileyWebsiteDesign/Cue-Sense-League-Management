@@ -60,6 +60,13 @@ const EMPTY_STATE = {
   // index.js. { id, divisionId, playerId, userId, status: 'pending' |
   // 'approved' | 'rejected', createdAt, decidedAt, decidedBy }.
   joinRequests: [],
+  // Feature / Requests: in-app submissions from any logged-in account
+  // (player, League Manager or Overall Admin) suggesting a feature or
+  // flagging something that isn't quite a GitHub-tracked bug - see
+  // POST /api/feature-requests and the "Feature / Requests" section of the
+  // Issues / Bugs / Features page. { id, title, description, createdAt,
+  // createdByUserId, createdByName }.
+  featureRequests: [],
 };
 
 function ensureDataFile() {
@@ -101,6 +108,7 @@ export function readDb() {
   if (!state.leaguePayments) state.leaguePayments = [];
   if (!state.archivedFixtures) state.archivedFixtures = [];
   if (!state.joinRequests) state.joinRequests = [];
+  if (!state.featureRequests) state.featureRequests = [];
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
   // that route and the Arena display (GET /api/overlay/leagues/:id/arena).
