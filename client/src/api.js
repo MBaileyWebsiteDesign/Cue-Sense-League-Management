@@ -63,7 +63,14 @@ const networkApi = {
   adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),
-  adminGetGithubIssues: () => request('/admin/github-issues'),
+
+  // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
+  // - visible to every logged-in account, not just admins.
+  getGithubIssues: () => request('/github-issues'),
+  getFeatureRequests: () => request('/feature-requests'),
+  submitFeatureRequest: (title, description) =>
+    request('/feature-requests', { method: 'POST', body: JSON.stringify({ title, description }) }),
+  adminDeleteFeatureRequest: (id) => request(`/feature-requests/${id}`, { method: 'DELETE' }),
 
   // Admin: Game Adjustments
   adminGetPlayerFixtures: (playerId) => request(`/admin/players/${playerId}/fixtures`),

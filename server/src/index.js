@@ -1586,7 +1586,11 @@ const GITHUB_ISSUES_REPO = 'MBaileyWebsiteDesign/Cue-Sense-League-Management';
 const GITHUB_ISSUES_CACHE_MS = 60 * 1000;
 let githubIssuesCache = { at: 0, data: null };
 
-app.get('/api/admin/github-issues', requireAdmin, (req, res) => {
+// Was admin-only (/api/admin/github-issues); the Issues / Bugs / Features
+// page it backs (see client/src/pages/IssuesBugsFeatures.jsx) is now
+// visible to every logged-in account, not just admins - see the Feature /
+// Requests routes just below it for the other half of that page.
+app.get('/api/github-issues', requireAuth, (req, res) => {
   const now = Date.now();
   if (githubIssuesCache.data && now - githubIssuesCache.at < GITHUB_ISSUES_CACHE_MS) {
     res.json(githubIssuesCache.data);
@@ -1638,6 +1642,51 @@ app.get('/api/admin/github-issues', requireAdmin, (req, res) => {
       res.status(502).json({ error: `Couldn't reach GitHub: ${err.message}` });
     });
 });
+
+// Feature / Requests: the other half of the Issues / Bugs / Features page -
+// a lightweight in-app alternative to filing a GitHub issue, open to any
+// logged-in account (player, League Manager or Overall Admin) rather than
+// just admins. Deliberately not wired into GitHub Issues itself (no token
+// scope for creating issues is assumed to exist) - these are stored
+// app-side and shown in their own "Feature / Requests" list below the
+// GitHub-backed Issue / Bug Tracker.
+app.get('/api/feature-requests', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const requests = [...db.featureRequests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(requests);
+}));
+
+app.post('/api/feature-requests', requireAuth, asyncRoute((req, res) => {
+  const title = (req.body.title || '').trim();
+  const description = (req.body.description || '').trim();
+  if (!title) throw new ApiError(400, 'A short title is required');
+  if (title.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+  if (description.length > 4000) throw new ApiError(400, 'Description must be 4000 characters or fewer');
+
+  const db = readDb();
+  const request = {
+    id: uuid(),
+    title,
+    description,
+    createdAt: new Date().toISOString(),
+    createdByUserId: req.auth.user.id,
+    createdByName: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+  };
+  db.featureRequests.push(request);
+  writeDb(db);
+  res.status(201).json(request);
+}));
+
+// Moderation (e.g. removing a duplicate or spam submission) stays
+// admin-only, unlike reading/submitting requests.
+app.delete('/api/feature-requests/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const before = db.featureRequests.length;
+  db.featureRequests = db.featureRequests.filter((r) => r.id !== req.params.id);
+  if (db.featureRequests.length === before) throw new ApiError(404, 'Feature request not found');
+  writeDb(db);
+  res.status(204).end();
+}));
 
 app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
   const { playerId } = req.body;
