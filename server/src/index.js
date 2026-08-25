@@ -488,7 +488,22 @@ app.get('/api/users/me/pending-confirmations', requireAuth, asyncRoute((req, res
 
 app.get('/api/leagues', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
-  res.json(db.leagues);
+  const { user } = req.auth;
+  // League Managers (and only League Managers - an Overall Admin who also
+  // happens to be flagged isLeagueManager still sees everything) are scoped
+  // to just the league(s) an Overall Admin assigned them to via
+  // league.managerUserIds - the same access boundary assertLeagueAccess
+  // already enforces for write actions, applied here to the read/list
+  // endpoint too. Without this, a League Manager's browse-everything home
+  // page (LeagueList.jsx) showed every league in the app, not just their
+  // own, even though the League Manager Portal and Manage Fixtures picker
+  // already filtered client-side. Every other account type (admin, player,
+  // captain, unflagged) still sees every league, same as before - this is
+  // a public-ish directory for everyone except a scoped League Manager.
+  const leagues = (user.isLeagueManager && !user.isAdmin)
+    ? db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id))
+    : db.leagues;
+  res.json(leagues);
 }));
 
 app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
