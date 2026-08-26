@@ -2091,7 +2091,16 @@ export const demoApi = {
     return { wiped: true, bootstrapAdminEmail: 'admin@cuesense.co.uk' };
   }),
 
-  getLeagues: op(() => db.leagues),
+  // Mirrors server/src/index.js's GET /api/leagues: a League Manager who
+  // isn't also an Overall Admin only sees the league(s) they're assigned to
+  // manage, same as the real server enforces.
+  getLeagues: op(() => {
+    const user = currentUser();
+    if (user && user.isLeagueManager && !user.isAdmin) {
+      return db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id));
+    }
+    return db.leagues;
+  }),
 
   createLeague: op((data) => {
     const { name, sport = 'English 8-Ball Pool', matchFormat = 'singles', raceTo = 6, scheduling = 'round_robin_single', payment, managerUserIds } = data;

@@ -155,6 +155,9 @@ function HeaderNav() {
         <Link to="/account" className="header-link" onClick={closeMenu}>
           Player Portal
         </Link>
+        <Link to="/issues-bugs-features" className="header-link" onClick={closeMenu}>
+          Issues / Bugs / Features
+        </Link>
         <span className="header-admin">
           <button
             className="header-link header-link-button"
