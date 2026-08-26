@@ -150,7 +150,7 @@ function HeaderNav() {
           </Link>
         )}
         <Link to="/open-divisions" className="header-link" onClick={closeMenu}>
-          Open Divisions
+          Open Divisions/Leagues
         </Link>
         <Link to="/account" className="header-link" onClick={closeMenu}>
           Player Portal
