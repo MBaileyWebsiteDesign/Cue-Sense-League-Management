@@ -24,6 +24,10 @@ export default function LeagueList() {
   // (Admin Portal -> Users) are eligible to appear here.
   const [managerCandidates, setManagerCandidates] = useState([]);
   const [selectedManagerIds, setSelectedManagerIds] = useState([]);
+  // League-level "Open For Registration" - see OpenLeagues.jsx for the
+  // browse/register side and LeagueDetail.jsx's ManageLeaguePanel for the
+  // toggle-after-creation and "League Interests" bulk-assign side.
+  const [isOpenForRegistration, setIsOpenForRegistration] = useState(false);
 
   const load = () => api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
 
@@ -57,6 +61,7 @@ export default function LeagueList() {
             }
           : { required: false },
         managerUserIds: selectedManagerIds,
+        isOpenForRegistration,
       });
       setForm({ name: '' });
       setPaymentRequired(false);
@@ -64,6 +69,7 @@ export default function LeagueList() {
       setPaymentWindowStart('');
       setPaymentWindowEnd('');
       setSelectedManagerIds([]);
+      setIsOpenForRegistration(false);
       setShowForm(false);
       load();
     } catch (err) {
@@ -106,6 +112,21 @@ export default function LeagueList() {
             />
             Require payment to join this league
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={isOpenForRegistration}
+              onChange={(e) => setIsOpenForRegistration(e.target.checked)}
+            />
+            Open this league for interest registration
+          </label>
+          <p className="muted" style={{ fontSize: '0.8rem', marginTop: -8 }}>
+            Any registered player can then register interest from the <Link to="/open-leagues">Open
+            Leagues</Link> page. You place interested players into whichever division(s) you choose,
+            in bulk or individually, from this league's "Admin: Manage this League" page once you're
+            ready - this can be switched on or off later too.
+          </p>
           {paymentRequired && (
             <>
               <label>
