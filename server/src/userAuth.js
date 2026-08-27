@@ -164,6 +164,23 @@ export function requireAuth(req, res, next) {
   next();
 }
 
+// Like requireAuth, but never blocks the request - a logged-out (or
+// logged-in) caller both get through, the only difference is whether
+// req.auth ends up set. Used for routes that should be genuinely public
+// (e.g. GET /api/open-leagues, browsable from the account registration
+// form before an account even exists) but still want to personalize the
+// response for whoever's actually logged in, same as requireAuth routes do.
+// An invalid/expired token or a suspended account is treated the same as
+// no token at all here, rather than erroring - this route never had a
+// login requirement to enforce in the first place.
+export function optionalAuth(req, res, next) {
+  const user = loadActiveUser(tokenFromHeader(req));
+  if (user && user.status !== 'suspended') {
+    req.auth = { userId: user.id, user };
+  }
+  next();
+}
+
 // Admin panel / admin-only-action gate: requires being logged in AND having
 // `isAdmin: true`. Any account can be flagged as admin (see
 // POST /api/admin/users/:id/permissions) - there's no tiered admin
