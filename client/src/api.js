@@ -139,6 +139,19 @@ const networkApi = {
   // - see server/src/index.js's POST /api/divisions/:id/set-open.
   setDivisionOpen: (id, isOpen) =>
     request(`/divisions/${id}/set-open`, { method: 'POST', body: JSON.stringify({ isOpen }) }),
+  // League-level "Open For Registration": browse + interest registration +
+  // bulk assignment into divisions. See server/src/index.js's
+  // "---------- Open leagues ----------" block.
+  getOpenLeagues: () => request('/open-leagues'),
+  requestToJoinLeague: (leagueId) =>
+    request(`/leagues/${leagueId}/interests`, { method: 'POST' }),
+  getLeagueInterests: (leagueId) => request(`/leagues/${leagueId}/league-interests`),
+  declineLeagueInterest: (id) =>
+    request(`/league-interests/${id}/decline`, { method: 'POST' }),
+  bulkAssignLeagueInterests: (interestIds, divisionId) =>
+    request('/league-interests/bulk-assign', { method: 'POST', body: JSON.stringify({ interestIds, divisionId }) }),
+  setLeagueOpen: (id, isOpenForRegistration) =>
+    request(`/leagues/${id}/set-open`, { method: 'POST', body: JSON.stringify({ isOpenForRegistration }) }),
   // Admin-only: force-completes every outstanding fixture in a division (or,
   // for the league version, every division in the league) at 0-0 with no
   // winner - no player confirmation needed. See server/src/index.js's
