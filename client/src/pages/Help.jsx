@@ -1,13 +1,13 @@
-import { Link } from 'react-router-dom';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import { IssuesBugsFeaturesBody } from './IssuesBugsFeatures.jsx';
 
 // Reached via the "?" icon in the top-right of the header (see App.jsx).
-// Deliberately simple: a short intro, then a card pointing at the existing
-// Issues / Bugs / Features page (IssuesBugsFeatures.jsx) rather than
-// re-implementing a second feature-request/bug form here - that page is
-// already the app's one feature-request/bug logging system (live GitHub
-// Issues plus in-app Feature / Requests), reachable from the main nav and
-// the Admin/League Manager portals too.
+// A short intro, then the actual Issue/Bug Tracker + Feature/Requests
+// content (IssuesBugsFeaturesBody, shared with the standalone
+// /issues-bugs-features page) embedded directly below it - the same
+// feature-request/bug system, reused in place rather than just linked to.
+// Requires login (see the /help route in App.jsx) because that embedded
+// content does.
 export default function Help() {
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Help' }]);
 
@@ -18,15 +18,12 @@ export default function Help() {
         <p className="muted">This is the help section.</p>
       </section>
 
-      <Link to="/issues-bugs-features" className="card card-link">
+      <section className="card">
         <h2>Log a feature request or bug</h2>
-        <p className="muted">
-          Spotted a bug, or have an idea for something new? Use the same Issues / Bugs /
-          Features page everyone else does &mdash; browse the project's live GitHub Issues,
-          or submit an in-app Feature / Request if you don't have (or don't want to set up)
-          a GitHub account.
-        </p>
-      </Link>
+        <p className="muted">Spotted a bug, or have an idea for something new?</p>
+      </section>
+
+      <IssuesBugsFeaturesBody />
     </div>
   );
 }

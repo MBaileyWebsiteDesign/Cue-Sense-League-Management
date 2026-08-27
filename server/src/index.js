@@ -1712,6 +1712,7 @@ app.post('/api/feature-requests', requireAuth, asyncRoute((req, res) => {
   const description = (req.body.description || '').trim();
   if (!title) throw new ApiError(400, 'A short title is required');
   if (title.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+  if (!description) throw new ApiError(400, 'Details are required');
   if (description.length > 4000) throw new ApiError(400, 'Description must be 4000 characters or fewer');
 
   const db = readDb();

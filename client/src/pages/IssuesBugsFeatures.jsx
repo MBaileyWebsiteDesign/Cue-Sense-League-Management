@@ -17,7 +17,12 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 const REPO_ISSUES_URL = 'https://github.com/MBaileyWebsiteDesign/Cue-Sense-League-Management/issues';
 const FILTERS = ['open', 'closed', 'all'];
 
-export default function IssuesBugsFeatures() {
+// The actual Issue/Bug Tracker + Feature/Requests markup and logic, split
+// out from the standalone page below so the Help page (Help.jsx) can embed
+// the same live content directly - one feature-request/bug system, reused
+// rather than duplicated. No breadcrumbs or <h1> here; those are the
+// standalone page's job.
+export function IssuesBugsFeaturesBody() {
   const { isAdmin } = useAuth();
   const [issues, setIssues] = useState(null);
   const [issuesError, setIssuesError] = useState('');
@@ -30,8 +35,6 @@ export default function IssuesBugsFeatures() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
-
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Issues / Bugs / Features' }]);
 
   useEffect(() => {
     api.getGithubIssues().then(setIssues).catch((e) => setIssuesError(e.message));
@@ -77,9 +80,7 @@ export default function IssuesBugsFeatures() {
   };
 
   return (
-    <div>
-      <h1>Issues / Bugs / Features</h1>
-
+    <>
       <section className="card">
         <h2>Issue / Bug Tracker</h2>
         <p className="muted">
@@ -172,13 +173,14 @@ export default function IssuesBugsFeatures() {
               required
             />
           </label>
-          <label>
-            Details (optional)
+          <label className="label-details">
+            <span>Details</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               maxLength={4000}
-              rows={4}
+              rows={5}
+              required
             />
           </label>
           {submitError && <p className="error">{submitError}</p>}
@@ -221,6 +223,19 @@ export default function IssuesBugsFeatures() {
           </ul>
         )}
       </section>
+    </>
+  );
+}
+
+// The standalone /issues-bugs-features page: same body as above, plus the
+// page heading and breadcrumbs.
+export default function IssuesBugsFeatures() {
+  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Issues / Bugs / Features' }]);
+
+  return (
+    <div>
+      <h1>Issues / Bugs / Features</h1>
+      <IssuesBugsFeaturesBody />
     </div>
   );
 }

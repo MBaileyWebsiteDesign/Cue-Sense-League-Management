@@ -277,6 +277,38 @@ h2 { margin-top: 0; }
   font-weight: 400;
 }
 
+/* The "Details" field on the Feature/Requests form (Issue/BugsFeatures.jsx,
+   embedded on the Help page too). Unlike the other .form labels, which
+   stack their input below the label text, this one lays the label text and
+   the textarea out side by side, top-aligned - the textarea is the field
+   people actually need room in, so it gets the label's own row instead of
+   a second one. flex-shrink:0 keeps the label text from being squeezed by
+   the textarea's flex:1 as the card narrows on small screens. */
+.form label.label-details {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.form label.label-details > span {
+  flex-shrink: 0;
+  padding-top: 8px;
+}
+
+.label-details textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 8em;
+  margin-top: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 1rem;
+  resize: vertical;
+}
+
 .inline-form {
   display: flex;
   gap: 8px;
