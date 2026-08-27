@@ -20,12 +20,7 @@ export default function Help() {
 
       <Link to="/issues-bugs-features" className="card card-link">
         <h2>Log a feature request or bug</h2>
-        <p className="muted">
-          Spotted a bug, or have an idea for something new? Use the same Issues / Bugs /
-          Features page everyone else does &mdash; browse the project's live GitHub Issues,
-          or submit an in-app Feature / Request if you don't have (or don't want to set up)
-          a GitHub account.
-        </p>
+        <p className="muted">Spotted a bug, or have an idea for something new?</p>
       </Link>
     </div>
   );
