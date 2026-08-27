@@ -262,6 +262,18 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   // POST /api/divisions/:id/set-open.
   const [openBusy, setOpenBusy] = useState(null);
 
+  // League-level "Open For Registration" toggle + League Interests bulk
+  // assignment - see server/src/index.js's "---------- Open leagues
+  // ----------" block. Interested players are listed here with checkboxes
+  // plus a division picker, so a League Manager can split e.g. 10
+  // interested players across several divisions in a few clicks rather
+  // than adding each one individually.
+  const [leagueOpenBusy, setLeagueOpenBusy] = useState(false);
+  const [leagueInterests, setLeagueInterests] = useState([]);
+  const [selectedInterestIds, setSelectedInterestIds] = useState([]);
+  const [assignDivisionId, setAssignDivisionId] = useState('');
+  const [interestBusy, setInterestBusy] = useState(false);
+
   useEffect(() => {
     if (!open || !isAdmin) return;
     api.adminListUsers().then(setCandidates).catch((e) => setError(e.message));
@@ -272,11 +284,63 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
     api.getLeagueJoinRequests(league.id).then(setJoinRequests).catch((e) => setError(e.message));
   };
 
+  const loadLeagueInterests = () => {
+    api.getLeagueInterests(league.id).then(setLeagueInterests).catch((e) => setError(e.message));
+  };
+
   useEffect(() => {
     if (!open || !canManage) return;
     loadJoinRequests();
+    loadLeagueInterests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, canManage, league.id]);
+
+  const onToggleLeagueOpen = async (isOpenForRegistration) => {
+    setLeagueOpenBusy(true);
+    setError('');
+    try {
+      await api.setLeagueOpen(league.id, isOpenForRegistration);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLeagueOpenBusy(false);
+    }
+  };
+
+  const toggleInterestSelected = (id) => {
+    setSelectedInterestIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  };
+
+  const onDeclineInterest = async (id) => {
+    setInterestBusy(true);
+    setError('');
+    try {
+      await api.declineLeagueInterest(id);
+      setSelectedInterestIds((ids) => ids.filter((x) => x !== id));
+      loadLeagueInterests();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setInterestBusy(false);
+    }
+  };
+
+  const onBulkAssign = async () => {
+    if (selectedInterestIds.length === 0 || !assignDivisionId) return;
+    setInterestBusy(true);
+    setError('');
+    try {
+      await api.bulkAssignLeagueInterests(selectedInterestIds, assignDivisionId);
+      setSelectedInterestIds([]);
+      loadLeagueInterests();
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setInterestBusy(false);
+    }
+  };
 
   const onDecideJoinRequest = async (requestId, decision) => {
     setJoinRequestBusy(requestId);
@@ -504,6 +568,76 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+          )}
+
+          {canManage && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h3 style={{ marginBottom: '0.25rem' }}>League Interests</h3>
+              <p className="muted">
+                League-level version of "Is Open" - when this league is open for interest registration,
+                any registered player can register interest from the <Link to="/open-leagues">Open
+                Leagues</Link> page without picking a division. Select who you're ready to place, pick a
+                division to put them in, and add them in bulk - repeat for as many divisions as you like.
+              </p>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto' }}
+                  checked={!!league.isOpenForRegistration}
+                  disabled={leagueOpenBusy}
+                  onChange={(e) => onToggleLeagueOpen(e.target.checked)}
+                />
+                {league.isOpenForRegistration ? 'Open for interest registration' : 'Closed to interest registration'}
+              </label>
+              {leagueInterests.length === 0 ? (
+                <p className="muted">No pending interest registrations for this league right now.</p>
+              ) : (
+                <>
+                  <ul className="fixture-list">
+                    {leagueInterests.map((r) => (
+                      <li key={r.id}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <input
+                            type="checkbox"
+                            style={{ width: 'auto' }}
+                            checked={selectedInterestIds.includes(r.id)}
+                            disabled={interestBusy}
+                            onChange={() => toggleInterestSelected(r.id)}
+                          />
+                          {r.playerName}
+                        </label>
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={interestBusy}
+                          onClick={() => onDeclineInterest(r.id)}
+                        >
+                          Decline
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="inline-form">
+                    <select value={assignDivisionId} onChange={(e) => setAssignDivisionId(e.target.value)}>
+                      <option value="">Select a division to add them to…</option>
+                      {league.divisions
+                        .filter((d) => d.entryType === 'singles' && !d.fixturesGenerated)
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                    </select>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      disabled={interestBusy || selectedInterestIds.length === 0 || !assignDivisionId}
+                      onClick={onBulkAssign}
+                    >
+                      {interestBusy ? 'Adding…' : `Add ${selectedInterestIds.length || ''} selected to division`}
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           )}

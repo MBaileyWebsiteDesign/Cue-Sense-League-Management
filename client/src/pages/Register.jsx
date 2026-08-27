@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
@@ -15,6 +15,19 @@ export default function Register() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // League to join (optional) - GET /api/open-leagues is deliberately
+  // public (see server/src/index.js), so it's browsable here before an
+  // account even exists. Picking one just pre-fills the same interest
+  // registration a player could otherwise make from the Open Leagues page
+  // after signing up - a League Manager still decides which division to
+  // place them in later, from that league's League Interests panel.
+  const [openLeagues, setOpenLeagues] = useState([]);
+  const [leagueId, setLeagueId] = useState('');
+
+  useEffect(() => {
+    api.getOpenLeagues().then(setOpenLeagues).catch(() => {});
+  }, []);
+
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
 
   const onSubmit = async (e) => {
@@ -27,6 +40,17 @@ export default function Register() {
         classification: form.classification || null,
       });
       login(token, expiresAt, user);
+      // Register interest in the chosen league now that we're logged in
+      // and have a linked player profile - failing this shouldn't block
+      // account creation, since the player can always register interest
+      // themselves from the Open Leagues page afterwards.
+      if (leagueId) {
+        try {
+          await api.requestToJoinLeague(leagueId);
+        } catch {
+          // ignored - see comment above
+        }
+      }
       // New self-registrations are never admins, so this always lands on My
       // Account - mirrors Login.jsx's default for a non-admin sign-in.
       navigate('/account');
@@ -79,6 +103,17 @@ export default function Register() {
             ))}
           </select>
         </label>
+        {openLeagues.length > 0 && (
+          <label>
+            League to join <span className="muted">(optional)</span>
+            <select value={leagueId} onChange={(e) => setLeagueId(e.target.value)}>
+              <option value="">Not now</option>
+              {openLeagues.map((l) => (
+                <option key={l.leagueId} value={l.leagueId}>{l.leagueName}</option>
+              ))}
+            </select>
+          </label>
+        )}
         {error && <p className="error">{error}</p>}
         <button className="btn btn-primary" type="submit" disabled={submitting}>
           {submitting ? 'Creating account…' : 'Create Account'}

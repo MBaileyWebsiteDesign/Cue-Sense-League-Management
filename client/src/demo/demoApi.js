@@ -63,6 +63,7 @@ function backfillState(base) {
       league.payment = { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
     }
     if (!league.managerUserIds) league.managerUserIds = [];
+    if (league.isOpenForRegistration === undefined) league.isOpenForRegistration = false;
   }
   for (const user of base.users) {
     if (user.isLeagueManager === undefined) user.isLeagueManager = false;
@@ -82,6 +83,7 @@ function backfillState(base) {
     }
   }
   if (!base.joinRequests) base.joinRequests = [];
+  if (!base.leagueInterests) base.leagueInterests = [];
   if (!base.featureRequests) base.featureRequests = [];
   return base;
 }
@@ -91,7 +93,7 @@ function backfillState(base) {
 const EMPTY_DEMO_STATE = {
   leagues: [], divisions: [], players: [], teams: [], pairings: [], divisionPlayers: [],
   fixtures: [], users: [], auditLog: [], venues: [], passwordResets: [], tours: [],
-  rollOfHonour: [], apiKeys: [], leaguePayments: [], joinRequests: [], featureRequests: [],
+  rollOfHonour: [], apiKeys: [], leaguePayments: [], joinRequests: [], leagueInterests: [], featureRequests: [],
 };
 
 function loadInitialDb() {
@@ -2122,6 +2124,7 @@ export const demoApi = {
       tables: [],
       payment: normalizePaymentConfig(payment),
       managerUserIds: assignedManagerIds,
+      isOpenForRegistration: !!data.isOpenForRegistration,
     };
     db.leagues.push(league);
     if (assignedManagerIds.length > 0) {
@@ -2385,6 +2388,118 @@ export const demoApi = {
     request.decidedAt = new Date().toISOString();
     request.decidedBy = adminLabel();
     return { rejected: true, requestId: request.id };
+  }),
+
+  setLeagueOpen: op((leagueId, isOpenForRegistration) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    league.isOpenForRegistration = !!isOpenForRegistration;
+    return league;
+  }),
+
+  // League-level open/interest flow - mirrors server/src/index.js's
+  // "---------- Open leagues ----------" block.
+  getOpenLeagues: op(() => {
+    const user = currentUser();
+    const myPlayerId = user?.playerId || null;
+    return db.leagues
+      .filter((l) => l.isOpenForRegistration)
+      .map((l) => {
+        const divisionCount = db.divisions.filter((d) => d.leagueId === l.id).length;
+        const alreadyRegistered = myPlayerId
+          ? db.leagueInterests.some((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status !== 'declined')
+          : false;
+        const pendingInterest = myPlayerId
+          ? db.leagueInterests.find((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status === 'pending')
+          : null;
+        return {
+          leagueId: l.id,
+          leagueName: l.name,
+          sport: l.sport,
+          divisionCount,
+          alreadyRegistered,
+          requestStatus: alreadyRegistered ? (pendingInterest ? 'pending' : 'assigned') : null,
+        };
+      });
+  }),
+
+  requestToJoinLeague: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    if (!league.isOpenForRegistration) throw new ApiError(400, 'This league is not open for interest registration');
+    const user = currentUser();
+    const playerId = user?.playerId;
+    if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
+    const existing = db.leagueInterests.find((r) => r.leagueId === league.id && r.playerId === playerId && r.status === 'pending');
+    if (existing) throw new ApiError(400, 'You already have a pending interest registration for this league');
+    const request = {
+      id: uuid(), leagueId: league.id, playerId, userId: user.id,
+      status: 'pending', createdAt: new Date().toISOString(), decidedAt: null, decidedBy: null,
+    };
+    db.leagueInterests.push(request);
+    return request;
+  }),
+
+  getLeagueInterests: op((leagueId) => {
+    return db.leagueInterests
+      .filter((r) => r.status === 'pending' && r.leagueId === leagueId)
+      .map((r) => {
+        const player = db.players.find((p) => p.id === r.playerId);
+        return {
+          id: r.id, leagueId: r.leagueId, playerId: r.playerId,
+          playerName: player?.name || 'Unknown player', createdAt: r.createdAt,
+        };
+      });
+  }),
+
+  declineLeagueInterest: op((requestId) => {
+    const request = db.leagueInterests.find((r) => r.id === requestId);
+    if (!request) throw new ApiError(404, 'League interest registration not found');
+    if (request.status !== 'pending') throw new ApiError(400, 'This registration has already been decided');
+    request.status = 'declined';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = adminLabel();
+    return { declined: true, requestId: request.id };
+  }),
+
+  bulkAssignLeagueInterests: op((interestIds, divisionId) => {
+    if (!Array.isArray(interestIds) || interestIds.length === 0) {
+      throw new ApiError(400, 'interestIds must be a non-empty array');
+    }
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    if (division.entryType !== 'singles') {
+      throw new ApiError(400, `This is a ${division.entryType} division - league interests can only be bulk-assigned into a singles division`);
+    }
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    }
+    const results = [];
+    for (const interestId of interestIds) {
+      const request = db.leagueInterests.find((r) => r.id === interestId);
+      if (!request) {
+        results.push({ interestId, ok: false, error: 'League interest registration not found' });
+        continue;
+      }
+      if (request.leagueId !== league.id) {
+        results.push({ interestId, ok: false, error: 'This interest registration is for a different league' });
+        continue;
+      }
+      if (request.status !== 'pending') {
+        results.push({ interestId, ok: false, error: 'This registration has already been decided' });
+        continue;
+      }
+      if (!division.playerIds.includes(request.playerId)) {
+        division.playerIds.push(request.playerId);
+      }
+      request.status = 'assigned';
+      request.decidedAt = new Date().toISOString();
+      request.decidedBy = adminLabel();
+      results.push({ interestId, ok: true, playerId: request.playerId });
+    }
+    return { division: hydrateDivision(division), results };
   }),
 
   // Force-completes every outstanding fixture in a division at 0-0 (0 legs

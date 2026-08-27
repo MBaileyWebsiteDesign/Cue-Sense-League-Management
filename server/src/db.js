@@ -60,6 +60,18 @@ const EMPTY_STATE = {
   // index.js. { id, divisionId, playerId, userId, status: 'pending' |
   // 'approved' | 'rejected', createdAt, decidedAt, decidedBy }.
   joinRequests: [],
+  // League-level version of the above: a player registers interest in a
+  // whole "Is Open For Registration" league (rather than a specific
+  // division - a league doesn't have its own roster) - see
+  // POST /api/leagues/:id/interests, GET /api/leagues/:id/league-interests,
+  // POST /api/league-interests/:id/decline and POST
+  // /api/league-interests/bulk-assign in index.js. A League Manager works
+  // through the resulting list whenever they're ready, splitting
+  // interested players across whichever divisions they choose (bulk or one
+  // at a time) rather than being forced into per-division sign-up up
+  // front. { id, leagueId, playerId, userId, status: 'pending' | 'assigned'
+  // | 'declined', createdAt, decidedAt, decidedBy }.
+  leagueInterests: [],
   // Feature / Requests: in-app submissions from any logged-in account
   // (player, League Manager or Overall Admin) suggesting a feature or
   // flagging something that isn't quite a GitHub-tracked bug - see
@@ -108,6 +120,7 @@ export function readDb() {
   if (!state.leaguePayments) state.leaguePayments = [];
   if (!state.archivedFixtures) state.archivedFixtures = [];
   if (!state.joinRequests) state.joinRequests = [];
+  if (!state.leagueInterests) state.leagueInterests = [];
   if (!state.featureRequests) state.featureRequests = [];
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
@@ -126,6 +139,12 @@ export function readDb() {
     // before this feature existed defaults to an empty list, same as a
     // freshly-created league with no managers assigned yet.
     if (!league.managerUserIds) league.managerUserIds = [];
+    // "Open For Registration" (league-level version of a division's "Is
+    // Open") - every league created before this feature existed is
+    // retrofitted with the option, defaulting to closed, exactly like a
+    // freshly-created league with the tick box left off. See
+    // POST /api/leagues/:id/set-open and GET /api/open-leagues in index.js.
+    if (league.isOpenForRegistration === undefined) league.isOpenForRegistration = false;
   }
   for (const fixture of state.fixtures) {
     if (fixture.tableId === undefined) fixture.tableId = null;

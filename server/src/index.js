@@ -23,6 +23,7 @@ import {
   verifySessionToken,
   publicUser,
   requireAuth,
+  optionalAuth,
   requireAdmin,
   requireAnyAdmin,
   assertLeagueAccess,
@@ -544,6 +545,13 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
     // Payment wall - see normalizePaymentConfig/assertPaymentCleared below.
     payment: normalizePaymentConfig(payment),
     managerUserIds: assignedManagerIds,
+    // "Open For Registration" - league-level equivalent of a division's "Is
+    // Open" - lets any registered player register interest in this league
+    // via GET /api/open-leagues + POST /api/leagues/:id/interests, without
+    // a League Manager adding them to a division directly. See the
+    // "---------- Open leagues ----------" block further down for the full
+    // browse/interest/bulk-assign flow.
+    isOpenForRegistration: !!req.body.isOpenForRegistration,
   };
   db.leagues.push(league);
 
@@ -1182,6 +1190,34 @@ app.post('/api/divisions/:id/set-open', requireAnyAdmin, asyncRoute((req, res) =
   writeDb(db);
   const hydrated = hydrateDivision(db, division);
   res.json(hydrated);
+}));
+
+// League-level version of the above: toggles "Open For Registration" on an
+// already-existing league. Unlike a division, a league has no roster or
+// fixturesGenerated flag of its own, so there's nothing to lock this
+// behind - it can be flipped at any time. See the "---------- Open
+// leagues ----------" block further down for what "open" actually exposes.
+app.post('/api/leagues/:id/set-open', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+
+  const { isOpenForRegistration } = req.body || {};
+  if (typeof isOpenForRegistration !== 'boolean') throw new ApiError(400, 'isOpenForRegistration must be true or false');
+
+  league.isOpenForRegistration = isOpenForRegistration;
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.edit',
+    targetType: 'league',
+    targetId: league.id,
+    details: `${isOpenForRegistration ? 'Opened' : 'Closed'} "${league.name}" for interest registration`,
+  });
+
+  writeDb(db);
+  res.json(league);
 }));
 
 // League Manager (scoped to their assigned league) or Overall Admin -
@@ -1886,6 +1922,200 @@ app.post('/api/join-requests/:id/reject', requireAnyAdmin, asyncRoute((req, res)
   });
   writeDb(db);
   res.json({ rejected: true, requestId: request.id });
+}));
+
+// ---------- Open leagues: browse + interest registration ----------
+// League-level equivalent of the "Open divisions" block above. A division
+// with "Is Open" set is joinable directly (approving a request adds the
+// player straight to that division's roster) - but a league itself has no
+// roster of its own, so opening a *league* just lets a player register
+// interest in it generally. A League Manager then works through the list
+// of interested players whenever they're ready and splits them across
+// whichever division(s) they choose, in bulk or one at a time, via POST
+// /api/league-interests/bulk-assign below - e.g. 10 players register
+// interest in "League 1", the League Manager later puts 5 in Division 1
+// and 5 in Division 5 in two clicks each.
+
+// Every league open for interest registration, for a player to browse and
+// register against - deliberately public (no login required) as well as
+// usable while logged in, so the same list can back both the "Open
+// Leagues" browse page and the league-choice dropdown on the account
+// registration form itself, before that account exists.
+app.get('/api/open-leagues', optionalAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const myPlayerId = req.auth?.user?.playerId || null;
+  const result = db.leagues
+    .filter((l) => l.isOpenForRegistration)
+    .map((l) => {
+      const divisionCount = db.divisions.filter((d) => d.leagueId === l.id).length;
+      const alreadyRegistered = myPlayerId
+        ? db.leagueInterests.some((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status !== 'declined')
+        : false;
+      const pendingInterest = myPlayerId
+        ? db.leagueInterests.find((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status === 'pending')
+        : null;
+      return {
+        leagueId: l.id,
+        leagueName: l.name,
+        sport: l.sport,
+        divisionCount,
+        alreadyRegistered,
+        requestStatus: alreadyRegistered ? (pendingInterest ? 'pending' : 'assigned') : null,
+      };
+    });
+  res.json(result);
+}));
+
+// A logged-in player registers interest in one open league (not a specific
+// division - see the block comment above). One pending interest per
+// (player, league) at a time; re-registering after a decline is allowed,
+// same rule as division join requests.
+app.post('/api/leagues/:id/interests', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  if (!league.isOpenForRegistration) throw new ApiError(400, 'This league is not open for interest registration');
+  const playerId = req.auth.user.playerId;
+  if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
+  const existing = db.leagueInterests.find((r) => r.leagueId === league.id && r.playerId === playerId && r.status === 'pending');
+  if (existing) throw new ApiError(400, 'You already have a pending interest registration for this league');
+
+  const request = {
+    id: uuid(),
+    leagueId: league.id,
+    playerId,
+    userId: req.auth.user.id,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    decidedAt: null,
+    decidedBy: null,
+  };
+  db.leagueInterests.push(request);
+  writeDb(db);
+  res.status(201).json(request);
+}));
+
+// Pending league-interest registrations for one league, for that league's
+// "Admin: Manage this League" -> League Interests subsection - same access
+// pattern as GET /api/leagues/:id/join-requests.
+app.get('/api/leagues/:id/league-interests', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+  const result = db.leagueInterests
+    .filter((r) => r.status === 'pending' && r.leagueId === league.id)
+    .map((r) => {
+      const player = db.players.find((p) => p.id === r.playerId);
+      return {
+        id: r.id,
+        leagueId: r.leagueId,
+        playerId: r.playerId,
+        playerName: player?.name || 'Unknown player',
+        createdAt: r.createdAt,
+      };
+    });
+  res.json(result);
+}));
+
+// Closes a league-interest registration out with no side effects - the
+// league-level equivalent of POST /api/join-requests/:id/reject. There's no
+// single-record "approve" (see bulk-assign below for the actual add-to-
+// division action) since accepting interest only makes sense alongside
+// picking which division to put the player in.
+app.post('/api/league-interests/:id/decline', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const request = db.leagueInterests.find((r) => r.id === req.params.id);
+  if (!request) throw new ApiError(404, 'League interest registration not found');
+  if (request.status !== 'pending') throw new ApiError(400, 'This registration has already been decided');
+  const league = db.leagues.find((l) => l.id === request.leagueId);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+  request.status = 'declined';
+  request.decidedAt = new Date().toISOString();
+  request.decidedBy = req.adminSession.label;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league_interest.decline',
+    targetType: 'league',
+    targetId: league.id,
+    details: `Declined league interest registration from player ${request.playerId} for "${league.name}"`,
+  });
+  writeDb(db);
+  res.json({ declined: true, requestId: request.id });
+}));
+
+// Takes a batch of pending league-interest registrations and adds every
+// player in it to one chosen division in the same league, in one call -
+// e.g. 10 players register interest in "League 1", the League Manager
+// later selects 5 of them and this division, then the other 5 and that
+// division. Same rules as adding a player to a division directly (POST
+// /api/divisions/:id/players): singles-only, locked out once fixtures have
+// been generated, payment wall still applies per player. A player already
+// in the division, or whose payment isn't cleared, doesn't silently fail
+// the whole batch - each one is resolved independently and the response
+// reports what happened to each.
+app.post('/api/league-interests/bulk-assign', requireAnyAdmin, asyncRoute((req, res) => {
+  const { interestIds, divisionId } = req.body || {};
+  if (!Array.isArray(interestIds) || interestIds.length === 0) {
+    throw new ApiError(400, 'interestIds must be a non-empty array');
+  }
+  if (!divisionId) throw new ApiError(400, 'divisionId is required');
+
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === divisionId);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+  if (division.entryType !== 'singles') {
+    throw new ApiError(400, `This is a ${division.entryType} division - league interests can only be bulk-assigned into a singles division`);
+  }
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+  }
+
+  const results = [];
+  for (const interestId of interestIds) {
+    const request = db.leagueInterests.find((r) => r.id === interestId);
+    if (!request) {
+      results.push({ interestId, ok: false, error: 'League interest registration not found' });
+      continue;
+    }
+    if (request.leagueId !== league.id) {
+      results.push({ interestId, ok: false, error: 'This interest registration is for a different league' });
+      continue;
+    }
+    if (request.status !== 'pending') {
+      results.push({ interestId, ok: false, error: 'This registration has already been decided' });
+      continue;
+    }
+    try {
+      assertPaymentCleared(db, division, request.playerId);
+    } catch (err) {
+      results.push({ interestId, ok: false, error: err.message });
+      continue;
+    }
+    if (!division.playerIds.includes(request.playerId)) {
+      division.playerIds.push(request.playerId);
+    }
+    request.status = 'assigned';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = req.adminSession.label;
+    results.push({ interestId, ok: true, playerId: request.playerId });
+  }
+
+  const assignedCount = results.filter((r) => r.ok).length;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league_interest.bulk_assign',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Bulk-assigned ${assignedCount} player(s) from league interest registrations into "${division.name}"`,
+  });
+
+  writeDb(db);
+  res.json({ division: hydrateDivision(db, division), results });
 }));
 
 // ---- Teams (team divisions only) ----
