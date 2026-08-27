@@ -998,4 +998,3 @@ function hydrateDivision(db, division) {
   recordChampionIfDivisionComplete(db, division, hydrated);
 
   return hydrated;
-}
