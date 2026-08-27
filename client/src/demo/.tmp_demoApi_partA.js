@@ -44,6 +44,10 @@ class ApiError extends Error {
   }
 }
 
+// Mirrors db.js's readDb() migration on the real server - backfills any
+// collection/field a seed/save (or, for restoreBackup below, an uploaded
+// export) predates. Shared by loadInitialDb() below and restoreBackup(), so
+// there's exactly one place this list has to stay in sync with db.js.
 function backfillState(base) {
   if (!base.pairings) base.pairings = [];
   if (!base.passwordResets) base.passwordResets = [];
@@ -84,6 +88,8 @@ function backfillState(base) {
   return base;
 }
 
+// Bare, empty shape - mirrors db.js's EMPTY_STATE, used only by
+// wipeAllData() below.
 const EMPTY_DEMO_STATE = {
   leagues: [], divisions: [], players: [], teams: [], pairings: [], divisionPlayers: [],
   fixtures: [], users: [], auditLog: [], venues: [], passwordResets: [], tours: [],
@@ -96,11 +102,14 @@ function loadInitialDb() {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) base = JSON.parse(raw);
   } catch {
+    // fall through to the bundled seed
   }
   if (!base) base = structuredClone(demoDataSeed);
   return backfillState(base);
 }
 
+// Browser-safe stand-in for Node's crypto.randomBytes(...).toString('hex'),
+// used for password-reset tokens (see adminSendResetLink/resetPassword).
 function randomToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -112,14 +121,22 @@ function persist() {
   try {
     localStorage.setItem(DB_KEY, JSON.stringify(db));
   } catch {
+    // localStorage can be unavailable (private browsing, quota) - the demo
+    // still works for the rest of the page load, it just won't survive a
+    // refresh in that case.
   }
 }
 
+// Which demo user is "logged in" right now - there's only ever one browser
+// tab's worth of state, so this is just an id rather than a real session.
+// Starts as the seeded demo account (an admin + captain, linked to the real
+// "Matt Bailey" player so "My Account" has real fixtures to show).
 let currentUserId = (() => {
   try {
     const stored = localStorage.getItem(CURRENT_USER_KEY);
     if (stored && db.users.some((u) => u.id === stored)) return stored;
   } catch {
+    // ignore
   }
   return db.users[0]?.id || null;
 })();
@@ -129,6 +146,7 @@ function setCurrentUser(userId) {
   try {
     localStorage.setItem(CURRENT_USER_KEY, userId);
   } catch {
+    // ignore
   }
 }
 
@@ -147,6 +165,11 @@ function publicUser(user) {
   return rest;
 }
 
+// Wraps a synchronous handler so it behaves like the real fetch-backed api.*
+// methods: resolves with the return value (after persisting any change to
+// localStorage), or rejects with an Error whose `.message` is the same
+// user-facing text the real backend would have sent - every page's existing
+// `catch (err) { setError(err.message) }` keeps working unmodified.
 function op(fn) {
   return (...args) => {
     try {
@@ -159,7 +182,12 @@ function op(fn) {
   };
 }
 
+// ---------- account creation / profile helpers (ported from server/src/index.js) ----------
+
 function createUserAccount(fields) {
+  // Tolerates an empty/omitted lastName (e.g. a first-name-only Quick Add
+  // walk-in) without leaving a stray trailing space in the linked player's
+  // display name - mirrors server/src/index.js's createUserAccount.
   const fullName = `${fields.firstName} ${fields.lastName || ''}`.replace(/\s+/g, ' ').trim();
   let linkedPlayer = db.players.find((p) => p.name.toLowerCase() === fullName.toLowerCase());
   if (!linkedPlayer) {
@@ -224,15 +252,28 @@ function applyProfileFields(user, fields) {
   syncLinkedPlayerName(user);
 }
 
+// ---------- fixture / bracket helpers (ported from server/src/index.js) ----------
+
+// Round visibility ("Manage Fixtures") - mirrors server/src/index.js's
+// isRoundVisible. Admins always see/act on every round; everyone else only
+// sees rounds the admin has released via setRoundVisibility below.
 function isRoundVisible(division, round) {
   return !!division && Array.isArray(division.visibleRounds) && division.visibleRounds.includes(round);
 }
 
 function hydrateDivision(division) {
+  // Filtered once here, then reused below - mirrors the same fix in
+  // server/src/index.js's hydrateDivision (see that copy for the full note):
+  // computeStandings/computeTeamStandings used to each re-filter the whole
+  // db.fixtures array by divisionId themselves instead of reusing this.
   const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
   const league = db.leagues.find((l) => l.id === division.leagueId);
   const leagueName = league ? league.name : null;
 
+  // See server/src/index.js's hydrateDivision for the full note - mirrors
+  // `bothEntrantsKnown` here too so the demo build's fixture-list views can
+  // tell "genuinely scheduled" apart from "still waiting on an earlier
+  // knockout round's winner" the same way the live server does.
   const isTeamsDivision = division.entryType === 'teams';
   const displayFixtures = fixtures.map((f) => ({
     ...f,
@@ -240,6 +281,7 @@ function hydrateDivision(division) {
       ? !!(f.homeTeamId && f.awayTeamId)
       : !!(f.homePlayerId && f.awayPlayerId),
   }));
+  // See server/src/index.js's hydrateDivision for the full note.
   const totalRounds = division.scheduling === 'knockout_single_elim' && fixtures.length > 0
     ? Math.max(...fixtures.map((f) => f.round))
     : null;
@@ -266,6 +308,10 @@ function hydrateDivision(division) {
   hydrated.leaguePayment = league ? league.payment : null;
   hydrated.leagueManagerUserIds = league && Array.isArray(league.managerUserIds) ? league.managerUserIds : [];
 
+  // Roll of Honour - mirrors server/src/index.js's
+  // recordChampionIfDivisionComplete (see that copy for the full note on why
+  // this is checked centrally here instead of at every fixture-completion
+  // call site).
   recordChampionIfDivisionComplete(division, hydrated);
 
   return hydrated;
@@ -295,6 +341,9 @@ function recordChampionIfDivisionComplete(division, hydrated) {
     if (!finalFixture) return;
     championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
   } else {
+    // A top standing with 0 points means nobody actually won a match (the
+    // division was closed early before any result was played out) - see
+    // the matching check in server/src/index.js.
     const top = hydrated.standings[0];
     if (!top || top.points === 0) return;
     championId = top[idField];
@@ -317,9 +366,17 @@ function recordChampionIfDivisionComplete(division, hydrated) {
     championName,
     recordedAt: new Date().toISOString(),
   });
+  // Not wrapped in persist()/op() - this is a side effect of a read
+  // (hydrateDivision runs on GETs too), so it saves immediately the same way
+  // server/src/db.js's writeDb() does inside recordChampionIfDivisionComplete,
+  // rather than waiting for whatever op() the caller happens to be inside.
   persist();
 }
 
+// Force-completes every not-yet-completed fixture in a division at 0-0 (0
+// legs for a team fixture), no winner - mirrors server/src/index.js's
+// closeOutstandingFixtures. Used by both closeDivisionEarly (one division)
+// and closeLeagueEarly (every division in a league) below.
 function closeOutstandingFixtures(division, actorLabel) {
   const outstanding = db.fixtures.filter((f) => f.divisionId === division.id && f.status !== 'completed');
   const closedAt = new Date().toISOString();
@@ -357,11 +414,21 @@ function closeOutstandingFixtures(division, actorLabel) {
   return outstanding.length;
 }
 
+// Round visibility: normally every round starts hidden, released one at a
+// time from Manage Fixtures - but generating fixtures asks up front whether
+// to skip that entirely and make the whole season visible immediately.
+// Mirrors server/src/index.js's markAllRoundsVisible. Shared by both
+// generateFixtures (one division) and adminGenerateSeason (every division
+// in a league at once) below.
 function markAllRoundsVisible(division) {
   const rounds = new Set(db.fixtures.filter((f) => f.divisionId === division.id).map((f) => f.round));
   division.visibleRounds = Array.from(rounds).sort((a, b) => a - b);
 }
 
+// Ported from server/src/index.js's buildOverlayFixture - normalizes
+// singles/teams/doubles fixtures into one { home, away } shape for the OBS
+// overlay and Arena display pages. Shared by both getOverlayFixture and
+// getArena below so there's exactly one place that does this normalization.
 function buildOverlayFixture(fixture) {
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   const league = db.leagues.find((l) => l.id === fixture.leagueId);
@@ -430,6 +497,7 @@ function buildOverlayFixture(fixture) {
   };
 }
 
+// ---------- League payment wall helpers (mirrors server/src/index.js) ----------
 function normalizePaymentConfig(input) {
   const required = !!(input && input.required);
   if (!required) {
@@ -461,6 +529,9 @@ function formatMoney(amount, currency) {
   }
 }
 
+// See server/src/index.js's assertPaymentCleared for the full note - not
+// called from adminImportSeasonPlayers below for the same chicken-and-egg
+// reason documented there.
 function assertPaymentCleared(division, playerId) {
   const league = db.leagues.find((l) => l.id === division.leagueId);
   if (!league || !league.payment || !league.payment.required) return;
@@ -503,9 +574,11 @@ function makeSinglesFixture({ league, division, round }) {
     winnerPlayerId: null,
     nextFixtureId: null,
     nextFixtureSlot: null,
+    // Knockout only - see server/src/index.js's byeSlot comment.
     byeSlot: null,
+    // See server/src/index.js's reserved comment.
     reserved: false,
-    bracketRole: 'single',
+    bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
     loserNextFixtureId: null,
     loserNextFixtureSlot: null,
     resetFixtureId: null,
@@ -603,6 +676,9 @@ function propagateWinner(division, fixture, winnerId) {
   } else {
     next.awayPlayerId = winnerId;
   }
+  // See server/src/index.js's propagateWinner comment - `next` might
+  // structurally never receive a second entrant (byeSlot set), in which
+  // case resolve it immediately and keep the chain going.
   if (next.byeSlot) resolveByeIfNeeded(division, next);
 }
 
@@ -615,6 +691,10 @@ function generateKnockoutFixtures({ league, division, entrantIds }) {
     pairs.map(() => makeFixture({ league, division, round: roundIndex + 1 }))
   );
 
+  // See server/src/index.js's generateKnockoutFixtures comment - a round
+  // with an odd box count leaves its last next-round box's 'away' slot
+  // permanently unlinked; mark it byeSlot so propagateWinner knows to
+  // auto-resolve it the moment its lone real feeder concludes.
   for (let round = 0; round < fixturesByRound.length - 1; round++) {
     const thisRound = fixturesByRound[round];
     const nextRound = fixturesByRound[round + 1];
@@ -648,6 +728,10 @@ function generateKnockoutFixtures({ league, division, entrantIds }) {
   fixturesByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
+// Double-elimination only: sends the LOSER of a winners-bracket fixture down
+// into its assigned losers-bracket slot (mirrors propagateWinner). No-op for
+// anything other than a winners-bracket fixture - a losers-bracket loss is
+// simply an elimination, nowhere further to go.
 function propagateLoser(division, fixture, loserId) {
   if (fixture.bracketRole !== 'winners' || !fixture.loserNextFixtureId || !loserId) return;
   const dest = db.fixtures.find((f) => f.id === fixture.loserNextFixtureId);
@@ -660,9 +744,18 @@ function propagateLoser(division, fixture, loserId) {
   } else {
     dest.awayPlayerId = loserId;
   }
+  // See propagateWinner's byeSlot comment - the losers-bracket destination
+  // might structurally never receive a second entrant either. Resolve it
+  // immediately and keep the chain going if so.
   if (dest.byeSlot) resolveByeIfNeeded(division, dest);
 }
 
+// Double-elimination only: the losers-bracket champion enters the Grand
+// Final with one life already spent, the winners-bracket champion with
+// none - so if the losers-bracket entrant (always the "away" slot - see
+// generateDoubleElimFixtures) wins the Grand Final, a single decider
+// ("bracket reset") is required to settle the title. No-op once a reset has
+// already been created, or if the winners-bracket (home) side won outright.
 function checkGrandFinalReset(division, fixture) {
   if (fixture.bracketRole !== 'grand_final' || fixture.status !== 'completed' || fixture.resetFixtureId) return;
   const isTeams = division.entryType === 'teams';
@@ -685,11 +778,15 @@ function checkGrandFinalReset(division, fixture) {
   fixture.resetFixtureId = reset.id;
 }
 
+// Double-elimination fixture generation - see server/src/index.js's
+// generateDoubleElimFixtures for the full design notes (this is a direct
+// port, adapted only for demoApi's closed-over `db` instead of a db param).
 function generateDoubleElimFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const reservedCount = reservedByeCountFor(entrantIds.length);
   const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
 
+  // ---- Winners bracket ----
   const wbByRound = winnersRounds.map((pairs, roundIndex) =>
     pairs.map(() => {
       const f = makeFixture({ league, division, round: roundIndex + 1 });
@@ -724,6 +821,7 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
     }
   });
 
+  // ---- Losers bracket ----
   const lbByRound = losersRounds.map((round, roundIndex) =>
     Array.from({ length: round.boxCount }, () => {
       const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
@@ -749,6 +847,9 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
       }
     });
   }
+  // Wire each winners round's losers into their losers-bracket destination
+  // - see server/src/index.js's generateDoubleElimFixtures for the full
+  // comments (this is a direct port).
   losersRounds.forEach((lbRound, lbRoundIndex) => {
     if (lbRound.feedsFromWinnersRound === null) return;
     const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
@@ -771,6 +872,7 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
     });
   });
 
+  // ---- Grand Final ----
   const wbFinal = wbByRound[wbByRound.length - 1][0];
   const lbFinal = lbByRound[lbByRound.length - 1][0];
   const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
@@ -782,14 +884,22 @@ function generateDoubleElimFixtures({ league, division, entrantIds }) {
 
   const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
   allFixtures.forEach((f) => db.fixtures.push(f));
+  // Resolve any non-reserved winners-bracket round-1 byes - see
+  // server/src/index.js's matching comment.
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
 }
 
+// "Ally Knockout (Double elimination)" - the demo/sandbox mirror of
+// server/src/index.js's generateAllyDoubleElimFixtures. Its own function
+// body (a direct port, not a call into generateDoubleElimFixtures above) so
+// this format has a genuinely independent scheduling type here too, same
+// as the real backend - see that file's comment for why.
 function generateAllyDoubleElimFixtures({ league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const reservedCount = reservedByeCountFor(entrantIds.length);
   const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
 
+  // ---- Winners bracket ----
   const wbByRound = winnersRounds.map((pairs, roundIndex) =>
     pairs.map(() => {
       const f = makeFixture({ league, division, round: roundIndex + 1 });
@@ -824,6 +934,7 @@ function generateAllyDoubleElimFixtures({ league, division, entrantIds }) {
     }
   });
 
+  // ---- Losers bracket ----
   const lbByRound = losersRounds.map((round, roundIndex) =>
     Array.from({ length: round.boxCount }, () => {
       const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
@@ -871,6 +982,7 @@ function generateAllyDoubleElimFixtures({ league, division, entrantIds }) {
     });
   });
 
+  // ---- Grand Final ----
   const wbFinal = wbByRound[wbByRound.length - 1][0];
   const lbFinal = lbByRound[lbByRound.length - 1][0];
   const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
