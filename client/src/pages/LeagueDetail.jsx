@@ -503,9 +503,9 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
               <h3 style={{ marginBottom: '0.25rem' }}>Open for Join</h3>
               <p className="muted">
                 Switch "Is Open" on or off for any division in this league - open lets any registered
-                player request to join from the <Link to="/open-divisions">Open Divisions</Link> page,
-                for you to approve or decline below. Set at creation time by default; this is where you
-                change it afterwards. A division can't be opened once its fixtures have been generated.
+                player request to join, for you to approve or decline below. Set at creation time by
+                default; this is where you change it afterwards. A division can't be opened once its
+                fixtures have been generated.
               </p>
               {league.divisions.length === 0 ? (
                 <p className="muted">This league has no divisions yet.</p>
@@ -693,9 +693,8 @@ export default function LeagueDetail() {
   // ... any registered player can request to join the open league/
   // division, with league managers then making a decision." Implemented at
   // division level, since that's the unit players actually join (a league
-  // itself has no roster of its own) - see OpenDivisions.jsx for the
-  // browse/request side and ManageLeaguePanel's "Join Requests" subsection
-  // for the approval side.
+  // itself has no roster of its own) - see ManageLeaguePanel's "Join
+  // Requests" subsection for the approval side.
   const [isOpen, setIsOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
 

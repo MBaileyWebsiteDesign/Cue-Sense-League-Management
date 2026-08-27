@@ -13,7 +13,6 @@ import Register from './pages/Register.jsx';
 import RegisterWix from './pages/RegisterWix.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
-import OpenDivisions from './pages/OpenDivisions.jsx';
 import OpenLeagues from './pages/OpenLeagues.jsx';
 import { AuthProvider, useAuth } from './AuthContext.jsx';
 import { BreadcrumbProvider } from './BreadcrumbContext.jsx';
@@ -150,9 +149,6 @@ function HeaderNav() {
             Captain Portal
           </Link>
         )}
-        <Link to="/open-divisions" className="header-link" onClick={closeMenu}>
-          Open Divisions
-        </Link>
         <Link to="/open-leagues" className="header-link" onClick={closeMenu}>
           Open Leagues
         </Link>
@@ -232,7 +228,6 @@ function AppShell() {
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
-            <Route path="/open-divisions" element={<RequireLogin><OpenDivisions /></RequireLogin>} />
             <Route path="/open-leagues" element={<RequireLogin><OpenLeagues /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
