@@ -14,7 +14,6 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 //   2. Feature / Requests - lightweight in-app requests, no GitHub account
 //      needed. Anyone logged in can submit one and see everyone else's;
 //      only an Overall Admin can remove one (e.g. a duplicate).
-const REPO_ISSUES_URL = 'https://github.com/MBaileyWebsiteDesign/Cue-Sense-League-Management/issues';
 const FILTERS = ['open', 'closed', 'all'];
 
 // The actual Issue/Bug Tracker + Feature/Requests markup and logic, split
@@ -83,12 +82,6 @@ export function IssuesBugsFeaturesBody() {
     <>
       <section className="card">
         <h2>Issue / Bug Tracker</h2>
-        <p className="muted">
-          Live from the project's{' '}
-          <a href={REPO_ISSUES_URL} target="_blank" rel="noopener noreferrer">GitHub Issues</a>
-          {' '}&mdash; feature requests and bugs together, most recently updated first. File or
-          comment on an issue directly on GitHub; this list is read-only.
-        </p>
 
         {issuesError && <p className="error">{issuesError}</p>}
 
@@ -157,10 +150,6 @@ export function IssuesBugsFeaturesBody() {
 
       <section className="card">
         <h2>Feature / Requests</h2>
-        <p className="muted">
-          Don't have (or don't want to set up) a GitHub account? Put a feature idea or other
-          request here instead &mdash; visible to everyone, players and league admins included.
-        </p>
 
         <form className="form" onSubmit={onSubmit} style={{ marginBottom: 24 }}>
           <label>
