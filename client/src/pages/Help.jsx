@@ -18,11 +18,6 @@ export default function Help() {
         <p className="muted">This is the help section.</p>
       </section>
 
-      <section className="card">
-        <h2>Log a feature request or bug</h2>
-        <p className="muted">Spotted a bug, or have an idea for something new?</p>
-      </section>
-
       <IssuesBugsFeaturesBody />
     </div>
   );
