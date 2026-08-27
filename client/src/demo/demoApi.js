@@ -1549,6 +1549,7 @@ export const demoApi = {
     const trimmedDescription = (description || '').trim();
     if (!trimmedTitle) throw new ApiError(400, 'A short title is required');
     if (trimmedTitle.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+    if (!trimmedDescription) throw new ApiError(400, 'Details are required');
     if (trimmedDescription.length > 4000) throw new ApiError(400, 'Description must be 4000 characters or fewer');
     const user = currentUser();
     if (!user) throw new ApiError(401, 'Login required for this action');
