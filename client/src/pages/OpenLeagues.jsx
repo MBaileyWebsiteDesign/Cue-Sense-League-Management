@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
-// League-level version of OpenDivisions.jsx. A league marked "Open For
-// Registration" doesn't have a roster of its own to join directly - a
-// player here just registers interest in the league as a whole, and a
+// A league marked "Open For Registration" doesn't have a roster of its
+// own to join directly - a player here just registers interest in the
+// league as a whole, and a
 // League Manager splits interested players across whichever division(s)
 // they choose (bulk or one at a time) from that league's "Admin: Manage
 // this League" -> League Interests subsection whenever they're ready.
@@ -40,8 +40,7 @@ export default function OpenLeagues() {
       <h1>Open Leagues</h1>
       <p className="muted">
         Leagues here are open for any registered player to register interest in. A League Manager will
-        place you into a division once they're ready - see also{' '}
-        <Link to="/open-divisions">Open Divisions</Link> for divisions that can be joined directly.
+        place you into a division once they're ready.
       </p>
 
       {error && <p className="error">{error}</p>}
