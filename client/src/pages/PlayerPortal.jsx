@@ -6,7 +6,7 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
-function ProfileForm({ player, leagues, onSaved }) {
+function ProfileForm({ player, onSaved }) {
   const [form, setForm] = useState({
     firstName: player.firstName,
     lastName: player.lastName,
@@ -40,17 +40,6 @@ function ProfileForm({ player, leagues, onSaved }) {
   return (
     <form className="card form" onSubmit={onSubmit}>
       <h2>Your Details</h2>
-      {/* Static, read-only - which league(s)/division(s) you're registered in
-          is set by an admin (Season Setup / division rosters), not something
-          a player edits here. */}
-      <label>
-        League
-        <p style={{ margin: '4px 0 0', fontWeight: 400 }}>
-          {leagues && leagues.length > 0
-            ? leagues.map((l) => `${l.leagueName} — ${l.divisionName}`).join(', ')
-            : 'Not yet assigned to a league'}
-        </p>
-      </label>
       <label>
         First name
         <input value={form.firstName} onChange={set('firstName')} required />
@@ -318,10 +307,12 @@ function MyFixtures() {
 
 // NQT: "Add a section in the player portal below fixtures that lists
 // divisions/leagues or any other competitions they are in or have been
-// in." Reuses the same getMyLeagueMembership() data ProfileForm's "Your
-// Details" line already summarises inline - that endpoint never drops a
-// division from the list when it completes, so this already covers past
-// divisions, not just the ones currently running.
+// in." Uses the same getMyLeagueMembership() data - that endpoint never
+// drops a division from the list when it completes, so this already
+// covers past divisions, not just the ones currently running. This is
+// now the only place the player's league/division membership is shown -
+// ProfileForm's "Your Details" used to repeat it inline but that was
+// removed as a redundant duplicate.
 function MyLeaguesAndDivisions({ leagues }) {
   if (!leagues || leagues.length === 0) {
     return (
@@ -386,7 +377,7 @@ export default function PlayerPortal() {
       <MyFixtures />
       <MyLeaguesAndDivisions leagues={leagues} />
       <MySubmissions />
-      <ProfileForm player={user} leagues={leagues} onSaved={updateUser} />
+      <ProfileForm player={user} onSaved={updateUser} />
       <ChangePasswordForm />
     </div>
   );
