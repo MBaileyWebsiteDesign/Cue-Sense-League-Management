@@ -265,7 +265,7 @@ function AppShell() {
             <Route path="/tours" element={<RequireLogin><TourList /></RequireLogin>} />
             <Route path="/tours/:tourId" element={<RequireLogin><TourDetail /></RequireLogin>} />
             <Route path="/roll-of-honour" element={<RequireLogin><RollOfHonour /></RequireLogin>} />
-            <Route path="/help" element={<Help />} />
+            <Route path="/help" element={<RequireLogin><Help /></RequireLogin>} />
           </Routes>
         </Suspense>
       </main>
