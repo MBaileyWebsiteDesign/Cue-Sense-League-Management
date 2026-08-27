@@ -963,3 +963,38 @@ app.post('/api/fixtures/:id/confirm-result', requireAuth, asyncRoute((req, res) 
   if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
   const isHome = isHomeEntrant(db, division, fixture, req.auth.user.playerId);
   const isAway = isAwayEntrant(db, division, fixture, req.auth.user.playerId);
+  if (!req.auth.user.isAdmin && !isHome && !isAway) {
+    throw new ApiError(403, 'Only a player in this fixture (or an admin) can confirm this result');
+  }
+
+  if (req.auth.user.isAdmin) {
+    fixture.homeConfirmed = true;
+    fixture.awayConfirmed = true;
+  } else {
+    if (isHome) fixture.homeConfirmed = true;
+    if (isAway) fixture.awayConfirmed = true;
+  }
+
+  if (fixture.homeConfirmed && fixture.awayConfirmed) {
+    fixture.status = 'completed';
+    propagateWinner(db, division, fixture, fixture.winnerPlayerId);
+    const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+    propagateLoser(db, division, fixture, loserPlayerId);
+    checkGrandFinalReset(db, division, fixture);
+  }
+  writeDb(db);
+  res.json(fixture);
+}));
+
+app.post('/api/fixtures/:id/dispute-result', requireAuth, asyncRoute((req, res) => {
+  const { reason } = req.body || {};
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
+  if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
+  const isHome = isHomeEntrant(db, division, fixture, req.auth.user.playerId);
+  const isAway = isAwayEntrant(db, division, fixture, req.auth.user.playerId);
