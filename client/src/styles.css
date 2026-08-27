@@ -114,6 +114,37 @@ body {
   gap: 30px;
 }
 
+/* Groups HeaderNav together with the Help icon on the right side of the
+   header, so .app-header keeps a simple 2-item space-between layout (brand
+   left, this group right) - see App.jsx. Not itself position:relative, so
+   .header-accounts' position:absolute mobile dropdown still anchors to
+   .app-header as before. */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+/* Top-right Help icon link - a small "?" in a circle, drawn inline since
+   this app has no icon library loaded anywhere else (see .hamburger-btn
+   above for the same reasoning). Sits just inside the header's own
+   top/right padding, so no extra offset is needed here. */
+.help-icon-link {
+  display: flex;
+  align-items: center;
+  color: white;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.help-icon-link:hover { opacity: 1; }
+
+.help-icon-link svg {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
+
 .admin-badge {
   background: rgba(255, 255, 255, 0.2);
   color: white;
@@ -505,6 +536,9 @@ h2 { margin-top: 0; }
   .brand-logo { height: 40px; width: 40px; }
   .brand-name { font-size: 1.2rem; }
   .brand-tagline { font-size: 0.7rem; }
+
+  .header-right { gap: 12px; }
+  .help-icon-link svg { width: 22px; height: 22px; }
 
   .hamburger-btn {
     display: flex;
