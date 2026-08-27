@@ -777,3 +777,347 @@ function checkGrandFinalReset(division, fixture) {
   db.fixtures.push(reset);
   fixture.resetFixtureId = reset.id;
 }
+
+// Double-elimination fixture generation - see server/src/index.js's
+// generateDoubleElimFixtures for the full design notes (this is a direct
+// port, adapted only for demoApi's closed-over `db` instead of a db param).
+function generateDoubleElimFixtures({ league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ----
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  // Wire each winners round's losers into their losers-bracket destination
+  // - see server/src/index.js's generateDoubleElimFixtures for the full
+  // comments (this is a direct port).
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    wbSourceFixtures.forEach((fixture, i) => {
+      let dest, slot;
+      if (lbRoundIndex === 0) {
+        dest = lbDestFixtures[Math.floor(i / 2)];
+        slot = i % 2 === 0 ? 'home' : 'away';
+      } else if (i < lbRound.crossMatches) {
+        dest = lbDestFixtures[i];
+        slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
+      }
+      fixture.loserNextFixtureId = dest.id;
+      fixture.loserNextFixtureSlot = slot;
+    });
+  });
+
+  // ---- Grand Final ----
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allFixtures.forEach((f) => db.fixtures.push(f));
+  // Resolve any non-reserved winners-bracket round-1 byes - see
+  // server/src/index.js's matching comment.
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
+}
+
+// "Ally Knockout (Double elimination)" - the demo/sandbox mirror of
+// server/src/index.js's generateAllyDoubleElimFixtures. Its own function
+// body (a direct port, not a call into generateDoubleElimFixtures above) so
+// this format has a genuinely independent scheduling type here too, same
+// as the real backend - see that file's comment for why.
+function generateAllyDoubleElimFixtures({ league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ----
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    wbSourceFixtures.forEach((fixture, i) => {
+      let dest, slot;
+      if (lbRoundIndex === 0) {
+        dest = lbDestFixtures[Math.floor(i / 2)];
+        slot = i % 2 === 0 ? 'home' : 'away';
+      } else if (i < lbRound.crossMatches) {
+        dest = lbDestFixtures[i];
+        slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
+      }
+      fixture.loserNextFixtureId = dest.id;
+      fixture.loserNextFixtureSlot = slot;
+    });
+  });
+
+  // ---- Grand Final ----
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allAllyFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allAllyFixtures.forEach((f) => db.fixtures.push(f));
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
+}
+
+function assignScheduledDates(division, startDate, gapDays) {
+  if (!startDate || !gapDays) return;
+  const base = new Date(`${startDate}T00:00:00`);
+  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+  for (const fixture of fixtures) {
+    const date = new Date(base);
+    date.setDate(date.getDate() + (fixture.round - 1) * Number(gapDays));
+    fixture.scheduledDate = date.toISOString().slice(0, 10);
+  }
+}
+
+function recomputeTeamFixture(division, fixture) {
+  const homeLegsWon = fixture.legs.filter((l) => l.status === 'completed' && l.winnerPlayerId === l.homePlayerId).length;
+  const awayLegsWon = fixture.legs.filter((l) => l.status === 'completed' && l.winnerPlayerId === l.awayPlayerId).length;
+  fixture.homeLegsWon = homeLegsWon;
+  fixture.awayLegsWon = awayLegsWon;
+
+  const totalLegs = fixture.legs.length;
+  const majority = Math.floor(totalLegs / 2) + 1;
+  const allLegsDone = fixture.legs.every((l) => l.status === 'completed');
+  const wasCompleted = fixture.status === 'completed';
+
+  if (homeLegsWon >= majority) {
+    fixture.status = 'completed';
+    fixture.winnerTeamId = fixture.homeTeamId;
+  } else if (awayLegsWon >= majority) {
+    fixture.status = 'completed';
+    fixture.winnerTeamId = fixture.awayTeamId;
+  } else if (allLegsDone) {
+    fixture.status = 'completed';
+    fixture.winnerTeamId = homeLegsWon === awayLegsWon ? null : (homeLegsWon > awayLegsWon ? fixture.homeTeamId : fixture.awayTeamId);
+  } else {
+    fixture.status = fixture.legs.some((l) => l.status !== 'pending') ? 'in_progress' : 'scheduled';
+    fixture.winnerTeamId = null;
+  }
+
+  if (!wasCompleted && fixture.status === 'completed' && fixture.winnerTeamId) {
+    propagateWinner(division, fixture, fixture.winnerTeamId);
+    const loserTeamId = fixture.winnerTeamId === fixture.homeTeamId ? fixture.awayTeamId : fixture.homeTeamId;
+    propagateLoser(division, fixture, loserTeamId);
+    checkGrandFinalReset(division, fixture);
+  }
+}
+
+function findTeamFixtureAndLeg(fixtureId, legNumber) {
+  const fixture = db.fixtures.find((f) => f.id === fixtureId);
+  if (!fixture || !fixture.legs) throw new ApiError(404, 'Team fixture not found');
+  const leg = fixture.legs.find((l) => l.legNumber === Number(legNumber));
+  if (!leg) throw new ApiError(404, 'Leg not found');
+  return { fixture, leg };
+}
+
+// Mirrors server/src/index.js's isAwayEntrant/isHomeEntrant - whether the
+// given playerId is (or is part of, for doubles pairings) the home/away side
+// of a singles or doubles fixture. Used by the mutual result-confirmation
+// and no-show-claim logic below.
+function isAwayEntrant(division, fixture, playerId) {
+  if (!playerId) return false;
+  if (division.entryType === 'doubles') {
+    const pairing = db.pairings.find((p) => p.id === fixture.awayPlayerId);
+    return !!pairing && pairing.playerIds.includes(playerId);
+  }
+  return fixture.awayPlayerId === playerId;
+}
+
+function isHomeEntrant(division, fixture, playerId) {
+  if (!playerId) return false;
+  if (division.entryType === 'doubles') {
+    const pairing = db.pairings.find((p) => p.id === fixture.homePlayerId);
+    return !!pairing && pairing.playerIds.includes(playerId);
+  }
+  return fixture.homePlayerId === playerId;
+}
+
+// Synchronous session lookup for AuthContext's initial state - there's no
+// server round-trip to await in demo mode, so a visitor is "logged in" the
+// instant the page loads rather than seeing a login screen first.
+export function getDemoSession() {
+  const user = currentUser();
+  if (!user) return null;
+  return { token: 'demo-token', expiresAt: Date.now() + 24 * 60 * 60 * 1000, user: publicUser(user) };
+}
+
+// ---------- the api surface (same method names/signatures as ../api.js) ----------
+
+export const demoApi = {
+  login: op((email, password) => {
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+    // Real passwords aren't part of the bundled demo data (nothing to check
+    // them against), so any password is accepted for a known demo account -
+    // this is a public, throwaway playground, not a real login boundary.
+    if (!user) throw new ApiError(401, 'Invalid email or password');
+    if (user.status === 'suspended') throw new ApiError(403, 'This account has been suspended');
+    setCurrentUser(user.id);
+    return { token: 'demo-token', expiresAt: Date.now() + 24 * 60 * 60 * 1000, user: publicUser(user) };
+  }),
+
+  // Public - consumes a demo password-reset token (see adminSendResetLink).
+  resetPassword: op((token, newPassword) => {
+    const reset = db.passwordResets.find((r) => r.token === token);
+    if (!reset) throw new ApiError(404, 'This reset link is invalid');
+    if (reset.usedAt) throw new ApiError(400, 'This reset link has already been used - ask an admin to send a new one');
+    if (Date.now() > reset.expiresAt) throw new ApiError(400, 'This reset link has expired - ask an admin to send a new one');
+    const user = db.users.find((u) => u.id === reset.userId);
+    if (!user) throw new ApiError(404, 'Account not found');
+    reset.usedAt = new Date().toISOString();
+    // Demo mode never checks password hashes at login (see login() below),
+    // so there's nothing real to update here - the reset flow itself (token
+    // validity, single-use, expiry) still works exactly like the real app.
+    return { ok: true };
+  }),
+
+  register: op((data) => {
+    const {
+      firstName, lastName, email, phone = '', teamName = '', classification = null,
+    } = data;
+    if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
+    if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
+    if (!email || !email.trim()) throw new ApiError(400, 'Email is required');
+    if (classification && !CLASSIFICATIONS.includes(classification)) {
+      throw new ApiError(400, `classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
+    }
+    const normalizedEmail = email.trim().toLowerCase();
