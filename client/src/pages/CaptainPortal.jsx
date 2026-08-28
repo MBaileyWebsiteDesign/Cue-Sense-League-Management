@@ -43,6 +43,13 @@ export default function CaptainPortal() {
         </p>
       </section>
 
+      <div className="card-grid">
+        <Link to="/guides" className="card card-link">
+          <h2>Guides</h2>
+          <p className="muted">Reference documents an admin has made available to captains.</p>
+        </Link>
+      </div>
+
       <section className="card">
         <h2>Your upcoming matches</h2>
         {error && <p className="error">{error}</p>}
