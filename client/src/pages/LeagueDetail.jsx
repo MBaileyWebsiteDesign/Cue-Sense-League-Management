@@ -250,29 +250,28 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   const [selectedUserId, setSelectedUserId] = useState('');
   const [managerBusy, setManagerBusy] = useState(false);
 
-  // NQT: pending join requests for this league's open divisions - fetched
-  // the same lazy-on-open way as the League Managers candidate list above.
-  const [joinRequests, setJoinRequests] = useState([]);
-  const [joinRequestBusy, setJoinRequestBusy] = useState(null);
-
-  // Per-division "Is Open" toggle - previously only settable when a
-  // division was first created (see LeagueDetail's New Division form). This
-  // lets an admin open or close join requests on an existing division
-  // without deleting and recreating it. See server/src/index.js's
-  // POST /api/divisions/:id/set-open.
-  const [openBusy, setOpenBusy] = useState(null);
-
   // League-level "Open For Registration" toggle + League Interests bulk
   // assignment - see server/src/index.js's "---------- Open leagues
   // ----------" block. Interested players are listed here with checkboxes
   // plus a division picker, so a League Manager can split e.g. 10
   // interested players across several divisions in a few clicks rather
-  // than adding each one individually.
+  // than adding each one individually. This is the only self-service join
+  // mechanism left in the app - the older division-level "Is Open"/Join
+  // Requests feature was removed (see claude/join-requests-removal doc in
+  // the project) in favour of this league-level flow.
   const [leagueOpenBusy, setLeagueOpenBusy] = useState(false);
   const [leagueInterests, setLeagueInterests] = useState([]);
   const [selectedInterestIds, setSelectedInterestIds] = useState([]);
   const [assignDivisionId, setAssignDivisionId] = useState('');
   const [interestBusy, setInterestBusy] = useState(false);
+  // Per-item failures from the last bulk-assign attempt (e.g. a selected
+  // player hasn't cleared the league's payment wall) - shown as a red
+  // notice directly under the "Add ... selected to division" button rather
+  // than the page-level error banner, since bulk-assign returns 200 with a
+  // per-item results array (see server's POST /api/league-interests/bulk-
+  // assign) instead of throwing, so these were previously swallowed
+  // silently by onBulkAssign below.
+  const [assignFailures, setAssignFailures] = useState([]);
 
   useEffect(() => {
     if (!open || !isAdmin) return;
@@ -280,17 +279,12 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isAdmin]);
 
-  const loadJoinRequests = () => {
-    api.getLeagueJoinRequests(league.id).then(setJoinRequests).catch((e) => setError(e.message));
-  };
-
   const loadLeagueInterests = () => {
     api.getLeagueInterests(league.id).then(setLeagueInterests).catch((e) => setError(e.message));
   };
 
   useEffect(() => {
     if (!open || !canManage) return;
-    loadJoinRequests();
     loadLeagueInterests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, canManage, league.id]);
@@ -330,46 +324,24 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
     if (selectedInterestIds.length === 0 || !assignDivisionId) return;
     setInterestBusy(true);
     setError('');
+    setAssignFailures([]);
     try {
-      await api.bulkAssignLeagueInterests(selectedInterestIds, assignDivisionId);
-      setSelectedInterestIds([]);
+      const res = await api.bulkAssignLeagueInterests(selectedInterestIds, assignDivisionId);
+      const results = res?.results || [];
+      const succeededIds = results.filter((r) => r.ok).map((r) => r.interestId);
+      // Only drop the ones that succeeded from the selection - a failed one
+      // (e.g. unpaid) stays selected/visible so the manager can see exactly
+      // who still needs sorting out before trying again. The server's error
+      // message already names the player (see assertPaymentCleared), so
+      // there's no need to re-look-up the interest here.
+      setSelectedInterestIds((ids) => ids.filter((id) => !succeededIds.includes(id)));
+      setAssignFailures(results.filter((r) => !r.ok).map((r) => r.error));
       loadLeagueInterests();
       onChange();
     } catch (err) {
       setError(err.message);
     } finally {
       setInterestBusy(false);
-    }
-  };
-
-  const onDecideJoinRequest = async (requestId, decision) => {
-    setJoinRequestBusy(requestId);
-    setError('');
-    try {
-      if (decision === 'approve') {
-        await api.approveJoinRequest(requestId);
-      } else {
-        await api.rejectJoinRequest(requestId);
-      }
-      loadJoinRequests();
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setJoinRequestBusy(null);
-    }
-  };
-
-  const onToggleOpen = async (divisionId, isOpen) => {
-    setOpenBusy(divisionId);
-    setError('');
-    try {
-      await api.setDivisionOpen(divisionId, isOpen);
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setOpenBusy(null);
     }
   };
 
@@ -500,80 +472,6 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
 
           {canManage && (
             <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ marginBottom: '0.25rem' }}>Open for Join</h3>
-              <p className="muted">
-                Switch "Is Open" on or off for any division in this league - open lets any registered
-                player request to join, for you to approve or decline below. Set at creation time by
-                default; this is where you change it afterwards. A division can't be opened once its
-                fixtures have been generated.
-              </p>
-              {league.divisions.length === 0 ? (
-                <p className="muted">This league has no divisions yet.</p>
-              ) : (
-                <ul className="fixture-list">
-                  {league.divisions.map((d) => (
-                    <li key={d.id}>
-                      <span>{d.name}</span>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          style={{ width: 'auto' }}
-                          checked={!!d.isOpen}
-                          disabled={openBusy === d.id || (!d.isOpen && d.fixturesGenerated)}
-                          onChange={(e) => onToggleOpen(d.id, e.target.checked)}
-                        />
-                        {d.isOpen ? 'Open' : d.fixturesGenerated ? 'Closed (fixtures generated)' : 'Closed'}
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {canManage && (
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ marginBottom: '0.25rem' }}>Join Requests</h3>
-              <p className="muted">
-                Any registered player can request to join a division marked "Is Open" (set when the
-                division is created) without you adding them directly. Approve to add them to that
-                division's roster the same as if you'd added them yourself, or decline to close the
-                request out with no changes.
-              </p>
-              {joinRequests.length === 0 ? (
-                <p className="muted">No pending join requests for this league right now.</p>
-              ) : (
-                <ul className="fixture-list">
-                  {joinRequests.map((r) => (
-                    <li key={r.id}>
-                      <span>{r.playerName} <span className="muted">→ {r.divisionName}</span></span>
-                      <span style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          className="btn btn-primary"
-                          type="button"
-                          disabled={joinRequestBusy === r.id}
-                          onClick={() => onDecideJoinRequest(r.id, 'approve')}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          className="btn"
-                          type="button"
-                          disabled={joinRequestBusy === r.id}
-                          onClick={() => onDecideJoinRequest(r.id, 'reject')}
-                        >
-                          Decline
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {canManage && (
-            <div style={{ marginBottom: '1.5rem' }}>
               <h3 style={{ marginBottom: '0.25rem' }}>League Interests</h3>
               <p className="muted">
                 League-level version of "Is Open" - when this league is open for interest registration,
@@ -637,6 +535,11 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
                       {interestBusy ? 'Adding…' : `Add ${selectedInterestIds.length || ''} selected to division`}
                     </button>
                   </div>
+                  {assignFailures.length > 0 && (
+                    <p className="error" style={{ marginTop: 8 }}>
+                      {assignFailures.join(' ')}
+                    </p>
+                  )}
                 </>
               )}
             </div>
@@ -689,13 +592,6 @@ export default function LeagueDetail() {
   // the same underlying number; only the resulting raceTo is ever sent.
   const [formatMode, setFormatMode] = useState('raceTo');
   const [formatValue, setFormatValue] = useState(6);
-  // NQT: "when creating a League or Division an 'Is Open' tick box is used
-  // ... any registered player can request to join the open league/
-  // division, with league managers then making a decision." Implemented at
-  // division level, since that's the unit players actually join (a league
-  // itself has no roster of its own) - see ManageLeaguePanel's "Join
-  // Requests" subsection for the approval side.
-  const [isOpen, setIsOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
   useSetBreadcrumbs(
@@ -736,7 +632,6 @@ export default function LeagueDetail() {
         entryType,
         scheduling,
         raceTo,
-        isOpen,
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
       });
@@ -747,7 +642,6 @@ export default function LeagueDetail() {
       setScheduling('round_robin_single');
       setFormatMode('raceTo');
       setFormatValue(6);
-      setIsOpen(false);
       setShowForm(false);
       load();
     } catch (err) {
@@ -858,10 +752,6 @@ export default function LeagueDetail() {
               <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
               <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
             </select>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={isOpen} onChange={(e) => setIsOpen(e.target.checked)} />
-            Is Open — let any registered player request to join this division (you'll approve or decline each request)
           </label>
           <button className="btn btn-primary" type="submit">
             Add Division
