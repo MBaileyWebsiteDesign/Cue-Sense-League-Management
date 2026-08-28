@@ -763,10 +763,17 @@ app.post('/api/leagues/:id/payments/:playerId', requireAnyAdmin, asyncRoute((req
   res.json(record);
 }));
 
-// Lists every registered player against their payment status for this
-// league, for the admin "Payments" tab - includes players with no
-// leaguePayments record yet at all (shown as 'unpaid' without writing one,
-// so just viewing this list never silently creates rows).
+// Lists, against their payment status for this league (for the admin
+// "Payments" tab), every player who has actually requested to join this
+// league - i.e. has a League Interest registration for it that's still
+// 'pending' or was accepted ('assigned' - see POST /api/league-interests/
+// bulk-assign). A 'declined' request doesn't count - the manager already
+// turned them away, so there's nothing to track payment for. This used to
+// list every registered player in the whole app regardless of any
+// connection to this league; narrowed to actual requesters so the list
+// stays relevant. Includes players with no leaguePayments record yet at
+// all (shown as 'unpaid' without writing one, so just viewing this list
+// never silently creates rows).
 app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
@@ -775,19 +782,26 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
   const recordsByPlayer = new Map(
     db.leaguePayments.filter((p) => p.leagueId === league.id).map((p) => [p.playerId, p])
   );
-  const players = registeredPlayers(db).map((player) => {
-    const record = recordsByPlayer.get(player.id);
-    return {
-      playerId: player.id,
-      playerName: player.name,
-      status: record ? record.status : 'unpaid',
-      amount: record ? record.amount : league.payment.amount,
-      currency: record ? record.currency : league.payment.currency,
-      confirmedBy: record ? record.confirmedBy : null,
-      confirmedAt: record ? record.confirmedAt : null,
-      notes: record ? record.notes : '',
-    };
-  });
+  const requestedPlayerIds = new Set(
+    db.leagueInterests
+      .filter((r) => r.leagueId === league.id && (r.status === 'pending' || r.status === 'assigned'))
+      .map((r) => r.playerId)
+  );
+  const players = registeredPlayers(db)
+    .filter((player) => requestedPlayerIds.has(player.id))
+    .map((player) => {
+      const record = recordsByPlayer.get(player.id);
+      return {
+        playerId: player.id,
+        playerName: player.name,
+        status: record ? record.status : 'unpaid',
+        amount: record ? record.amount : league.payment.amount,
+        currency: record ? record.currency : league.payment.currency,
+        confirmedBy: record ? record.confirmedBy : null,
+        confirmedAt: record ? record.confirmedAt : null,
+        notes: record ? record.notes : '',
+      };
+    });
   res.json({ league: { id: league.id, name: league.name, payment: league.payment }, players });
 }));
 
