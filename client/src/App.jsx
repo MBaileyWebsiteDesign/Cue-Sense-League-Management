@@ -47,6 +47,7 @@ const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
 const Help = lazy(() => import('./pages/Help.jsx'));
+const Guides = lazy(() => import('./pages/Guides.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
 // combination of admin/captain/plain-player flags it has) can browse. There
@@ -266,6 +267,7 @@ function AppShell() {
             <Route path="/tours/:tourId" element={<RequireLogin><TourDetail /></RequireLogin>} />
             <Route path="/roll-of-honour" element={<RequireLogin><RollOfHonour /></RequireLogin>} />
             <Route path="/help" element={<RequireLogin><Help /></RequireLogin>} />
+            <Route path="/guides" element={<RequireLogin><Guides /></RequireLogin>} />
           </Routes>
         </Suspense>
       </main>
