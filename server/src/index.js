@@ -2310,7 +2310,11 @@ app.post('/api/leagues/:id/interests', requireAuth, asyncRoute((req, res) => {
 
 // Pending league-interest registrations for one league, for that league's
 // "Admin: Manage this League" -> League Interests subsection - same access
-// pattern as GET /api/leagues/:id/join-requests.
+// pattern as GET /api/leagues/:id/join-requests. Each row also carries the
+// requester's payment-wall status (paymentStatus - null if this league has
+// no payment wall) so the client can offer inline Confirm/Waive/Reset
+// controls right here instead of a separate players list - see the old GET
+// /api/leagues/:id/payments above, which this superseded for that purpose.
 app.get('/api/leagues/:id/league-interests', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.id);
@@ -2320,12 +2324,18 @@ app.get('/api/leagues/:id/league-interests', requireAnyAdmin, asyncRoute((req, r
     .filter((r) => r.status === 'pending' && r.leagueId === league.id)
     .map((r) => {
       const player = db.players.find((p) => p.id === r.playerId);
+      let paymentStatus = null;
+      if (league.payment?.required) {
+        const paymentRecord = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === r.playerId);
+        paymentStatus = paymentRecord ? paymentRecord.status : 'unpaid';
+      }
       return {
         id: r.id,
         leagueId: r.leagueId,
         playerId: r.playerId,
         playerName: player?.name || 'Unknown player',
         createdAt: r.createdAt,
+        paymentStatus,
       };
     });
   res.json(result);
