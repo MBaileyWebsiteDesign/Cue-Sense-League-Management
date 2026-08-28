@@ -19,7 +19,7 @@ export default function LeagueManagerPortal() {
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'League Manager Portal' }]);
 
   useEffect(() => {
-    api.getLeagues().then(setLeagues).setError(e.message));
+    api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
   }, []);
 
   const managed = (leagues || []).filter((l) => canManageLeague(l));
