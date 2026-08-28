@@ -63,13 +63,14 @@ function TablesPanel({ league, onChange, setError }) {
   );
 }
 
-// Admin-only panel for the payment wall: turning it on/off and setting the
-// amount + optional window (edits the League record via PATCH), plus - once
-// it's on - a per-player list with Confirm/Waive/Reset actions (see
-// assertPaymentCleared in server/src/index.js for how this gates adding
-// entrants elsewhere). Settings and the player list are deliberately one
-// panel rather than two, since there's nothing useful to show in the player
-// list until the wall is actually turned on.
+// Admin-only panel for the payment wall settings: turning it on/off and
+// setting the amount + optional window (edits the League record via
+// PATCH). The per-player Confirm/Waive/Reset list used to live here too,
+// but it's been folded into ManageLeaguePanel's "League Interests" section
+// below instead (see the comment there) - a manager decides who to place
+// and clears their payment in the same spot, rather than jumping between
+// two separate lists. See assertPaymentCleared in server/src/index.js for
+// how payment status gates adding entrants to a division.
 function PaymentsPanel({ league, onChange, setError }) {
   const [editing, setEditing] = useState(false);
   const [required, setRequired] = useState(false);
@@ -77,13 +78,6 @@ function PaymentsPanel({ league, onChange, setError }) {
   const [windowStart, setWindowStart] = useState('');
   const [windowEnd, setWindowEnd] = useState('');
   const [saving, setSaving] = useState(false);
-
-  const [players, setPlayers] = useState([]);
-  const [loadingPlayers, setLoadingPlayers] = useState(false);
-  // Collapsed by default - same "Show"/"Hide" pattern as ManageLeaguePanel
-  // below, since the per-player confirm/waive list can get long and isn't
-  // needed at a glance once the wall is set up.
-  const [showPlayers, setShowPlayers] = useState(false);
 
   // Re-populate the edit form from the current league every time it's
   // opened, rather than once on mount - otherwise a second edit after a
@@ -97,19 +91,6 @@ function PaymentsPanel({ league, onChange, setError }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
-
-  useEffect(() => {
-    if (!league.payment?.required) {
-      setPlayers([]);
-      return;
-    }
-    setLoadingPlayers(true);
-    api.getLeaguePayments(league.id)
-      .then((res) => setPlayers(res.players))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoadingPlayers(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [league.payment?.required, league.id]);
 
   const onSaveSettings = async (e) => {
     e.preventDefault();
@@ -131,17 +112,6 @@ function PaymentsPanel({ league, onChange, setError }) {
       setError(err.message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const onSetStatus = async (playerId, status) => {
-    setError('');
-    try {
-      await api.setLeaguePaymentStatus(league.id, playerId, status);
-      const res = await api.getLeaguePayments(league.id);
-      setPlayers(res.players);
-    } catch (err) {
-      setError(err.message);
     }
   };
 
@@ -196,43 +166,6 @@ function PaymentsPanel({ league, onChange, setError }) {
         </form>
       )}
 
-      {league.payment?.required && (
-        <>
-          <div className="page-header" style={{ marginTop: 16, marginBottom: 8 }}>
-            <h3 style={{ margin: 0 }}>Players</h3>
-            <button className="btn" type="button" onClick={() => setShowPlayers((v) => !v)}>
-              {showPlayers ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {showPlayers && loadingPlayers && <p className="muted">Loading…</p>}
-          {showPlayers && (
-          <ul className="player-list">
-            {players.map((p) => (
-              <li key={p.playerId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>
-                  {p.playerName} <strong>{p.status}</strong>
-                  {p.status !== 'unpaid' && p.confirmedBy && (
-                    <span className="muted" style={{ fontSize: '0.8rem' }}> - by {p.confirmedBy}</span>
-                  )}
-                </span>
-                <span>
-                  {p.status !== 'confirmed' && (
-                    <button className="btn-link" onClick={() => onSetStatus(p.playerId, 'confirmed')}>confirm paid</button>
-                  )}
-                  {p.status !== 'waived' && (
-                    <button className="btn-link" onClick={() => onSetStatus(p.playerId, 'waived')}>waive</button>
-                  )}
-                  {p.status !== 'unpaid' && (
-                    <button className="btn-link" onClick={() => onSetStatus(p.playerId, 'unpaid')}>reset</button>
-                  )}
-                </span>
-              </li>
-            ))}
-            {players.length === 0 && !loadingPlayers && <li className="muted">No registered players yet.</li>}
-          </ul>
-          )}
-        </>
-      )}
     </section>
   );
 }
@@ -270,6 +203,16 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   // mechanism left in the app - the older division-level "Is Open"/Join
   // Requests feature was removed (see claude/join-requests-removal doc in
   // the project) in favour of this league-level flow.
+  //
+  // Each pending interest also carries the requester's payment-wall status
+  // (server-side, GET /api/leagues/:id/league-interests joins against
+  // db.leaguePayments) with inline Confirm/Waive/Reset controls - folded in
+  // from what used to be a separate "Players" list under the Payment Wall
+  // panel, so a manager clears payment right where they decide who to
+  // place, instead of jumping between two lists. Deliberately pending-only:
+  // bulk-assign already calls assertPaymentCleared before adding anyone to
+  // a division, so an assigned player's payment is cleared by definition -
+  // there's nothing left to manage for them here.
   const [leagueOpenBusy, setLeagueOpenBusy] = useState(false);
   const [leagueInterests, setLeagueInterests] = useState([]);
   const [selectedInterestIds, setSelectedInterestIds] = useState([]);
@@ -323,6 +266,22 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
     try {
       await api.declineLeagueInterest(id);
       setSelectedInterestIds((ids) => ids.filter((x) => x !== id));
+      loadLeagueInterests();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setInterestBusy(false);
+    }
+  };
+
+  // Confirm/waive/reset a requester's payment status right from their
+  // League Interests row - see the block comment above for why this lives
+  // here instead of a separate Payment Wall players list.
+  const onSetInterestPayment = async (playerId, status) => {
+    setInterestBusy(true);
+    setError('');
+    try {
+      await api.setLeaguePaymentStatus(league.id, playerId, status);
       loadLeagueInterests();
     } catch (err) {
       setError(err.message);
@@ -489,6 +448,7 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
                 any registered player can register interest from the <Link to="/open-leagues">Open
                 Leagues</Link> page without picking a division. Select who you're ready to place, pick a
                 division to put them in, and add them in bulk - repeat for as many divisions as you like.
+                {league.payment?.required && ' If this league has a payment wall, confirm or waive each player’s payment below before adding them.'}
               </p>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
                 <input
@@ -516,15 +476,56 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
                             onChange={() => toggleInterestSelected(r.id)}
                           />
                           {r.playerName}
+                          {league.payment?.required && (
+                            <span className="muted" style={{ fontSize: '0.8rem' }}>
+                              (<strong>{r.paymentStatus}</strong>)
+                            </span>
+                          )}
                         </label>
-                        <button
-                          className="btn"
-                          type="button"
-                          disabled={interestBusy}
-                          onClick={() => onDeclineInterest(r.id)}
-                        >
-                          Decline
-                        </button>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {league.payment?.required && (
+                            <>
+                              {r.paymentStatus !== 'confirmed' && (
+                                <button
+                                  className="btn-link"
+                                  type="button"
+                                  disabled={interestBusy}
+                                  onClick={() => onSetInterestPayment(r.playerId, 'confirmed')}
+                                >
+                                  confirm paid
+                                </button>
+                              )}
+                              {r.paymentStatus !== 'waived' && (
+                                <button
+                                  className="btn-link"
+                                  type="button"
+                                  disabled={interestBusy}
+                                  onClick={() => onSetInterestPayment(r.playerId, 'waived')}
+                                >
+                                  waive
+                                </button>
+                              )}
+                              {r.paymentStatus !== 'unpaid' && (
+                                <button
+                                  className="btn-link"
+                                  type="button"
+                                  disabled={interestBusy}
+                                  onClick={() => onSetInterestPayment(r.playerId, 'unpaid')}
+                                >
+                                  reset
+                                </button>
+                              )}
+                            </>
+                          )}
+                          <button
+                            className="btn"
+                            type="button"
+                            disabled={interestBusy}
+                            onClick={() => onDeclineInterest(r.id)}
+                          >
+                            Decline
+                          </button>
+                        </span>
                       </li>
                     ))}
                   </ul>
