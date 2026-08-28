@@ -2461,14 +2461,24 @@ export const demoApi = {
     return request;
   }),
 
+  // Mirrors server/src/index.js's GET /api/leagues/:id/league-interests -
+  // includes each requester's payment-wall status (paymentStatus) so the
+  // client can offer inline Confirm/Waive/Reset controls here.
   getLeagueInterests: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
     return db.leagueInterests
       .filter((r) => r.status === 'pending' && r.leagueId === leagueId)
       .map((r) => {
         const player = db.players.find((p) => p.id === r.playerId);
+        let paymentStatus = null;
+        if (league?.payment?.required) {
+          const paymentRecord = db.leaguePayments.find((p) => p.leagueId === leagueId && p.playerId === r.playerId);
+          paymentStatus = paymentRecord ? paymentRecord.status : 'unpaid';
+        }
         return {
           id: r.id, leagueId: r.leagueId, playerId: r.playerId,
           playerName: player?.name || 'Unknown player', createdAt: r.createdAt,
+          paymentStatus,
         };
       });
   }),
