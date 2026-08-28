@@ -2246,26 +2246,35 @@ export const demoApi = {
     return record;
   }),
 
-  // Mirrors server/src/index.js's GET /api/leagues/:id/payments.
+  // Mirrors server/src/index.js's GET /api/leagues/:id/payments - narrowed
+  // to players who actually requested to join this league (a 'pending' or
+  // 'assigned' League Interest registration), not every registered player.
   getLeaguePayments: op((leagueId) => {
     const league = db.leagues.find((l) => l.id === leagueId);
     if (!league) throw new ApiError(404, 'League not found');
     const recordsByPlayer = new Map(
       db.leaguePayments.filter((p) => p.leagueId === league.id).map((p) => [p.playerId, p])
     );
-    const players = registeredPlayers().map((player) => {
-      const record = recordsByPlayer.get(player.id);
-      return {
-        playerId: player.id,
-        playerName: player.name,
-        status: record ? record.status : 'unpaid',
-        amount: record ? record.amount : league.payment.amount,
-        currency: record ? record.currency : league.payment.currency,
-        confirmedBy: record ? record.confirmedBy : null,
-        confirmedAt: record ? record.confirmedAt : null,
-        notes: record ? record.notes : '',
-      };
-    });
+    const requestedPlayerIds = new Set(
+      db.leagueInterests
+        .filter((r) => r.leagueId === league.id && (r.status === 'pending' || r.status === 'assigned'))
+        .map((r) => r.playerId)
+    );
+    const players = registeredPlayers()
+      .filter((player) => requestedPlayerIds.has(player.id))
+      .map((player) => {
+        const record = recordsByPlayer.get(player.id);
+        return {
+          playerId: player.id,
+          playerName: player.name,
+          status: record ? record.status : 'unpaid',
+          amount: record ? record.amount : league.payment.amount,
+          currency: record ? record.currency : league.payment.currency,
+          confirmedBy: record ? record.confirmedBy : null,
+          confirmedAt: record ? record.confirmedAt : null,
+          notes: record ? record.notes : '',
+        };
+      });
     return { league: { id: league.id, name: league.name, payment: league.payment }, players };
   }),
 
