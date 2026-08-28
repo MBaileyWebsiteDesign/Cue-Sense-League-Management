@@ -377,6 +377,14 @@ export default function PlayerPortal() {
       <MyFixtures />
       <MyLeaguesAndDivisions leagues={leagues} />
       <MySubmissions />
+
+      <div className="card-grid">
+        <Link to="/guides" className="card card-link">
+          <h2>Guides</h2>
+          <p className="muted">Reference documents an admin has made available to players.</p>
+        </Link>
+      </div>
+
       <ProfileForm player={user} onSaved={updateUser} />
       <ChangePasswordForm />
     </div>
