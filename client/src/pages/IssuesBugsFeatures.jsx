@@ -13,7 +13,10 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 //      commenting on an issue still happens on GitHub itself.
 //   2. Feature / Requests - lightweight in-app requests, no GitHub account
 //      needed. Anyone logged in can submit one and see everyone else's;
-//      only an Overall Admin can remove one (e.g. a duplicate).
+//      only an Overall Admin can remove one (e.g. a duplicate). Each
+//      submission is also filed on GitHub as an "Enhancement"-labeled issue
+//      server-side (see POST /api/feature-requests) - the link back to it
+//      shows up next to the request once that's happened.
 const FILTERS = ['open', 'closed', 'all'];
 
 // The actual Issue/Bug Tracker + Feature/Requests markup and logic, split
@@ -192,6 +195,14 @@ export function IssuesBugsFeaturesBody() {
                 </span>
                 <span className="muted">
                   {r.createdByName} &middot; {new Date(r.createdAt).toLocaleDateString()}
+                  {r.githubIssueUrl && (
+                    <>
+                      {' '}&middot;{' '}
+                      <a href={r.githubIssueUrl} target="_blank" rel="noopener noreferrer">
+                        GitHub #{r.githubIssueNumber}
+                      </a>
+                    </>
+                  )}
                   {isAdmin && (
                     <>
                       {' '}&middot;{' '}
