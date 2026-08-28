@@ -3,20 +3,23 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
-// Was AdminIssueTracker.jsx / admin-only /admin/issues. Now open to every
-// logged-in account (players, League Managers and Overall Admins alike) and
-// split into two halves:
+// Was AdminIssueTracker.jsx / admin-only /admin/issues, then briefly open
+// to every logged-in account. Split into two halves with different
+// audiences:
 //   1. Issue / Bug Tracker - a read-only mirror of the project's GitHub
 //      Issues (see GET /api/github-issues in server/src/index.js, which
 //      proxies GitHub's public REST API server-side with a short cache to
 //      stay under GitHub's unauthenticated rate limit). Filing or
 //      commenting on an issue still happens on GitHub itself.
+//      Overall-Admin-only (per Matt's request) - hidden entirely for plain
+//      players, captains and League Managers.
 //   2. Feature / Requests - lightweight in-app requests, no GitHub account
 //      needed. Anyone logged in can submit one and see everyone else's;
 //      only an Overall Admin can remove one (e.g. a duplicate). Each
 //      submission is also filed on GitHub as an "Enhancement"-labeled issue
 //      server-side (see POST /api/feature-requests) - the link back to it
-//      shows up next to the request once that's happened.
+//      shows up next to the request once that's happened. Stays visible to
+//      every account type.
 const FILTERS = ['open', 'closed', 'all'];
 
 // The actual Issue/Bug Tracker + Feature/Requests markup and logic, split
@@ -39,8 +42,12 @@ export function IssuesBugsFeaturesBody() {
   const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
+    // Issue / Bug Tracker is Overall-Admin-only (see the note above the
+    // FILTERS constant) - skip the fetch entirely for anyone else, since
+    // the section below never renders for them.
+    if (!isAdmin) return;
     api.getGithubIssues().then(setIssues).catch((e) => setIssuesError(e.message));
-  }, []);
+  }, [isAdmin]);
 
   const loadRequests = () => api.getFeatureRequests().then(setRequests).catch((e) => setRequestsError(e.message));
   useEffect(() => {
@@ -83,6 +90,7 @@ export function IssuesBugsFeaturesBody() {
 
   return (
     <>
+      {isAdmin && (
       <section className="card">
         <h2>Issue / Bug Tracker</h2>
 
@@ -150,6 +158,7 @@ export function IssuesBugsFeaturesBody() {
           </ul>
         ) : null}
       </section>
+      )}
 
       <section className="card">
         <h2>Feature / Requests</h2>

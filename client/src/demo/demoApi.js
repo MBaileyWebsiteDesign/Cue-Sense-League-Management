@@ -1571,6 +1571,17 @@ export const demoApi = {
     return null;
   }),
 
+  // Guides (client/src/pages/Guides.jsx): real PDF/Word file storage on the
+  // persistent volume, same reasoning as getGithubIssues above - nothing
+  // genuine to show/upload in a client-only static build, so this surfaces
+  // a clear message instead of pretending to store a file nobody could
+  // actually download afterward.
+  getGuides: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  uploadGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  updateGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  deleteGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  downloadGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+
   adminCreateSeason: op((data) => {
     const { name, leagueCount, playersPerLeague, payment } = data;
     if (!name || !name.trim()) throw new ApiError(400, 'Season name is required');

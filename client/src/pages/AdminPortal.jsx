@@ -71,9 +71,17 @@ export default function AdminPortal() {
         <Link to="/issues-bugs-features" className="card card-link">
           <h2>Issues / Bugs / Features</h2>
           <p className="muted">
-            Every open and recently-closed issue on the project's GitHub repo, pulled live,
+            Every open and recently-closed issue on the project's GitHub repo (Overall-Admin-only),
             plus in-app Feature / Requests submitted by players and league admins. Also
             reachable by every logged-in account from the main nav, not just admins.
+          </p>
+        </Link>
+
+        <Link to="/guides" className="card card-link">
+          <h2>Guides</h2>
+          <p className="muted">
+            Upload PDF or Word reference guides and choose which account types can see each one -
+            players, captains, league managers and/or admins.
           </p>
         </Link>
 

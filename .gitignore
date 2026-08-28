@@ -2,6 +2,7 @@ node_modules/
 client/dist/
 client/dist-demo/
 server/src/data/db.json
+server/src/data/guides/
 *.log
 .DS_Store
 *.timestamp-*.mjs

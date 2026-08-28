@@ -72,6 +72,57 @@ const networkApi = {
     request('/feature-requests', { method: 'POST', body: JSON.stringify({ title, description }) }),
   adminDeleteFeatureRequest: (id) => request(`/feature-requests/${id}`, { method: 'DELETE' }),
 
+  // Guides page (client/src/pages/Guides.jsx) - visible to every logged-in
+  // account (filtered server-side to what applies to them); only an
+  // Overall Admin can upload, edit, or remove one. Upload and download
+  // bypass the JSON-only `request()` helper the same way downloadBackup
+  // does below - one sends a real file (multipart/form-data, no
+  // Content-Type set so the browser adds its own boundary), the other
+  // reads back a binary blob instead of parsed JSON.
+  getGuides: () => request('/guides'),
+  uploadGuide: async ({ title, description, visibility, file }) => {
+    const token = getStoredToken();
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('description', description || '');
+    formData.append('visibility', JSON.stringify(visibility));
+    formData.append('file', file);
+    const res = await fetch(`${BASE}/guides`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return body;
+  },
+  updateGuide: (id, data) => request(`/guides/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteGuide: (id) => request(`/guides/${id}`, { method: 'DELETE' }),
+  downloadGuide: async (id, fallbackFileName) => {
+    const token = getStoredToken();
+    const res = await fetch(`${BASE}/guides/${id}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : (fallbackFileName || 'guide');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
   // Admin: Game Adjustments
   adminGetPlayerFixtures: (playerId) => request(`/admin/players/${playerId}/fixtures`),
   adminGetFixturesNeedingAttention: () => request('/admin/fixtures/needs-attention'),

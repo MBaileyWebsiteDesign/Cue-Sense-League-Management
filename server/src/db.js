@@ -17,7 +17,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // filesystem is rebuilt from the image on every deploy, so anything written
 // to the default in-repo `data/` folder would otherwise be wiped every time.
 // Falls back to the local `server/src/data` folder for `npm run dev`/`npm start`.
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+// Exported so other modules (e.g. index.js's Guides file storage) can share
+// the exact same directory rather than re-deriving it - keeps every
+// persistent-volume-relative path in one place.
+export const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'db.json');
 
 // In-memory cache of the last-parsed (and migrated) state, keyed to the data
@@ -79,6 +82,15 @@ const EMPTY_STATE = {
   // Issues / Bugs / Features page. { id, title, description, createdAt,
   // createdByUserId, createdByName }.
   featureRequests: [],
+  // Guides: PDF/Word reference documents an Overall Admin uploads from the
+  // Guides page, each flagged with which account type(s) can see it - see
+  // the Guides routes and client/src/pages/Guides.jsx. The actual file
+  // lives on disk under DATA_DIR/guides (binary, not JSON-friendly); this
+  // only holds each guide's metadata. { id, title, description,
+  // storedFileName, originalFileName, mimeType, size, visibility: {
+  // player, captain, leagueManager, admin }, uploadedByUserId,
+  // uploadedByName, createdAt, updatedAt }.
+  guides: [],
 };
 
 function ensureDataFile() {
@@ -122,6 +134,7 @@ export function readDb() {
   if (!state.joinRequests) state.joinRequests = [];
   if (!state.leagueInterests) state.leagueInterests = [];
   if (!state.featureRequests) state.featureRequests = [];
+  if (!state.guides) state.guides = [];
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
   // that route and the Arena display (GET /api/overlay/leagues/:id/arena).

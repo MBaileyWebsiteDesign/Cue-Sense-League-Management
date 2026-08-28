@@ -50,6 +50,13 @@ export default function LeagueManagerPortal() {
         </p>
       </section>
 
+      <div className="card-grid">
+        <Link to="/guides" className="card card-link">
+          <h2>Guides</h2>
+          <p className="muted">Reference documents an admin has made available to League Managers.</p>
+        </Link>
+      </div>
+
       <section className="card">
         <h2>Leagues you manage</h2>
         {error && <p className="error">{error}</p>}
