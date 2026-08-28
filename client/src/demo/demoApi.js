@@ -2426,7 +2426,7 @@ export const demoApi = {
     return db.leagues
       .filter((l) => l.isOpenForRegistration)
       .map((l) => {
-        const divisionCount = db.divisions.filter((d) => d.leagueId === l.id).length;
+        const divisions = db.divisions.filter((d) => d.leagueId === l.id);
         const alreadyRegistered = myPlayerId
           ? db.leagueInterests.some((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status !== 'declined')
           : false;
@@ -2437,7 +2437,20 @@ export const demoApi = {
           leagueId: l.id,
           leagueName: l.name,
           sport: l.sport,
-          divisionCount,
+          divisionCount: divisions.length,
+          payment: {
+            required: !!(l.payment && l.payment.required),
+            amount: l.payment ? l.payment.amount : 0,
+            currency: l.payment ? l.payment.currency : 'GBP',
+          },
+          divisions: divisions.map((d) => ({
+            name: d.name,
+            entryType: d.entryType,
+            raceTo: d.raceTo,
+            legsPerMatch: d.legsPerMatch,
+            pairingSize: d.pairingSize,
+            scheduling: d.scheduling,
+          })),
           alreadyRegistered,
           requestStatus: alreadyRegistered ? (pendingInterest ? 'pending' : 'assigned') : null,
         };
