@@ -1697,17 +1697,61 @@ app.get('/api/github-issues', requireAuth, (req, res) => {
 // Feature / Requests: the other half of the Issues / Bugs / Features page -
 // a lightweight in-app alternative to filing a GitHub issue, open to any
 // logged-in account (player, League Manager or Overall Admin) rather than
-// just admins. Deliberately not wired into GitHub Issues itself (no token
-// scope for creating issues is assumed to exist) - these are stored
-// app-side and shown in their own "Feature / Requests" list below the
-// GitHub-backed Issue / Bug Tracker.
+// just admins. Every submission is ALSO filed as a real GitHub Issue
+// labeled "Enhancement" (see createGithubIssueForFeatureRequest just below)
+// so the project's GitHub tracker stays the single place engineering work
+// gets triaged from, while the in-app form stays friendly to people who
+// don't have (or want) a GitHub account. Requires a
+// GITHUB_FEATURE_REQUEST_TOKEN Fly secret with Issues read/write access to
+// this repo - a fine-grained PAT scoped to just this repo with "Issues:
+// Read and write" is enough. Without that secret set, requests still save
+// and show up in-app exactly as before; they just won't also become a
+// GitHub issue (a warning is logged so this is easy to notice).
+const GITHUB_FEATURE_REQUEST_LABEL = 'Enhancement';
+
+function createGithubIssueForFeatureRequest(request) {
+  const token = process.env.GITHUB_FEATURE_REQUEST_TOKEN;
+  if (!token) {
+    console.warn(`GITHUB_FEATURE_REQUEST_TOKEN not set - feature request ${request.id} was saved in-app only, not filed on GitHub`);
+    return Promise.resolve(null);
+  }
+
+  return fetch(`https://api.github.com/repos/${GITHUB_ISSUES_REPO}/issues`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'cue-sense-pool-management',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      title: request.title,
+      body: `${request.description}\n\n---\nSubmitted in-app by ${request.createdByName} via the Feature / Requests page.`,
+      labels: [GITHUB_FEATURE_REQUEST_LABEL],
+    }),
+  })
+    .then(async (ghRes) => {
+      if (!ghRes.ok) {
+        const errText = await ghRes.text().catch(() => '');
+        console.error(`GitHub issue creation failed (${ghRes.status}) for feature request ${request.id}: ${errText}`);
+        return null;
+      }
+      const issue = await ghRes.json();
+      return { number: issue.number, htmlUrl: issue.html_url };
+    })
+    .catch((err) => {
+      console.error(`Couldn't reach GitHub to file feature request ${request.id} as an issue: ${err.message}`);
+      return null;
+    });
+}
+
 app.get('/api/feature-requests', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const requests = [...db.featureRequests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   res.json(requests);
 }));
 
-app.post('/api/feature-requests', requireAuth, asyncRoute((req, res) => {
+app.post('/api/feature-requests', requireAuth, asyncRoute(async (req, res) => {
   const title = (req.body.title || '').trim();
   const description = (req.body.description || '').trim();
   if (!title) throw new ApiError(400, 'A short title is required');
@@ -1723,9 +1767,29 @@ app.post('/api/feature-requests', requireAuth, asyncRoute((req, res) => {
     createdAt: new Date().toISOString(),
     createdByUserId: req.auth.user.id,
     createdByName: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+    githubIssueNumber: null,
+    githubIssueUrl: null,
   };
   db.featureRequests.push(request);
   writeDb(db);
+
+  // Best-effort: also file this as a GitHub issue. createGithubIssueForFeatureRequest
+  // never rejects (it catches its own errors and resolves null), so a GitHub-side
+  // problem here can never block or fail the in-app submission above, which is
+  // already saved by this point regardless of what happens next.
+  const issue = await createGithubIssueForFeatureRequest(request);
+  if (issue) {
+    const latest = readDb();
+    const saved = latest.featureRequests.find((r) => r.id === request.id);
+    if (saved) {
+      saved.githubIssueNumber = issue.number;
+      saved.githubIssueUrl = issue.htmlUrl;
+      writeDb(latest);
+      request.githubIssueNumber = issue.number;
+      request.githubIssueUrl = issue.htmlUrl;
+    }
+  }
+
   res.status(201).json(request);
 }));
 
