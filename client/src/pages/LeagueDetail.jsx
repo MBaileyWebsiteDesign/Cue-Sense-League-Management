@@ -80,6 +80,10 @@ function PaymentsPanel({ league, onChange, setError }) {
 
   const [players, setPlayers] = useState([]);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
+  // Collapsed by default - same "Show"/"Hide" pattern as ManageLeaguePanel
+  // below, since the per-player confirm/waive list can get long and isn't
+  // needed at a glance once the wall is set up.
+  const [showPlayers, setShowPlayers] = useState(false);
 
   // Re-populate the edit form from the current league every time it's
   // opened, rather than once on mount - otherwise a second edit after a
@@ -194,8 +198,14 @@ function PaymentsPanel({ league, onChange, setError }) {
 
       {league.payment?.required && (
         <>
-          <h3 style={{ marginTop: 16, marginBottom: 8 }}>Players</h3>
-          {loadingPlayers && <p className="muted">Loading…</p>}
+          <div className="page-header" style={{ marginTop: 16, marginBottom: 8 }}>
+            <h3 style={{ margin: 0 }}>Players</h3>
+            <button className="btn" type="button" onClick={() => setShowPlayers((v) => !v)}>
+              {showPlayers ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showPlayers && loadingPlayers && <p className="muted">Loading…</p>}
+          {showPlayers && (
           <ul className="player-list">
             {players.map((p) => (
               <li key={p.playerId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -220,6 +230,7 @@ function PaymentsPanel({ league, onChange, setError }) {
             ))}
             {players.length === 0 && !loadingPlayers && <li className="muted">No registered players yet.</li>}
           </ul>
+          )}
         </>
       )}
     </section>
