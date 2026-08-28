@@ -2,10 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { readDb, writeDb, resetDb, restoreDb } from './db.js';
+import { readDb, writeDb, resetDb, restoreDb, DATA_DIR } from './db.js';
 import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
 import { nextRound as adaptiveNextRound } from './services/adaptiveDoubleElim.js';
@@ -1802,6 +1803,239 @@ app.delete('/api/feature-requests/:id', requireAdmin, asyncRoute((req, res) => {
   if (db.featureRequests.length === before) throw new ApiError(404, 'Feature request not found');
   writeDb(db);
   res.status(204).end();
+}));
+
+// ---------- Guides ----------
+// Admin-uploaded reference documents (PDF/Word) - see client/src/pages/
+// Guides.jsx. Each guide carries its own "visibility" flags for which
+// account type(s) can see it (player, captain, leagueManager, admin - every
+// account is at least a "player" for this purpose, same convention as
+// PlayerPortal.jsx). Only an Overall Admin can upload, edit, or remove a
+// guide; everyone else gets a filtered, view-only list/download. The file
+// itself is streamed straight to disk under DATA_DIR/guides (the same
+// persistent volume db.json lives on - see db.js's DATA_DIR) rather than
+// stored inline in db.json, since PDFs/Word docs are binary and can be
+// large; db.json only ever holds each guide's metadata.
+const GUIDES_DIR = path.join(DATA_DIR, 'guides');
+if (!existsSync(GUIDES_DIR)) mkdirSync(GUIDES_DIR, { recursive: true });
+
+const GUIDE_ROLES = ['player', 'captain', 'leagueManager', 'admin'];
+// Deliberately narrow (per Matt's choice) - matches the Player/League
+// Manager/Admin Guide.docx files already in this project. Checked by
+// extension, not just multer's reported mimetype, since that's supplied by
+// the browser and easy to spoof either way - the extension is what ends up
+// on the downloaded file too.
+const GUIDE_EXTENSIONS = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+const guideStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, GUIDES_DIR),
+  // Never trust the browser-supplied original filename for the on-disk
+  // name (path traversal, collisions) - a fresh uuid plus the validated
+  // extension is all storage needs; the real name is kept separately as
+  // originalFileName for display/download.
+  filename: (req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname).toLowerCase()}`),
+});
+// No file-size limit is set here (Matt's explicit choice, despite the
+// app's general single-JSON-file-database scale sensitivity noted
+// elsewhere in this file) - diskStorage streams straight to disk rather
+// than buffering in memory, so an unusually large PDF doesn't blow up
+// server memory the way multer's default memoryStorage would.
+const uploadGuideFile = multer({
+  storage: guideStorage,
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!GUIDE_EXTENSIONS[ext]) {
+      cb(new ApiError(400, 'Only PDF and Word documents (.pdf, .doc, .docx) can be uploaded as a Guide'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+function userGuideRoles(user) {
+  const roles = ['player'];
+  if (user.isCaptain) roles.push('captain');
+  if (user.isLeagueManager) roles.push('leagueManager');
+  if (user.isAdmin) roles.push('admin');
+  return roles;
+}
+
+// An Overall Admin can always see/download every guide (needed to manage
+// visibility on one that isn't flagged for admins themselves); everyone
+// else needs at least one of their own roles ticked on the guide.
+function guideVisibleToUser(guide, user) {
+  if (user.isAdmin) return true;
+  return userGuideRoles(user).some((role) => guide.visibility[role]);
+}
+
+// Never send storedFileName (the on-disk name) to the client - downloads
+// go through the id-based route below instead, same as every other
+// admin-only-detail/public-shape split in this file.
+function publicGuide(guide) {
+  return {
+    id: guide.id,
+    title: guide.title,
+    description: guide.description,
+    originalFileName: guide.originalFileName,
+    mimeType: guide.mimeType,
+    size: guide.size,
+    visibility: guide.visibility,
+    uploadedByName: guide.uploadedByName,
+    createdAt: guide.createdAt,
+    updatedAt: guide.updatedAt,
+  };
+}
+
+function parseGuideVisibility(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const visibility = {};
+  for (const role of GUIDE_ROLES) visibility[role] = !!source[role];
+  return visibility;
+}
+
+app.get('/api/guides', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const user = req.auth.user;
+  // Admins manage the full set (including a guide not currently flagged
+  // for admins) - everyone else only ever sees what applies to them.
+  const guides = user.isAdmin ? db.guides : db.guides.filter((g) => guideVisibleToUser(g, user));
+  guides.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(guides.map(publicGuide));
+}));
+
+app.post('/api/guides', requireAdmin, uploadGuideFile.single('file'), asyncRoute((req, res) => {
+  // Validation failures below all clean up the file multer already wrote
+  // to disk before erroring, so a rejected upload never leaves an orphan
+  // file behind.
+  const cleanupAndThrow = (status, message) => {
+    if (req.file) {
+      try { unlinkSync(req.file.path); } catch (err) { console.error(`Couldn't clean up rejected guide upload: ${err.message}`); }
+    }
+    throw new ApiError(status, message);
+  };
+
+  if (!req.file) throw new ApiError(400, 'A PDF or Word document is required');
+
+  const title = (req.body.title || '').trim();
+  if (!title) cleanupAndThrow(400, 'A title is required');
+  if (title.length > 200) cleanupAndThrow(400, 'Title must be 200 characters or fewer');
+
+  const description = (req.body.description || '').trim();
+  if (description.length > 2000) cleanupAndThrow(400, 'Description must be 2000 characters or fewer');
+
+  let visibilityInput;
+  try {
+    visibilityInput = req.body.visibility ? JSON.parse(req.body.visibility) : {};
+  } catch {
+    cleanupAndThrow(400, 'Invalid visibility data');
+  }
+  const visibility = parseGuideVisibility(visibilityInput);
+  if (!GUIDE_ROLES.some((role) => visibility[role])) {
+    cleanupAndThrow(400, 'Choose at least one account type who can view this guide');
+  }
+
+  const db = readDb();
+  const guide = {
+    id: uuid(),
+    title,
+    description,
+    storedFileName: req.file.filename,
+    originalFileName: req.file.originalname,
+    mimeType: GUIDE_EXTENSIONS[path.extname(req.file.originalname).toLowerCase()] || req.file.mimetype,
+    size: req.file.size,
+    visibility,
+    uploadedByUserId: req.auth.user.id,
+    uploadedByName: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  db.guides.push(guide);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'guide.upload',
+    targetType: 'guide',
+    targetId: guide.id,
+    details: `Uploaded guide "${title}" (${req.file.originalname})`,
+  });
+  writeDb(db);
+
+  res.status(201).json(publicGuide(guide));
+}));
+
+app.patch('/api/guides/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const guide = db.guides.find((g) => g.id === req.params.id);
+  if (!guide) throw new ApiError(404, 'Guide not found');
+
+  if (req.body.title !== undefined) {
+    const title = String(req.body.title).trim();
+    if (!title) throw new ApiError(400, 'A title is required');
+    if (title.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+    guide.title = title;
+  }
+  if (req.body.description !== undefined) {
+    const description = String(req.body.description).trim();
+    if (description.length > 2000) throw new ApiError(400, 'Description must be 2000 characters or fewer');
+    guide.description = description;
+  }
+  if (req.body.visibility !== undefined) {
+    const visibility = parseGuideVisibility(req.body.visibility);
+    if (!GUIDE_ROLES.some((role) => visibility[role])) {
+      throw new ApiError(400, 'Choose at least one account type who can view this guide');
+    }
+    guide.visibility = visibility;
+  }
+  guide.updatedAt = new Date().toISOString();
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'guide.update',
+    targetType: 'guide',
+    targetId: guide.id,
+    details: `Updated guide "${guide.title}"`,
+  });
+  writeDb(db);
+
+  res.json(publicGuide(guide));
+}));
+
+app.delete('/api/guides/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const guide = db.guides.find((g) => g.id === req.params.id);
+  if (!guide) throw new ApiError(404, 'Guide not found');
+
+  db.guides = db.guides.filter((g) => g.id !== guide.id);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'guide.delete',
+    targetType: 'guide',
+    targetId: guide.id,
+    details: `Removed guide "${guide.title}"`,
+  });
+  writeDb(db);
+
+  const filePath = path.join(GUIDES_DIR, guide.storedFileName);
+  if (existsSync(filePath)) {
+    try { unlinkSync(filePath); } catch (err) { console.error(`Couldn't delete guide file ${filePath}: ${err.message}`); }
+  }
+
+  res.status(204).end();
+}));
+
+app.get('/api/guides/:id/download', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const guide = db.guides.find((g) => g.id === req.params.id);
+  if (!guide) throw new ApiError(404, 'Guide not found');
+  if (!guideVisibleToUser(guide, req.auth.user)) throw new ApiError(403, "You don't have access to this guide");
+
+  const filePath = path.join(GUIDES_DIR, guide.storedFileName);
+  if (!existsSync(filePath)) throw new ApiError(404, 'Guide file is missing');
+
+  res.download(filePath, guide.originalFileName);
 }));
 
 app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
