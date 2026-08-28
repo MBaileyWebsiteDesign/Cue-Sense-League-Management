@@ -2260,7 +2260,7 @@ app.get('/api/open-leagues', optionalAuth, asyncRoute((req, res) => {
   const result = db.leagues
     .filter((l) => l.isOpenForRegistration)
     .map((l) => {
-      const divisionCount = db.divisions.filter((d) => d.leagueId === l.id).length;
+      const divisions = db.divisions.filter((d) => d.leagueId === l.id);
       const alreadyRegistered = myPlayerId
         ? db.leagueInterests.some((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status !== 'declined')
         : false;
@@ -2271,7 +2271,27 @@ app.get('/api/open-leagues', optionalAuth, asyncRoute((req, res) => {
         leagueId: l.id,
         leagueName: l.name,
         sport: l.sport,
-        divisionCount,
+        divisionCount: divisions.length,
+        // So the public "Open Leagues" browse page can say up front whether
+        // joining costs anything, and how much, before a player registers
+        // interest - same amount/currency the Payment Wall panel uses.
+        payment: {
+          required: !!(l.payment && l.payment.required),
+          amount: l.payment ? l.payment.amount : 0,
+          currency: l.payment ? l.payment.currency : 'GBP',
+        },
+        // Per-division game style, so a browsing player can see what they'd
+        // actually be signing up for (singles/doubles/triples/teams, race
+        // length, and bracket/round-robin format) before registering
+        // interest in the league as a whole.
+        divisions: divisions.map((d) => ({
+          name: d.name,
+          entryType: d.entryType,
+          raceTo: d.raceTo,
+          legsPerMatch: d.legsPerMatch,
+          pairingSize: d.pairingSize,
+          scheduling: d.scheduling,
+        })),
         alreadyRegistered,
         requestStatus: alreadyRegistered ? (pendingInterest ? 'pending' : 'assigned') : null,
       };
