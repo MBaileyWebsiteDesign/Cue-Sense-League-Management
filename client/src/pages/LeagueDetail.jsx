@@ -604,7 +604,20 @@ export default function LeagueDetail() {
   // the same underlying number; only the resulting raceTo is ever sent.
   const [formatMode, setFormatMode] = useState('raceTo');
   const [formatValue, setFormatValue] = useState(6);
+  // Killer Classic / Cards Killer only - replaces Match format/Race to,
+  // which don't apply to a lives-based free-for-all game. See
+  // server/src/services/killer.js.
+  const [startingLives, setStartingLives] = useState(3);
   const [showForm, setShowForm] = useState(false);
+
+  const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
+
+  const onSchedulingChange = (value) => {
+    setScheduling(value);
+    // No fixed sides in a free-for-all game - see the KILLER_TYPES comment
+    // in server/src/index.js.
+    if (value === 'killer_classic' || value === 'cards_killer') setEntryType('singles');
+  };
 
   useSetBreadcrumbs(
     league
@@ -622,20 +635,27 @@ export default function LeagueDetail() {
   const onAddDivision = async (e) => {
     e.preventDefault();
     setError('');
-    const numericFormatValue = Number(formatValue);
+    // Killer Classic/Cards Killer have no per-match frame race - Match
+    // format/Race to are skipped entirely and startingLives is sent instead.
     let raceTo;
-    if (formatMode === 'bestOf') {
-      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
-        setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
-        return;
+    if (!isKiller) {
+      const numericFormatValue = Number(formatValue);
+      if (formatMode === 'bestOf') {
+        if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
+          setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
+          return;
+        }
+        raceTo = (numericFormatValue + 1) / 2;
+      } else {
+        if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1) {
+          setError('Race to (frames) must be a whole number of 1 or more');
+          return;
+        }
+        raceTo = numericFormatValue;
       }
-      raceTo = (numericFormatValue + 1) / 2;
-    } else {
-      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1) {
-        setError('Race to (frames) must be a whole number of 1 or more');
-        return;
-      }
-      raceTo = numericFormatValue;
+    } else if (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1) {
+      setError('Starting lives must be a whole number of 1 or more');
+      return;
     }
     try {
       await api.createDivision(leagueId, {
@@ -643,7 +663,7 @@ export default function LeagueDetail() {
         order: league.divisions.length,
         entryType,
         scheduling,
-        raceTo,
+        ...(isKiller ? { startingLives: Number(startingLives) } : { raceTo }),
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
       });
@@ -654,6 +674,7 @@ export default function LeagueDetail() {
       setScheduling('round_robin_single');
       setFormatMode('raceTo');
       setFormatValue(6);
+      setStartingLives(3);
       setShowForm(false);
       load();
     } catch (err) {
@@ -690,13 +711,24 @@ export default function LeagueDetail() {
           </label>
           <label>
             Entry type
-            <select value={entryType} onChange={(e) => setEntryType(e.target.value)}>
-              <option value="singles">Singles (one player vs one player)</option>
-              <option value="teams">Teams (team vs team, made up of legs)</option>
-              <option value="doubles">Doubles/Triples (2-3 player pairing vs pairing, alternate-shot)</option>
+            <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller}>
+              {isKiller ? (
+                <option value="singles">Singles (one player at a time, everyone in the game together)</option>
+              ) : (
+                <>
+                  <option value="singles">Singles (one player vs one player)</option>
+                  <option value="teams">Teams (team vs team, made up of legs)</option>
+                  <option value="doubles">Doubles/Triples (2-3 player pairing vs pairing, alternate-shot)</option>
+                </>
+              )}
             </select>
+            {isKiller && (
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                Killer Classic/Cards Killer are free-for-all games with no fixed sides, so this is locked to Singles.
+              </span>
+            )}
           </label>
-          {entryType === 'teams' && (
+          {entryType === 'teams' && !isKiller && (
             <label>
               Legs per match
               <input
@@ -708,7 +740,7 @@ export default function LeagueDetail() {
               />
             </label>
           )}
-          {entryType === 'doubles' && (
+          {entryType === 'doubles' && !isKiller && (
             <label>
               Players per pairing
               <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
@@ -718,43 +750,8 @@ export default function LeagueDetail() {
             </label>
           )}
           <label>
-            Match format
-            <select
-              value={formatMode}
-              onChange={(e) => setFormatMode(e.target.value)}
-            >
-              <option value="raceTo">Race to (frames)</option>
-              <option value="bestOf">Best of (frames)</option>
-            </select>
-          </label>
-          <label>
-            {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
-            <input
-              type="number"
-              min="1"
-              step={formatMode === 'bestOf' ? 2 : 1}
-              value={formatValue}
-              onChange={(e) => setFormatValue(e.target.value)}
-              required
-            />
-            {formatMode === 'bestOf' && (() => {
-              const v = Number(formatValue);
-              if (!Number.isInteger(v) || v < 1) return null;
-              return v % 2 === 0 ? (
-                <span className="muted" style={{ fontSize: '0.8rem' }}>
-                  Best of must be an odd number, so it can't end level.
-                </span>
-              ) : (
-                <span className="muted" style={{ fontSize: '0.8rem' }}>
-                  = Race to {(v + 1) / 2} - first to {(v + 1) / 2} frame{(v + 1) / 2 === 1 ? '' : 's'} wins the
-                  match; any frames that can no longer affect the result aren't played.
-                </span>
-              );
-            })()}
-          </label>
-          <label>
             Format
-            <select value={scheduling} onChange={(e) => setScheduling(e.target.value)}>
+            <select value={scheduling} onChange={(e) => onSchedulingChange(e.target.value)}>
               <option value="round_robin_single">Round Robin - Single (everyone plays each other once)</option>
               <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
               <option value="knockout_single_elim">Knockout (single elimination)</option>
@@ -763,8 +760,65 @@ export default function LeagueDetail() {
               <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
               <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
               <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
+              <option value="killer_classic">Killer Classic (free-for-all, turn order drawn at random)</option>
+              <option value="cards_killer">Cards Killer (free-for-all, turn order drawn from a shuffled deck)</option>
             </select>
           </label>
+          {isKiller ? (
+            <label>
+              Starting lives
+              <input
+                type="number"
+                min="1"
+                value={startingLives}
+                onChange={(e) => setStartingLives(e.target.value)}
+                required
+              />
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                Every player starts the game with this many lives (3 tally marks in both rule sheets) - there's no
+                per-match race to a number of frames in {scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'},
+                so Match format/Race to don't apply.
+              </span>
+            </label>
+          ) : (
+            <>
+              <label>
+                Match format
+                <select
+                  value={formatMode}
+                  onChange={(e) => setFormatMode(e.target.value)}
+                >
+                  <option value="raceTo">Race to (frames)</option>
+                  <option value="bestOf">Best of (frames)</option>
+                </select>
+              </label>
+              <label>
+                {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
+                <input
+                  type="number"
+                  min="1"
+                  step={formatMode === 'bestOf' ? 2 : 1}
+                  value={formatValue}
+                  onChange={(e) => setFormatValue(e.target.value)}
+                  required
+                />
+                {formatMode === 'bestOf' && (() => {
+                  const v = Number(formatValue);
+                  if (!Number.isInteger(v) || v < 1) return null;
+                  return v % 2 === 0 ? (
+                    <span className="muted" style={{ fontSize: '0.8rem' }}>
+                      Best of must be an odd number, so it can't end level.
+                    </span>
+                  ) : (
+                    <span className="muted" style={{ fontSize: '0.8rem' }}>
+                      = Race to {(v + 1) / 2} - first to {(v + 1) / 2} frame{(v + 1) / 2 === 1 ? '' : 's'} wins the
+                      match; any frames that can no longer affect the result aren't played.
+                    </span>
+                  );
+                })()}
+              </label>
+            </>
+          )}
           <button className="btn btn-primary" type="submit">
             Add Division
           </button>
@@ -809,11 +863,17 @@ export default function LeagueDetail() {
                         ? 'Pre Configured Double Elim Knockout'
                         : division.scheduling === 'knockout_double_elim_adek'
                           ? 'Adaptive Double Elim Knockout'
-                          : division.scheduling === 'round_robin_double'
-                            ? 'Round Robin - Double'
-                            : 'Round Robin - Single'}
+                          : division.scheduling === 'killer_classic'
+                            ? 'Killer Classic'
+                            : division.scheduling === 'cards_killer'
+                              ? 'Cards Killer'
+                              : division.scheduling === 'round_robin_double'
+                                ? 'Round Robin - Double'
+                                : 'Round Robin - Single'}
               {' · '}
-              {division.fixturesGenerated ? 'fixtures generated' : 'not started'}
+              {division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer'
+                ? (division.killer?.status === 'finished' ? 'game finished' : division.killer?.status === 'in_progress' ? 'game in progress' : 'not started')
+                : division.fixturesGenerated ? 'fixtures generated' : 'not started'}
               {division.status === 'completed' && ' · season complete'}
             </p>
           </Link>
