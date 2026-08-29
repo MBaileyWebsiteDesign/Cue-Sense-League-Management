@@ -12,6 +12,8 @@ const SCHEDULING_LABEL = {
   knockout_double_elim_test: 'Testing Double Elimination',
   knockout_double_elim_pcdek: 'Pre Configured Double Elim Knockout',
   knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
+  killer_classic: 'Killer Classic',
+  cards_killer: 'Cards Killer',
 };
 
 // A pure history page - every row here was written automatically the moment

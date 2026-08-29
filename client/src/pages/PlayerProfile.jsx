@@ -17,6 +17,8 @@ const SCHEDULING_LABEL = {
   knockout_double_elim_test: 'Testing Double Elimination',
   knockout_double_elim_pcdek: 'Pre Configured Double Elim Knockout',
   knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
+  killer_classic: 'Killer Classic',
+  cards_killer: 'Cards Killer',
 };
 
 // Admin-only panel shown above Career - lets an admin edit the account
