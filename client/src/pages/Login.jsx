@@ -25,17 +25,12 @@ export default function Login() {
       login(token, expiresAt, user);
       // If a protected page redirected here (RequireLogin/RequireAdmin/
       // RequireCaptain sets state.from), honor that - the account is
-      // clearly trying to reach something specific. Otherwise, land admins
-      // on the Admin Portal (that's almost always what an admin logs in to
-      // do), League Managers (who aren't also an Overall Admin) on their
-      // own League Manager Portal - scoped to just the league(s) they
-      // manage, rather than the full unscoped league list - and everyone
-      // else on their own My Account page.
+      // clearly trying to reach something specific. Otherwise, every
+      // account - player, Captain, League Manager or Admin - lands on
+      // their own My Account page; Admins/League Managers reach their
+      // portals via the nav menu from there.
       const from = location.state?.from?.pathname;
-      let landing = '/account';
-      if (user.isAdmin) landing = '/admin';
-      else if (user.isLeagueManager) landing = '/league-manager';
-      navigate(from || landing, { replace: true });
+      navigate(from || '/account', { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
