@@ -130,32 +130,44 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
   const [scheduling, setScheduling] = useState(division.scheduling);
   const [formatMode, setFormatMode] = useState('raceTo');
   const [formatValue, setFormatValue] = useState(division.raceTo || 6);
+  const [startingLives, setStartingLives] = useState(division.startingLives || 3);
   const [saving, setSaving] = useState(false);
+
+  const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
+  const onSchedulingChange = (value) => {
+    setScheduling(value);
+    if (value === 'killer_classic' || value === 'cards_killer') setEntryType('singles');
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const numericFormatValue = Number(formatValue);
     let raceTo;
-    if (formatMode === 'bestOf') {
-      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
-        setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
-        return;
+    if (!isKiller) {
+      const numericFormatValue = Number(formatValue);
+      if (formatMode === 'bestOf') {
+        if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
+          setError('Best of (frames) must be an odd whole number - e.g. 3, 5, 7, 9, 11');
+          return;
+        }
+        raceTo = (numericFormatValue + 1) / 2;
+      } else {
+        if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1) {
+          setError('Race to (frames) must be a whole number of 1 or more');
+          return;
+        }
+        raceTo = numericFormatValue;
       }
-      raceTo = (numericFormatValue + 1) / 2;
-    } else {
-      if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1) {
-        setError('Race to (frames) must be a whole number of 1 or more');
-        return;
-      }
-      raceTo = numericFormatValue;
+    } else if (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1) {
+      setError('Starting lives must be a whole number of 1 or more');
+      return;
     }
     setSaving(true);
     try {
       await api.updateDivision(division.id, {
         entryType,
         scheduling,
-        raceTo,
+        ...(isKiller ? { startingLives: Number(startingLives) } : { raceTo }),
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
       });
@@ -172,19 +184,25 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
     <form className="form" style={{ marginTop: 8, marginBottom: 8 }} onSubmit={onSubmit}>
       <label>
         Entry type
-        <select value={entryType} onChange={(e) => setEntryType(e.target.value)}>
-          <option value="singles">Singles (one player vs one player)</option>
-          <option value="teams">Teams (team vs team, made up of legs)</option>
-          <option value="doubles">Doubles/Triples (2-3 player pairing vs pairing, alternate-shot)</option>
+        <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller}>
+          {isKiller ? (
+            <option value="singles">Singles (one player at a time, everyone in the game together)</option>
+          ) : (
+            <>
+              <option value="singles">Singles (one player vs one player)</option>
+              <option value="teams">Teams (team vs team, made up of legs)</option>
+              <option value="doubles">Doubles/Triples (2-3 player pairing vs pairing, alternate-shot)</option>
+            </>
+          )}
         </select>
       </label>
-      {entryType === 'teams' && (
+      {entryType === 'teams' && !isKiller && (
         <label>
           Legs per match
           <input type="number" min="1" value={legsPerMatch} onChange={(e) => setLegsPerMatch(e.target.value)} required />
         </label>
       )}
-      {entryType === 'doubles' && (
+      {entryType === 'doubles' && !isKiller && (
         <label>
           Players per pairing
           <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
@@ -194,26 +212,8 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
         </label>
       )}
       <label>
-        Match format
-        <select value={formatMode} onChange={(e) => setFormatMode(e.target.value)}>
-          <option value="raceTo">Race to (frames)</option>
-          <option value="bestOf">Best of (frames)</option>
-        </select>
-      </label>
-      <label>
-        {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
-        <input
-          type="number"
-          min="1"
-          step={formatMode === 'bestOf' ? 2 : 1}
-          value={formatValue}
-          onChange={(e) => setFormatValue(e.target.value)}
-          required
-        />
-      </label>
-      <label>
         Format
-        <select value={scheduling} onChange={(e) => setScheduling(e.target.value)}>
+        <select value={scheduling} onChange={(e) => onSchedulingChange(e.target.value)}>
           <option value="round_robin_single">Round Robin - Single (everyone plays each other once)</option>
           <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
           <option value="knockout_single_elim">Knockout (single elimination)</option>
@@ -222,8 +222,37 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
           <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
           <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
           <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
+          <option value="killer_classic">Killer Classic (free-for-all, turn order drawn at random)</option>
+          <option value="cards_killer">Cards Killer (free-for-all, turn order drawn from a shuffled deck)</option>
         </select>
       </label>
+      {isKiller ? (
+        <label>
+          Starting lives
+          <input type="number" min="1" value={startingLives} onChange={(e) => setStartingLives(e.target.value)} required />
+        </label>
+      ) : (
+        <>
+          <label>
+            Match format
+            <select value={formatMode} onChange={(e) => setFormatMode(e.target.value)}>
+              <option value="raceTo">Race to (frames)</option>
+              <option value="bestOf">Best of (frames)</option>
+            </select>
+          </label>
+          <label>
+            {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
+            <input
+              type="number"
+              min="1"
+              step={formatMode === 'bestOf' ? 2 : 1}
+              value={formatValue}
+              onChange={(e) => setFormatValue(e.target.value)}
+              required
+            />
+          </label>
+        </>
+      )}
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-primary" type="submit" disabled={saving}>
           {saving ? 'Saving…' : 'Submit'}
@@ -322,6 +351,223 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
   );
 }
 
+// Killer Classic/Cards Killer's equivalent of GenerateFixturesButton -
+// starts the game from the current roster (division.playerIds) instead of
+// generating Fixture records. See POST /api/divisions/:id/killer/start.
+function StartKillerGameButton({ division, disabled, title, onChange, setError }) {
+  const [starting, setStarting] = useState(false);
+  const [changingGameType, setChangingGameType] = useState(false);
+  const label = division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic';
+
+  const onStart = async () => {
+    setError('');
+    setStarting(true);
+    try {
+      await api.startKiller(division.id);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div className="page-header" style={{ marginBottom: 8 }}>
+        <p style={{ margin: 0 }}>
+          <strong>{label}</strong> - {division.startingLives || 3} lives each
+        </p>
+        <button className="btn" type="button" onClick={() => setChangingGameType((v) => !v)}>
+          {changingGameType ? 'Cancel' : 'Change Game Type'}
+        </button>
+      </div>
+      {changingGameType && (
+        <ChangeGameTypeForm
+          division={division}
+          onChange={onChange}
+          setError={setError}
+          onDone={() => setChangingGameType(false)}
+        />
+      )}
+      <button className="btn btn-primary" disabled={disabled || starting} onClick={onStart} title={title}>
+        {starting ? 'Starting…' : `Start ${label}`}
+      </button>
+    </div>
+  );
+}
+
+// The live "blackboard" for a Killer Classic/Cards Killer division once the
+// game has started - lives per player, whose turn it is, and (for a manager)
+// the shot controls. Read-only for anyone else, so a player or spectator can
+// follow along on the division page while a manager referees from their own
+// device. See server/src/services/killer.js for exactly what each action
+// means; this component just calls the matching route and reloads.
+function KillerBoard({ division, canManage, onChange, setError }) {
+  const killer = division.killer;
+  const [lastBall, setLastBall] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
+  if (!killer) return null;
+
+  const nameOf = (playerId) => division.players.find((p) => p.id === playerId)?.name || 'Unknown player';
+  const isFinished = killer.status === 'finished';
+
+  const doShot = async (outcome) => {
+    setError('');
+    setBusy(true);
+    try {
+      await api.recordKillerShot(division.id, outcome, outcome === 'potted' ? lastBall : false);
+      setLastBall(false);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onUndo = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      await api.undoKillerShot(division.id);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onReset = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      await api.resetKiller(division.id);
+      setConfirmingReset(false);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Board order: Killer Classic shows the fixed turn order it was drawn in;
+  // both formats show whoever's still in before whoever's out, in the order
+  // they were eliminated (so the most recently knocked out is listed first,
+  // just above the winner at the very top).
+  const finishPlace = new Map(killer.finishOrder.map((f) => [f.playerId, f.place]));
+  const boardOrder = [...killer.order].sort((a, b) => {
+    const aOut = finishPlace.has(a);
+    const bOut = finishPlace.has(b);
+    if (aOut !== bOut) return aOut ? 1 : -1;
+    if (aOut && bOut) return finishPlace.get(a) - finishPlace.get(b);
+    return killer.order.indexOf(a) - killer.order.indexOf(b);
+  });
+
+  return (
+    <section className="card">
+      <h2>{division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'} board</h2>
+      <p className="muted" style={{ marginTop: -8 }}>
+        Rack {killer.rackNumber} · {killer.startingLives} lives each
+      </p>
+
+      {isFinished && killer.winnerId && (
+        <p className="banner banner-success">{nameOf(killer.winnerId)} wins!</p>
+      )}
+
+      <table className="standings-table">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Lives</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {boardOrder.map((playerId) => {
+            const lives = killer.lives[playerId] || 0;
+            const isCurrent = !isFinished && killer.currentPlayerId === playerId;
+            const place = finishPlace.get(playerId);
+            return (
+              <tr key={playerId} style={isCurrent ? { fontWeight: 'bold' } : undefined}>
+                <td>
+                  <Link to={`/players/${playerId}`}>{nameOf(playerId)}</Link>
+                  {isCurrent && <span> — {killer.isBreakShot ? 'breaking off' : 'to play'}</span>}
+                  {killer.winnerId === playerId && <span> — winner</span>}
+                </td>
+                <td>
+                  {lives > 0
+                    ? '●'.repeat(lives)
+                    : <span className="muted">out{place ? ` (finished ${place === 2 ? 'runner-up' : `${place}th`})` : ''}</span>}
+                </td>
+                <td></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {canManage && !isFinished && (
+        <div style={{ marginTop: 12 }}>
+          <p style={{ margin: '0 0 8px' }}>
+            <strong>{nameOf(killer.currentPlayerId)}</strong>{' '}
+            {killer.isBreakShot ? 'is breaking off - nothing on the break costs no life:' : 'is on the table:'}
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {killer.isBreakShot && (
+              <button className="btn" disabled={busy} onClick={() => doShot('break_miss')}>
+                Nothing on break (shoots again)
+              </button>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 'normal' }}>
+              <input type="checkbox" checked={lastBall} onChange={(e) => setLastBall(e.target.checked)} />
+              Potted the last ball (re-rack)
+            </label>
+            <button className="btn btn-primary" disabled={busy} onClick={() => doShot('potted')}>
+              Potted - safe
+            </button>
+            {!killer.isBreakShot && (
+              <button className="btn" disabled={busy} onClick={() => doShot('missed')}>
+                Missed / white potted (lose a life)
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {canManage && (
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn" disabled={busy || !killer.history || killer.history.length === 0} onClick={onUndo}>Undo last shot</button>
+          {!confirmingReset ? (
+            <button className="btn" disabled={busy} onClick={() => setConfirmingReset(true)}>Reset game</button>
+          ) : (
+            <>
+              <span className="muted" style={{ alignSelf: 'center' }}>Reset the whole game and unlock the roster?</span>
+              <button className="btn btn-danger" disabled={busy} onClick={onReset}>Yes, reset</button>
+              <button className="btn" disabled={busy} onClick={() => setConfirmingReset(false)}>Cancel</button>
+            </>
+          )}
+        </div>
+      )}
+
+      <details style={{ marginTop: 12 }}>
+        <summary>Event log</summary>
+        <ul style={{ fontSize: '0.85rem' }}>
+          {[...killer.log].reverse().map((entry) => (
+            <li key={entry.id}>
+              {entry.playerId ? `${nameOf(entry.playerId)} - ` : ''}{entry.detail || entry.type}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </section>
+  );
+}
+
 function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin }) {
   const [playerId, setPlayerId] = useState('');
   const [quickFirstName, setQuickFirstName] = useState('');
@@ -340,6 +586,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   // day-of late entrant. Only relevant once fixtures exist; a round robin
   // (or a knockout with none reserved) never has any.
   const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally' || division.scheduling === 'knockout_double_elim_test' || division.scheduling === 'knockout_double_elim_pcdek' || division.scheduling === 'knockout_double_elim_adek';
+  const isKiller = division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer';
   const openReservedSlots = isKnockout ? (division.fixtures || []).filter((f) => f.reserved) : [];
   const canQuickAddLateEntrant = division.fixturesGenerated && openReservedSlots.length > 0;
   // Pre-tournament late entry (see POST /api/divisions/:id/late-entrants) -
@@ -567,13 +814,28 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       </ul>
 
       {!division.fixturesGenerated ? (
-        <GenerateFixturesButton
-          division={division}
-          disabled={division.players.length < 2}
-          title={division.players.length < 2 ? 'Add at least 2 players first' : ''}
-          onChange={onChange}
-          setError={setError}
-        />
+        isKiller ? (
+          <StartKillerGameButton
+            division={division}
+            disabled={division.players.length < 2}
+            title={division.players.length < 2 ? 'Add at least 2 players first' : ''}
+            onChange={onChange}
+            setError={setError}
+          />
+        ) : (
+          <GenerateFixturesButton
+            division={division}
+            disabled={division.players.length < 2}
+            title={division.players.length < 2 ? 'Add at least 2 players first' : ''}
+            onChange={onChange}
+            setError={setError}
+          />
+        )
+      ) : isKiller ? (
+        <p className="muted">
+          Killer game started - the roster is locked. The board below shows lives, whose turn it is, and the shot
+          controls.
+        </p>
       ) : (
         <>
           <p className="muted">
@@ -1316,6 +1578,7 @@ export default function DivisionDetail() {
 
   const isTeams = division.entryType === 'teams';
   const isDoubles = division.entryType === 'doubles';
+  const isKiller = division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer';
   const nameOf = (id) =>
     (isTeams ? division.teams : isDoubles ? division.pairings : division.players).find((x) => x.id === id)?.name || '—';
 
@@ -1396,7 +1659,9 @@ export default function DivisionDetail() {
           ? `Team league · ${division.legsPerMatch} legs per match`
           : isDoubles
             ? `${division.pairingSize === 3 ? 'Triples' : 'Doubles'} league · ${division.pairingSize} players per pairing`
-            : 'Singles league'}
+            : isKiller
+              ? `${division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'} · free-for-all, ${division.startingLives || 3} lives each`
+              : 'Singles league'}
       </p>
       {error && <p className="error">{error}</p>}
 
@@ -1435,10 +1700,15 @@ export default function DivisionDetail() {
         <SeedFromGroupsPanel division={division} onChange={load} setError={setError} />
       )}
 
-      {canManage && !isTeams && !isDoubles && division.fixturesGenerated && (
+      {canManage && !isTeams && !isDoubles && !isKiller && division.fixturesGenerated && (
         <PlayerSubstitutionPanel division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
       )}
 
+      {isKiller && division.killer && (
+        <KillerBoard division={division} canManage={canManage} onChange={load} setError={setError} />
+      )}
+
+      {!isKiller && (
       <section className="card">
         <h2>Standings</h2>
         <table className="standings-table">
@@ -1492,6 +1762,7 @@ export default function DivisionDetail() {
           )}
         </table>
       </section>
+      )}
 
       <p style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <Link className="btn btn-primary" to={`/public/divisions/${division.id}/table`}>View public Division Table &rarr;</Link>
