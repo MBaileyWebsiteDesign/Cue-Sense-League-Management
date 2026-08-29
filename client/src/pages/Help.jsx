@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { IssuesBugsFeaturesBody } from './IssuesBugsFeatures.jsx';
 
@@ -15,8 +16,14 @@ export default function Help() {
     <div>
       <section className="card">
         <h1>Help</h1>
-        <p className="muted">This is the help section.</p>
       </section>
+
+      <div className="card-grid">
+        <Link to="/guides" className="card card-link">
+          <h2>Guides</h2>
+          <p className="muted">Reference documents an admin has made available to you.</p>
+        </Link>
+      </div>
 
       <IssuesBugsFeaturesBody />
     </div>
