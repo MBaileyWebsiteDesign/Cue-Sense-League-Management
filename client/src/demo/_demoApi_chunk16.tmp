@@ -1,0 +1,106 @@
+  // Mirrors server/src/index.js's PATCH /api/divisions/:id ("Change Game
+  // Type").
+  updateDivision: op((id, data) => {
+    const division = db.divisions.find((d) => d.id === id);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, "Can't change game type once fixtures have been generated for this division.");
+    }
+    const {
+      scheduling = division.scheduling,
+      raceTo = division.raceTo,
+      startingLives = division.startingLives || 3,
+      legsPerMatch,
+      pairingSize,
+    } = data || {};
+    let { entryType = division.entryType } = data || {};
+    const isKiller = KILLER_TYPES.includes(scheduling);
+    if (isKiller) entryType = 'singles';
+    if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+      throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+    }
+    if (!SCHEDULING_TYPES.includes(scheduling)) throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
+    if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+      throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+    }
+    if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+      throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
+    }
+    const effectiveLegsPerMatch = legsPerMatch !== undefined ? legsPerMatch : division.legsPerMatch || 5;
+    const effectivePairingSize = pairingSize !== undefined ? pairingSize : division.pairingSize || 2;
+    if (entryType === 'teams' && (!Number.isInteger(Number(effectiveLegsPerMatch)) || Number(effectiveLegsPerMatch) < 1)) {
+      throw new ApiError(400, 'legsPerMatch must be a positive whole number');
+    }
+    if (entryType === 'doubles' && ![2, 3].includes(Number(effectivePairingSize))) {
+      throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
+    }
+    if (entryType !== division.entryType) {
+      const hasRoster = division.playerIds.length > 0 || division.teamIds.length > 0 || division.pairingIds.length > 0;
+      if (hasRoster) {
+        throw new ApiError(400, "Can't change entry type: this division already has players, teams or pairings registered - remove them first.");
+      }
+    }
+    division.entryType = entryType;
+    division.scheduling = scheduling;
+    division.raceTo = isKiller ? null : Number(raceTo);
+    division.startingLives = isKiller ? Number(startingLives) : null;
+    division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
+    division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
+    return hydrateDivision(division);
+  }),
+
+  getDivision: op((id) => {
+    const division = db.divisions.find((d) => d.id === id);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const hydrated = hydrateDivision(division);
+    // Non-admins only see fixtures from released rounds - see isRoundVisible.
+    if (!currentUser()?.isAdmin) {
+      hydrated.fixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
+    }
+    return hydrated;
+  }),
+
+  // NQT open divisions browse + join requests - mirrors server/src/index.js's
+  // GET /api/divisions/open, POST /api/divisions/:id/join-requests,
+  // GET /api/leagues/:id/join-requests, and the approve/reject routes.
+  getOpenDivisions: op(() => {
+    const user = currentUser();
+    const myPlayerId = user?.playerId;
+    return db.divisions
+      .filter((d) => d.isOpen && d.status !== 'completed' && d.entryType === 'singles')
+      .map((d) => {
+        const league = db.leagues.find((l) => l.id === d.leagueId);
+        const alreadyIn = myPlayerId ? d.playerIds.includes(myPlayerId) : false;
+        const pendingRequest = myPlayerId
+          ? db.joinRequests.find((r) => r.divisionId === d.id && r.playerId === myPlayerId && r.status === 'pending')
+          : null;
+        return {
+          divisionId: d.id,
+          divisionName: d.name,
+          leagueId: d.leagueId,
+          leagueName: league?.name || 'Unknown league',
+          playerCount: d.playerIds.length,
+          fixturesGenerated: d.fixturesGenerated,
+          alreadyIn,
+          requestStatus: alreadyIn ? 'member' : pendingRequest ? 'pending' : null,
+        };
+      });
+  }),
+
+  requestToJoinDivision: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!division.isOpen) throw new ApiError(400, 'This division is not open for join requests');
+    const user = currentUser();
+    const playerId = user?.playerId;
+    if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
+    if (division.playerIds.includes(playerId)) throw new ApiError(400, "You're already in this division");
+    const existing = db.joinRequests.find((r) => r.divisionId === division.id && r.playerId === playerId && r.status === 'pending');
+    if (existing) throw new ApiError(400, 'You already have a pending request for this division');
+    const request = {
+      id: uuid(), divisionId: division.id, playerId, userId: user.id,
+      status: 'pending', createdAt: new Date().toISOString(), decidedAt: null, decidedBy: null,
+    };
+    db.joinRequests.push(request);
+    return request;
+  }),
