@@ -527,8 +527,8 @@ function KillerBoard({ division, canManage, onChange, setError }) {
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             {killer.isBreakShot && (
-              <button className="btn" disabled={busy} onClick={() => doShot('break_miss')}>
-                Nothing on break (shoots again)
+              <button className="btn btn-killer-safe" disabled={busy} onClick={() => doShot('break_miss')}>
+                Nothing On Break (Shoot Again)
               </button>
             )}
             <button className="btn btn-killer-safe" disabled={busy} onClick={() => doShot('potted')}>
@@ -1774,11 +1774,13 @@ export default function DivisionDetail() {
       </section>
       )}
 
+      {!isKiller && (
       <p style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <Link className="btn btn-primary" to={`/public/divisions/${division.id}/table`}>View public Division Table &rarr;</Link>
         <Link className="btn btn-primary" to={`/public/divisions/${division.id}/fixtures`}>View public Division Fixtures &rarr;</Link>
       </p>
-      {canManage && (
+      )}
+      {!isKiller && canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
           The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
           &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
@@ -1864,6 +1866,7 @@ export default function DivisionDetail() {
         </section>
       )}
 
+      {!isKiller && (
       <section className="card">
         <div className="page-header">
           <h2>Fixtures</h2>
@@ -1902,6 +1905,7 @@ export default function DivisionDetail() {
               </div>
             ))}
       </section>
+      )}
     </div>
   );
 }
