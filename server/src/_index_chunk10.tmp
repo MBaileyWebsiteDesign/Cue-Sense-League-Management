@@ -1,0 +1,300 @@
+      reservedFixture = db.fixtures.find((f) => f.divisionId === division.id && f.reserved && f.status !== 'completed');
+    }
+    if (!reservedFixture) {
+      throw new ApiError(
+        400,
+        isKnockout
+          ? 'No reserved late-entrant slot is open for this division right now'
+          : 'Cannot add players after fixtures have been generated for this division'
+      );
+    }
+  }
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const tempPassword = generateTempPassword();
+  const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
+  const user = createUserAccount(db, {
+    firstName: firstName.trim(),
+    lastName: lastName ? lastName.trim() : '',
+    email: syntheticEmail,
+    passwordHash: hashPassword(tempPassword),
+    teamName: 'Unassigned',
+  });
+  const newPlayerId = user.playerId;
+
+  if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
+  if (reservedFixture) claimReservedFixtureSlot(division, reservedFixture, newPlayerId);
+
+  // Same "don't hard-block, just flag it" approach as the season wizard's
+  // CSV import (see POST /api/admin/seasons/:leagueId/import-players) - a
+  // walk-in who hasn't paid yet shouldn't be refused a spot in the draw,
+  // but the league's Payments tab needs to know they owe the entry fee.
+  if (league && league.payment && league.payment.required) {
+    const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
+    if (!existing) {
+      db.leaguePayments.push({
+        id: uuid(),
+        leagueId: league.id,
+        playerId: newPlayerId,
+        status: 'unpaid',
+        amount: league.payment.amount,
+        currency: league.payment.currency,
+        confirmedBy: null,
+        confirmedAt: null,
+        notes: '',
+      });
+    }
+  }
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: reservedFixture ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
+    targetType: 'division',
+    targetId: division.id,
+    details: reservedFixture
+      ? `Quick-added late entrant ${user.firstName} ${user.lastName} to "${division.name}" - claimed a reserved bracket slot`
+      : `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
+  });
+
+  writeDb(db);
+  res.status(201).json({
+    division: hydrateDivision(db, division),
+    player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` },
+    outcome: { method: reservedFixture ? 'reserved-slot' : 'added' },
+  });
+}));
+
+// Admin-only: force-releases any still-open reserved bye slots (see
+// MAX_RESERVED_BYE_COUNT) in a knockout division, resolving each one as an
+// ordinary bye - the seeded entrant advances automatically, exactly like
+// any bye the app has always known how to handle (resolveByeIfNeeded).
+// Call this once no more late entrants are expected for the division; it's
+// a safe no-op if nothing is currently reserved (e.g. everything was
+// already claimed, or the division has no reserved slots at all).
+app.post('/api/divisions/:id/close-late-entry', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const reservedFixtures = db.fixtures.filter((f) => f.divisionId === division.id && f.reserved);
+  reservedFixtures.forEach((fixture) => {
+    fixture.reserved = false;
+    resolveByeIfNeeded(db, division, fixture);
+  });
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.close_late_entry',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Closed late entry for "${division.name}" - released ${reservedFixtures.length} unclaimed reserved slot(s)`,
+  });
+
+  writeDb(db);
+  res.json({ division: hydrateDivision(db, division), releasedCount: reservedFixtures.length });
+}));
+
+// ---- Teams (team divisions only) ----
+
+app.post('/api/divisions/:id/teams', asyncRoute((req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) throw new ApiError(400, 'Team name is required');
+
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.entryType !== 'teams') throw new ApiError(400, 'This is a singles division - add players directly instead');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add teams after fixtures have been generated for this division');
+  }
+
+  const team = { id: uuid(), divisionId: division.id, name: name.trim(), playerIds: [] };
+  db.teams.push(team);
+  division.teamIds.push(team.id);
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+app.delete('/api/divisions/:id/teams/:teamId', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove teams after fixtures have been generated for this division');
+  }
+  division.teamIds = division.teamIds.filter((id) => id !== req.params.teamId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+app.post('/api/teams/:teamId/players', asyncRoute((req, res) => {
+  const { playerId } = req.body;
+  if (!playerId) throw new ApiError(400, 'playerId is required');
+
+  const db = readDb();
+  const team = db.teams.find((t) => t.id === req.params.teamId);
+  if (!team) throw new ApiError(404, 'Team not found');
+  const division = db.divisions.find((d) => d.id === team.divisionId);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players once fixtures have been generated for this division');
+  }
+
+  const player = registeredPlayers(db).find((p) => p.id === playerId);
+  if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, player.id);
+  if (!team.playerIds.includes(player.id)) {
+    team.playerIds.push(player.id);
+  }
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+app.delete('/api/teams/:teamId/players/:playerId', asyncRoute((req, res) => {
+  const db = readDb();
+  const team = db.teams.find((t) => t.id === req.params.teamId);
+  if (!team) throw new ApiError(404, 'Team not found');
+  const division = db.divisions.find((d) => d.id === team.divisionId);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove players once fixtures have been generated for this division');
+  }
+  team.playerIds = team.playerIds.filter((id) => id !== req.params.playerId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// ---- Pairings (doubles/triples divisions only) ----
+// A Pairing is 2 (doubles) or 3 (triples) named registered players who
+// register together as one side - structurally the same idea as a Team (a
+// named group of players), but a pairing's fixtures are scored exactly like
+// a singles fixture (one continuous frame race, no legs), since
+// alternate-shot doesn't split a match into separate player-vs-player
+// mini-matches the way a team leg does.
+
+app.post('/api/divisions/:id/pairings', asyncRoute((req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) throw new ApiError(400, 'Pairing name is required');
+
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.entryType !== 'doubles') throw new ApiError(400, 'This is not a doubles/triples division');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add pairings after fixtures have been generated for this division');
+  }
+
+  const pairing = { id: uuid(), divisionId: division.id, name: name.trim(), playerIds: [] };
+  db.pairings.push(pairing);
+  division.pairingIds.push(pairing.id);
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+app.delete('/api/divisions/:id/pairings/:pairingId', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove pairings after fixtures have been generated for this division');
+  }
+  division.pairingIds = division.pairingIds.filter((id) => id !== req.params.pairingId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+app.post('/api/pairings/:pairingId/players', asyncRoute((req, res) => {
+  const { playerId } = req.body;
+  if (!playerId) throw new ApiError(400, 'playerId is required');
+
+  const db = readDb();
+  const pairing = db.pairings.find((p) => p.id === req.params.pairingId);
+  if (!pairing) throw new ApiError(404, 'Pairing not found');
+  const division = db.divisions.find((d) => d.id === pairing.divisionId);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players once fixtures have been generated for this division');
+  }
+  if (pairing.playerIds.length >= division.pairingSize) {
+    throw new ApiError(400, `This pairing already has the maximum of ${division.pairingSize} player(s)`);
+  }
+
+  const player = registeredPlayers(db).find((p) => p.id === playerId);
+  if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, player.id);
+  if (!pairing.playerIds.includes(player.id)) {
+    pairing.playerIds.push(player.id);
+  }
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+app.delete('/api/pairings/:pairingId/players/:playerId', asyncRoute((req, res) => {
+  const db = readDb();
+  const pairing = db.pairings.find((p) => p.id === req.params.pairingId);
+  if (!pairing) throw new ApiError(404, 'Pairing not found');
+  const division = db.divisions.find((d) => d.id === pairing.divisionId);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove players once fixtures have been generated for this division');
+  }
+  pairing.playerIds = pairing.playerIds.filter((id) => id !== req.params.playerId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// Manual seed ordering: buildBracketRounds/buildDoubleElimBracket pair
+// entrants in whatever order division.playerIds/teamIds/pairingIds happens
+// to be in (see services/bracket.js - "no real seeding... sort entrantIds
+// before calling this"), so reordering that array *is* how a knockout
+// bracket's seeding is actually controlled. Seed-from-groups (above)
+// already produces a sensible order automatically (top finishers per
+// feeder group, group by group); this lets an admin fine-tune that order,
+// or set entirely manual seeding for a standalone knockout built by adding
+// entrants directly - before fixtures are generated. Works for any entry
+// type (singles/teams/doubles), since it's just reordering whichever ID
+// array the division uses.
+app.post('/api/divisions/:id/reorder-entrants', requireAnyAdmin, asyncRoute((req, res) => {
+  const { order } = req.body || {};
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot reorder entrants after fixtures have been generated for this division');
+  }
+  if (!Array.isArray(order) || order.length === 0) {
+    throw new ApiError(400, 'order must be a non-empty array of entrant IDs');
+  }
+
+  const field = division.entryType === 'teams' ? 'teamIds' : division.entryType === 'doubles' ? 'pairingIds' : 'playerIds';
+  const current = division[field];
+  const sameMembers =
+    order.length === current.length &&
+    new Set(order).size === current.length &&
+    order.every((id) => current.includes(id));
+  if (!sameMembers) {
+    throw new ApiError(400, 'order must contain exactly the same entrants the division currently has, each exactly once');
+  }
+
+  division[field] = order;
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// ---- Fixture generation (branches on entryType x scheduling) ----
+
+function makeSinglesFixture({ league, division, round }) {
+  return {
+    id: uuid(),
+    leagueId: league.id,
+    divisionId: division.id,
+    round,
+    scheduledDate: null,
+    // Table scheduling (see POST /api/fixtures/:id/schedule) - tableId
+    // refers to an entry in the league's own `tables` list.
+    tableId: null,
+    scheduledTime: null,
+    // Match timer (elapsed running clock, see /timer/start|pause|reset) and
+    // shot clock (per-shot countdown, see /shot-clock/start|stop) - both
+    // idle until a captain/admin starts them during live play.
