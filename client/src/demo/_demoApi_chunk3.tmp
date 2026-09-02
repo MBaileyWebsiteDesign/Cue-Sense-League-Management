@@ -1,0 +1,251 @@
+// Force-completes every not-yet-completed fixture in a division at 0-0 (0
+// legs for a team fixture), no winner - mirrors server/src/index.js's
+// closeOutstandingFixtures. Used by both closeDivisionEarly (one division)
+// and closeLeagueEarly (every division in a league) below.
+function closeOutstandingFixtures(division, actorLabel) {
+  const outstanding = db.fixtures.filter((f) => f.divisionId === division.id && f.status !== 'completed');
+  const closedAt = new Date().toISOString();
+
+  for (const fixture of outstanding) {
+    if (division.entryType === 'teams') {
+      fixture.homeLegsWon = 0;
+      fixture.awayLegsWon = 0;
+      fixture.winnerTeamId = null;
+      fixture.legs = fixture.legs.map((leg) => (leg.status === 'completed' ? leg : {
+        ...leg,
+        frames: [],
+        homeFrameScore: 0,
+        awayFrameScore: 0,
+        status: 'completed',
+        winnerPlayerId: null,
+      }));
+    } else {
+      fixture.homeFrameScore = 0;
+      fixture.awayFrameScore = 0;
+      fixture.frames = [];
+      fixture.winnerPlayerId = null;
+    }
+    fixture.status = 'completed';
+    fixture.disputeReason = null;
+    fixture.closedEarly = { at: closedAt, by: actorLabel };
+  }
+
+  if (outstanding.length > 0 || division.status !== 'completed') {
+    division.status = 'completed';
+    division.completedAt = closedAt;
+    division.completedBy = actorLabel;
+  }
+
+  return outstanding.length;
+}
+
+// Round visibility: normally every round starts hidden, released one at a
+// time from Manage Fixtures - but generating fixtures asks up front whether
+// to skip that entirely and make the whole season visible immediately.
+// Mirrors server/src/index.js's markAllRoundsVisible. Shared by both
+// generateFixtures (one division) and adminGenerateSeason (every division
+// in a league at once) below.
+function markAllRoundsVisible(division) {
+  const rounds = new Set(db.fixtures.filter((f) => f.divisionId === division.id).map((f) => f.round));
+  division.visibleRounds = Array.from(rounds).sort((a, b) => a - b);
+}
+
+// Ported from server/src/index.js's buildOverlayFixture - normalizes
+// singles/teams/doubles fixtures into one { home, away } shape for the OBS
+// overlay and Arena display pages. Shared by both getOverlayFixture and
+// getArena below so there's exactly one place that does this normalization.
+function buildOverlayFixture(fixture) {
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === fixture.leagueId);
+  const isTeams = division.entryType === 'teams';
+  const isDoubles = division.entryType === 'doubles';
+  const BRACKET_ROLE_LABEL = {
+    winners: 'Winners Bracket',
+    losers: 'Losers Bracket',
+    grand_final: 'Grand Final',
+    grand_final_reset: 'Grand Final - Bracket Reset',
+  };
+  const roundLabel = fixture.bracketRole && fixture.bracketRole !== 'single'
+    ? (BRACKET_ROLE_LABEL[fixture.bracketRole] || `Round ${fixture.round}`)
+    : `Round ${fixture.round}`;
+
+  let home, away, raceTo = null, legsTotal = null, winner = null, bothEntrantsKnown;
+
+  if (isTeams) {
+    const homeTeam = fixture.homeTeamId ? db.teams.find((t) => t.id === fixture.homeTeamId) : null;
+    const awayTeam = fixture.awayTeamId ? db.teams.find((t) => t.id === fixture.awayTeamId) : null;
+    home = { name: homeTeam ? homeTeam.name : 'TBD', subLabel: null, score: fixture.homeLegsWon };
+    away = { name: awayTeam ? awayTeam.name : 'TBD', subLabel: null, score: fixture.awayLegsWon };
+    legsTotal = fixture.legs.length;
+    bothEntrantsKnown = !!(fixture.homeTeamId && fixture.awayTeamId);
+    if (fixture.status === 'completed') {
+      winner = fixture.winnerTeamId === null ? 'draw' : (fixture.winnerTeamId === fixture.homeTeamId ? 'home' : 'away');
+    }
+  } else if (isDoubles) {
+    const nameOfPairing = (pairing) => (pairing
+      ? { name: pairing.name, subLabel: db.players.filter((p) => pairing.playerIds.includes(p.id)).map((p) => p.name).join(' & ') }
+      : { name: 'TBD', subLabel: null });
+    const homePairing = fixture.homePlayerId ? db.pairings.find((p) => p.id === fixture.homePlayerId) : null;
+    const awayPairing = fixture.awayPlayerId ? db.pairings.find((p) => p.id === fixture.awayPlayerId) : null;
+    home = { ...nameOfPairing(homePairing), score: fixture.homeFrameScore };
+    away = { ...nameOfPairing(awayPairing), score: fixture.awayFrameScore };
+    raceTo = fixture.raceTo;
+    bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
+    if (fixture.status === 'completed') {
+      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
+    }
+  } else {
+    const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
+    const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
+    home = { name: homePlayer ? homePlayer.name : 'TBD', subLabel: null, score: fixture.homeFrameScore };
+    away = { name: awayPlayer ? awayPlayer.name : 'TBD', subLabel: null, score: fixture.awayFrameScore };
+    raceTo = fixture.raceTo;
+    bothEntrantsKnown = !!(fixture.homePlayerId && fixture.awayPlayerId);
+    if (fixture.status === 'completed') {
+      winner = fixture.winnerPlayerId === null ? 'draw' : (fixture.winnerPlayerId === fixture.homePlayerId ? 'home' : 'away');
+    }
+  }
+
+  return {
+    fixtureId: fixture.id,
+    leagueName: league ? league.name : null,
+    divisionName: division ? division.name : null,
+    roundLabel,
+    entryType: division.entryType,
+    status: fixture.status,
+    bothEntrantsKnown,
+    home,
+    away,
+    raceTo,
+    legsTotal,
+    winner,
+  };
+}
+
+// ---------- League payment wall helpers (mirrors server/src/index.js) ----------
+function normalizePaymentConfig(input) {
+  const required = !!(input && input.required);
+  if (!required) {
+    return { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
+  }
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new ApiError(400, 'Payment amount must be a number greater than 0');
+  }
+  const windowStart = input.windowStart || null;
+  const windowEnd = input.windowEnd || null;
+  if (windowStart && windowEnd && new Date(windowEnd) < new Date(windowStart)) {
+    throw new ApiError(400, 'Payment window end date cannot be before the start date');
+  }
+  return {
+    required: true,
+    amount,
+    currency: (input.currency || 'GBP').toUpperCase(),
+    windowStart,
+    windowEnd,
+  };
+}
+
+function formatMoney(amount, currency) {
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(amount);
+  } catch {
+    return `${amount} ${currency || 'GBP'}`;
+  }
+}
+
+// See server/src/index.js's assertPaymentCleared for the full note - not
+// called from adminImportSeasonPlayers below for the same chicken-and-egg
+// reason documented there.
+function assertPaymentCleared(division, playerId) {
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  if (!league || !league.payment || !league.payment.required) return;
+  const record = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === playerId);
+  if (record && ['confirmed', 'waived'].includes(record.status)) return;
+  const player = db.players.find((p) => p.id === playerId);
+  throw new ApiError(
+    402,
+    `${player ? player.name : 'This player'} hasn't paid the ${formatMoney(league.payment.amount, league.payment.currency)} entry fee for "${league.name}" yet - confirm or waive their payment from the league's Payments tab before adding them.`
+  );
+}
+
+function registeredPlayers() {
+  const linkedPlayerIds = new Set(
+    db.users.filter((u) => u.status === 'active' && u.playerId).map((u) => u.playerId)
+  );
+  return db.players
+    .filter((p) => linkedPlayerIds.has(p.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function makeSinglesFixture({ league, division, round }) {
+  return {
+    id: uuid(),
+    leagueId: league.id,
+    divisionId: division.id,
+    round,
+    scheduledDate: null,
+    tableId: null,
+    scheduledTime: null,
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
+    homePlayerId: null,
+    awayPlayerId: null,
+    raceTo: league.format.raceTo,
+    frames: [],
+    homeFrameScore: 0,
+    awayFrameScore: 0,
+    status: 'scheduled',
+    winnerPlayerId: null,
+    nextFixtureId: null,
+    nextFixtureSlot: null,
+    // Knockout only - see server/src/index.js's byeSlot comment.
+    byeSlot: null,
+    // See server/src/index.js's reserved comment.
+    reserved: false,
+    bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
+    loserNextFixtureId: null,
+    loserNextFixtureSlot: null,
+    resetFixtureId: null,
+  };
+}
+
+function makeTeamFixture({ league, division, round }) {
+  const legs = Array.from({ length: division.legsPerMatch }, (_, i) => ({
+    legNumber: i + 1,
+    homePlayerId: null,
+    awayPlayerId: null,
+    raceTo: league.format.raceTo,
+    frames: [],
+    homeFrameScore: 0,
+    awayFrameScore: 0,
+    status: 'pending',
+    winnerPlayerId: null,
+  }));
+  return {
+    id: uuid(),
+    leagueId: league.id,
+    divisionId: division.id,
+    round,
+    scheduledDate: null,
+    tableId: null,
+    scheduledTime: null,
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
+    homeTeamId: null,
+    awayTeamId: null,
+    legs,
+    homeLegsWon: 0,
+    awayLegsWon: 0,
+    status: 'scheduled',
+    winnerTeamId: null,
+    nextFixtureId: null,
+    nextFixtureSlot: null,
+    byeSlot: null,
+    reserved: false,
+    bracketRole: 'single',
+    loserNextFixtureId: null,
+    loserNextFixtureSlot: null,
+    resetFixtureId: null,
+  };
+}
