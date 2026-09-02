@@ -1,0 +1,88 @@
+  requestToJoinLeague: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    if (!league.isOpenForRegistration) throw new ApiError(400, 'This league is not open for interest registration');
+    const user = currentUser();
+    const playerId = user?.playerId;
+    if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
+    const existing = db.leagueInterests.find((r) => r.leagueId === league.id && r.playerId === playerId && r.status === 'pending');
+    if (existing) throw new ApiError(400, 'You already have a pending interest registration for this league');
+    const request = {
+      id: uuid(), leagueId: league.id, playerId, userId: user.id,
+      status: 'pending', createdAt: new Date().toISOString(), decidedAt: null, decidedBy: null,
+    };
+    db.leagueInterests.push(request);
+    return request;
+  }),
+
+  // Mirrors server/src/index.js's GET /api/leagues/:id/league-interests -
+  // includes each requester's payment-wall status (paymentStatus) so the
+  // client can offer inline Confirm/Waive/Reset controls here.
+  getLeagueInterests: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    return db.leagueInterests
+      .filter((r) => r.status === 'pending' && r.leagueId === leagueId)
+      .map((r) => {
+        const player = db.players.find((p) => p.id === r.playerId);
+        let paymentStatus = null;
+        if (league?.payment?.required) {
+          const paymentRecord = db.leaguePayments.find((p) => p.leagueId === leagueId && p.playerId === r.playerId);
+          paymentStatus = paymentRecord ? paymentRecord.status : 'unpaid';
+        }
+        return {
+          id: r.id, leagueId: r.leagueId, playerId: r.playerId,
+          playerName: player?.name || 'Unknown player', createdAt: r.createdAt,
+          paymentStatus,
+        };
+      });
+  }),
+
+  declineLeagueInterest: op((requestId) => {
+    const request = db.leagueInterests.find((r) => r.id === requestId);
+    if (!request) throw new ApiError(404, 'League interest registration not found');
+    if (request.status !== 'pending') throw new ApiError(400, 'This registration has already been decided');
+    request.status = 'declined';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = adminLabel();
+    return { declined: true, requestId: request.id };
+  }),
+
+  bulkAssignLeagueInterests: op((interestIds, divisionId) => {
+    if (!Array.isArray(interestIds) || interestIds.length === 0) {
+      throw new ApiError(400, 'interestIds must be a non-empty array');
+    }
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    if (division.entryType !== 'singles') {
+      throw new ApiError(400, `This is a ${division.entryType} division - league interests can only be bulk-assigned into a singles division`);
+    }
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    }
+    const results = [];
+    for (const interestId of interestIds) {
+      const request = db.leagueInterests.find((r) => r.id === interestId);
+      if (!request) {
+        results.push({ interestId, ok: false, error: 'League interest registration not found' });
+        continue;
+      }
+      if (request.leagueId !== league.id) {
+        results.push({ interestId, ok: false, error: 'This interest registration is for a different league' });
+        continue;
+      }
+      if (request.status !== 'pending') {
+        results.push({ interestId, ok: false, error: 'This registration has already been decided' });
+        continue;
+      }
+      if (!division.playerIds.includes(request.playerId)) {
+        division.playerIds.push(request.playerId);
+      }
+      request.status = 'assigned';
+      request.decidedAt = new Date().toISOString();
+      request.decidedBy = adminLabel();
+      results.push({ interestId, ok: true, playerId: request.playerId });
+    }
+    return { division: hydrateDivision(division), results };
+  }),
