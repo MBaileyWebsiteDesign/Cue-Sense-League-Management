@@ -1,0 +1,230 @@
+    };
+
+    const todaysFixtures = leagueFixtures
+      .filter((f) => f.status !== 'completed' && (f.scheduledDate === today || f.status === 'in_progress'))
+      .map(withOverlay)
+      .filter(Boolean);
+
+    const recentResults = leagueFixtures
+      .filter((f) => f.status === 'completed')
+      .sort((a, b) => new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0))
+      .slice(0, 8)
+      .map(withOverlay)
+      .filter(Boolean);
+
+    const tables = league.tables.map((table) => ({
+      ...table,
+      fixture: todaysFixtures.find((f) => f.tableId === table.id) || null,
+    }));
+    const unscheduled = todaysFixtures.filter((f) => !f.tableId);
+
+    return {
+      leagueId: league.id,
+      leagueName: league.name,
+      generatedAt: new Date().toISOString(),
+      tables,
+      unscheduled,
+      recentResults,
+    };
+  }),
+
+  // Public League Table / League Fixtures (embeddable pages) - mirrors
+  // server/src/index.js's GET /api/public/leagues/:id/table and
+  // GET /api/public/leagues/:id/fixtures.
+  getPublicLeagueTable: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const divisions = db.divisions
+      .filter((d) => d.leagueId === league.id)
+      .sort((a, b) => a.order - b.order)
+      .map((division) => {
+        const hydrated = hydrateDivision(division);
+        return {
+          divisionId: division.id,
+          divisionName: division.name,
+          entryType: division.entryType,
+          scheduling: division.scheduling,
+          status: division.status || 'active',
+          standings: hydrated.standings,
+        };
+      });
+    return {
+      leagueId: league.id,
+      leagueName: league.name,
+      generatedAt: new Date().toISOString(),
+      divisions,
+    };
+  }),
+
+  getPublicLeagueFixtures: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const divisionsById = new Map(db.divisions.filter((d) => d.leagueId === league.id).map((d) => [d.id, d]));
+
+    const buildPublicFixture = (fixture) => {
+      const division = divisionsById.get(fixture.divisionId);
+      if (!division) return null;
+      return {
+        ...buildOverlayFixture(fixture),
+        divisionId: division.id,
+        round: fixture.round,
+        scheduledDate: fixture.scheduledDate,
+        scheduledTime: fixture.scheduledTime,
+      };
+    };
+
+    const fixtures = db.fixtures
+      .filter((f) => f.leagueId === league.id)
+      .filter((f) => isRoundVisible(divisionsById.get(f.divisionId), f.round))
+      .map(buildPublicFixture)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aDone = a.status === 'completed';
+        const bDone = b.status === 'completed';
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
+        if (!a.scheduledDate && !b.scheduledDate) return 0;
+        if (!a.scheduledDate) return 1;
+        if (!b.scheduledDate) return -1;
+        return new Date(a.scheduledDate) - new Date(b.scheduledDate);
+      });
+
+    return {
+      leagueId: league.id,
+      leagueName: league.name,
+      generatedAt: new Date().toISOString(),
+      fixtures,
+    };
+  }),
+
+  // Public Division Table / Division Fixtures (embeddable pages) - mirrors
+  // server/src/index.js's GET /api/public/divisions/:id/table and
+  // GET /api/public/divisions/:id/fixtures.
+  getPublicDivisionTable: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    const hydrated = hydrateDivision(division);
+    return {
+      divisionId: division.id,
+      divisionName: division.name,
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : null,
+      entryType: division.entryType,
+      scheduling: division.scheduling,
+      status: division.status || 'active',
+      generatedAt: new Date().toISOString(),
+      standings: hydrated.standings,
+    };
+  }),
+
+  getPublicDivisionFixtures: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+
+    const buildPublicFixture = (fixture) => ({
+      ...buildOverlayFixture(fixture),
+      divisionId: division.id,
+      round: fixture.round,
+      scheduledDate: fixture.scheduledDate,
+      scheduledTime: fixture.scheduledTime,
+    });
+
+    const fixtures = db.fixtures
+      .filter((f) => f.divisionId === division.id)
+      .filter((f) => isRoundVisible(division, f.round))
+      .map(buildPublicFixture)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aDone = a.status === 'completed';
+        const bDone = b.status === 'completed';
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        if (aDone) return new Date(b.scheduledDate || 0) - new Date(a.scheduledDate || 0);
+        if (!a.scheduledDate && !b.scheduledDate) return 0;
+        if (!a.scheduledDate) return 1;
+        if (!b.scheduledDate) return -1;
+        return new Date(a.scheduledDate) - new Date(b.scheduledDate);
+      });
+
+    return {
+      divisionId: division.id,
+      divisionName: division.name,
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : null,
+      generatedAt: new Date().toISOString(),
+      fixtures,
+    };
+  }),
+
+  // Public Division Bracket (embeddable page) - mirrors server/src/index.js's
+  // GET /api/public/divisions/:id/bracket, including double-elimination
+  // support (see that file's comment for the full reasoning).
+  getPublicDivisionBracket: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const isDoubleElim = division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
+    if (division.scheduling !== 'knockout_single_elim' && !isDoubleElim) {
+      throw new ApiError(400, 'This endpoint only supports single- or double-elimination knockout divisions');
+    }
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    const hydrated = hydrateDivision(division);
+
+    const buildPublicBracketMatch = (fixture) => {
+      const overlay = buildOverlayFixture(fixture);
+      return {
+        id: fixture.id,
+        round: fixture.round,
+        home: overlay.home,
+        away: overlay.away,
+        status: overlay.status,
+        bothEntrantsKnown: overlay.bothEntrantsKnown,
+        winnerSide: overlay.winner === 'home' || overlay.winner === 'away' ? overlay.winner : null,
+        closedEarly: !!fixture.closedEarly,
+      };
+    };
+
+    const buildPublicDoubleElimMatch = (fixture) => ({
+      ...buildPublicBracketMatch(fixture),
+      bracketRole: fixture.bracketRole,
+      nextFixtureId: fixture.nextFixtureId || null,
+      loserNextFixtureId: fixture.loserNextFixtureId || null,
+      resetFixtureId: fixture.resetFixtureId || null,
+    });
+
+    const visibleFixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
+    const matches = isDoubleElim
+      ? visibleFixtures.map(buildPublicDoubleElimMatch)
+      : visibleFixtures.map(buildPublicBracketMatch);
+
+    return {
+      divisionId: division.id,
+      divisionName: division.name,
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : null,
+      entryType: division.entryType,
+      scheduling: division.scheduling,
+      status: division.status || 'active',
+      totalRounds: isDoubleElim ? null : hydrated.totalRounds,
+      generatedAt: new Date().toISOString(),
+      matches,
+    };
+  }),
+
+  recordFrame: op((fixtureId, winnerPlayerId) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    if (!currentUser()?.isAdmin && !isRoundVisible(division, fixture.round)) {
+      throw new ApiError(403, "This round hasn't been released to players yet");
+    }
+    if (division.entryType === 'teams') throw new ApiError(400, 'This is a team fixture - record frames against a specific leg instead');
+    if (!fixture.homePlayerId || !fixture.awayPlayerId) throw new ApiError(400, 'Both players for this fixture are not yet known - waiting on an earlier round');
+    if (fixture.status === 'completed') {
+      throw new ApiError(400, `Match is already complete (${fixture.homeFrameScore}-${fixture.awayFrameScore}). Undo a frame to make corrections.`);
+    }
+    if (fixture.status === 'pending_confirmation') {
+      throw new ApiError(400, 'This result has already been submitted and is awaiting confirmation from the other side.');
+    }
+    if (fixture.status === 'disputed') {
+      throw new ApiError(400, 'This result is disputed - an admin needs to resolve it (Game Adjustments) before more frames can be recorded.');
