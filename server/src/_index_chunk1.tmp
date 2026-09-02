@@ -1,0 +1,300 @@
+import express from 'express';
+import cors from 'cors';
+import crypto from 'crypto';
+import { v4 as uuid } from 'uuid';
+import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { readDb, writeDb, resetDb, restoreDb, DATA_DIR } from './db.js';
+import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
+import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
+import { nextRound as adaptiveNextRound } from './services/adaptiveDoubleElim.js';
+import { computeStandings } from './services/standings.js';
+import { computeTeamStandings } from './services/teamStandings.js';
+import { computeTourStandings } from './services/tours.js';
+import { buildPlayerProfile } from './services/playerProfile.js';
+import { initKillerState, recordShot as recordKillerShot, undoLastShot as undoLastKillerShot, KILLER_TYPES, CARDS_KILLER_MAX_PLAYERS } from './services/killer.js';
+import { ApiError } from './errors.js';
+import {
+  CLASSIFICATIONS,
+  hashPassword,
+  verifyPassword,
+  generateTempPassword,
+  createSessionToken,
+  verifySessionToken,
+  publicUser,
+  requireAuth,
+  optionalAuth,
+  requireAdmin,
+  requireAnyAdmin,
+  assertLeagueAccess,
+  generateApiKeyValue,
+  hashApiKey,
+} from './userAuth.js';
+import { recordAudit } from './services/auditLog.js';
+
+const STATUSES = ['active', 'suspended'];
+
+// Late-entrant reserved bye slots (knockout only, singles only - see
+// quick-add-player and claim-reserved-slot below). Up to this many round-1
+// entrants are held back from normal pairing at fixture-generation time and
+// seeded alone into their own bye box instead - see buildBracketRounds'
+// reservedCount doc (server/src/services/bracket.js) for the full design,
+// and generateKnockoutFixtures/generateDoubleElimFixtures below for how the
+// resulting box is left deliberately unresolved until a late entrant claims
+// it or an admin closes late entry for the division. Applied to BOTH
+// knockout formats uniformly - buildDoubleElimBracket's loser-count math
+// was extended (see its own comments) specifically so this could go beyond
+// the single reserved pair an earlier, reverted version of this feature
+// shipped with.
+//
+// Set to 0 to turn the whole feature off (temporarily, pending a rethink -
+// Aug 2026): reservedByeCountFor floors at 0 regardless of entrant count,
+// so generateKnockoutFixtures/generateDoubleElimFixtures never create a
+// reserved box, and quick-add-player's "claim a reserved slot" path never
+// finds one to claim (falling straight through to its existing "no
+// reserved late-entrant slot is open" error once fixtures exist). Nothing
+// else here was touched - the surrounding plumbing (routes, claim logic,
+// close-late-entry, the client's "Reserved" labeling) is all still in
+// place and will work again unchanged the moment this is raised above 0.
+// Does not affect divisions whose fixtures were already generated while
+// this was non-zero - any reserved boxes they already have stay as they
+// are unless an admin claims or closes them.
+const MAX_RESERVED_BYE_COUNT = 0;
+
+// Caps how many round-1 boxes can be reserved for late entrants relative to
+// the field size, so a small division doesn't end up mostly byes - always
+// leaves at least one real round-1 match. Every knockout division gets as
+// many reserved slots as this allows (up to MAX_RESERVED_BYE_COUNT) - not
+// currently an admin-configurable per-division setting.
+function reservedByeCountFor(entrantCount) {
+  return Math.max(0, Math.min(MAX_RESERVED_BYE_COUNT, Math.floor(entrantCount / 2) - 1));
+}
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '20mb' })); // season CSV/Excel imports can be a few hundred rows; a full-system backup restore (see POST /api/admin/restore) can be larger still
+
+const asyncRoute = (fn) => (req, res, next) => {
+  try {
+    fn(req, res);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek', ...KILLER_TYPES];
+// Divisions using any double-elimination format share almost all downstream
+// logic (champion detection, knockout-only UI, public bracket view) - only
+// fixture *generation* (generateDoubleElimFixtures /
+// generateAllyDoubleElimFixtures / generateTestingDoubleElimFixtures /
+// generatePCDEKFixtures, see each below) and late-entrant rebuild (which
+// only 'knockout_double_elim' supports) differ.
+const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek'];
+
+// "Adaptive Double Elimination Knockout" (ADEK). The odd one out among the
+// double-elim formats: every other one builds its ENTIRE fixture graph at
+// generation time and then reactively swaps entrants between boxes to dodge
+// rematches. ADEK builds ONE ROUND AT A TIME - each round's pairings are
+// computed only once the previous round's results are in, by
+// services/adaptiveDoubleElim.js. That is what lets it GUARANTEE no rematch
+// before the Losers Final / Winners Final / Grand Final, which a fixed
+// routing graph provably cannot (see generatePCDEKFixtures' comment for that
+// proof - it is correct, and it is a proof about FIXED routing, which is
+// exactly the assumption this format drops).
+//
+// Consequences of being round-at-a-time, all deliberate:
+//   * no nextFixtureId / loserNextFixtureId anywhere, so the reactive
+//     placement engine (propagateWinner/propagateLoser/avoidRematchOn-
+//     Placement) never touches these fixtures - ADEK does its own pairing.
+//   * later rounds simply do not exist until they are earned. Rounds are
+//     appended by appendAdaptiveRoundsIfDue() below.
+//   * NO bracket reset - a single Grand Final decides the title (see the
+//     guard in checkGrandFinalReset).
+//   * late-entrant rebuild is not supported (nothing to rebuild).
+const ADEK = 'knockout_double_elim_adek';
+
+// Killer Classic / Cards Killer (see server/src/services/killer.js) are not
+// match-based at all - a single free-for-all game runs for the whole
+// division, so these two scheduling types never generate Fixture records
+// and never go through generate-fixtures. Their entire live state
+// (turn order, lives, current player, deck for Cards Killer) lives on
+// division.killer instead - see POST /api/divisions/:id/killer/start below
+// and the routes that follow it. Both are forced to entryType 'singles'
+// (see createDivision/PATCH below) since "team" or "pairing" doesn't map
+// onto a game with no fixed sides, and both ignore raceTo/legsPerMatch/
+// pairingSize entirely - division.startingLives (default 3, matching both
+// rule sheets' "three tally marks") replaces raceTo as this format's one
+// game-length setting.
+
+// ---------- Accounts & auth ----------
+// One account model, one login. `db.users` holds everyone; `isAdmin` and
+// `isCaptain` are just boolean flags on an account rather than a separate
+// kind of account. Anyone can self-register (POST /users/register), and an
+// admin can flag any account as admin and/or captain from the user
+// management screen, or via the season CSV/Excel import.
+
+app.post('/api/auth/login', asyncRoute((req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) throw new ApiError(400, 'Email and password are required');
+
+  const db = readDb();
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    throw new ApiError(401, 'Invalid email or password');
+  }
+  if (user.status === 'suspended') {
+    throw new ApiError(403, 'This account has been suspended');
+  }
+
+  const { token, expiresAt } = createSessionToken(user.id);
+  res.json({ token, expiresAt, user: publicUser(user) });
+}));
+
+// Consumes a password-reset link generated by an admin from a player's
+// profile page (see POST /api/admin/users/:id/send-reset-link below) -
+// public/unauthenticated, since the whole point is for someone who's lost
+// access to their password to be able to set a new one. The token itself is
+// the credential here (a long random value, single-use, short-lived), so
+// there's nothing else to check the requester's identity against.
+app.post('/api/auth/reset-password/:token', asyncRoute((req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 8) throw new ApiError(400, 'New password must be at least 8 characters');
+
+  const db = readDb();
+  const reset = db.passwordResets.find((r) => r.token === req.params.token);
+  if (!reset) throw new ApiError(404, 'This reset link is invalid');
+  if (reset.usedAt) throw new ApiError(400, 'This reset link has already been used - ask an admin to send a new one');
+  if (Date.now() > reset.expiresAt) throw new ApiError(400, 'This reset link has expired - ask an admin to send a new one');
+
+  const user = db.users.find((u) => u.id === reset.userId);
+  if (!user) throw new ApiError(404, 'Account not found');
+
+  user.passwordHash = hashPassword(newPassword);
+  reset.usedAt = new Date().toISOString();
+  writeDb(db);
+  res.json({ ok: true });
+}));
+
+app.post('/api/users/register', asyncRoute((req, res) => {
+  const {
+    firstName, lastName, email, password,
+    phone = '', teamName = '', classification = null,
+  } = req.body;
+
+  if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
+  if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
+  if (!email || !email.trim()) throw new ApiError(400, 'Email is required');
+  if (!password || password.length < 8) throw new ApiError(400, 'Password must be at least 8 characters');
+  if (classification && !CLASSIFICATIONS.includes(classification)) {
+    throw new ApiError(400, `classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
+  }
+
+  const db = readDb();
+  const normalizedEmail = email.trim().toLowerCase();
+  if (db.users.some((u) => u.email.toLowerCase() === normalizedEmail)) {
+    throw new ApiError(409, 'An account with this email already exists');
+  }
+
+  const user = createUserAccount(db, {
+    firstName: firstName.trim(),
+    lastName: lastName.trim(),
+    email: email.trim(),
+    passwordHash: hashPassword(password),
+    phone: phone ? phone.trim() : '',
+    // Team name is optional at self-registration (unlike the admin bulk-add
+    // and season-import flows, which default a blank one to 'Unassigned') -
+    // a player can register before knowing/being assigned to a team, so an
+    // empty string is left as-is here rather than substituted.
+    teamName: teamName ? teamName.trim() : '',
+    classification: classification || null,
+    isAdmin: false,
+    isCaptain: false,
+  });
+  writeDb(db);
+
+  const { token, expiresAt } = createSessionToken(user.id);
+  res.status(201).json({ token, expiresAt, user: publicUser(user) });
+}));
+
+app.get('/api/users/me', requireAuth, asyncRoute((req, res) => {
+  res.json(publicUser(req.auth.user));
+}));
+
+// A player's league/division membership, shown as a static read-only field
+// in the Player Portal's "Your Details" section - deliberately separate from
+// GET /api/users/me/fixtures (which only reflects divisions that already
+// have released fixtures), so a newly-registered player who hasn't been
+// fixtured yet still sees which league/division they're in.
+app.get('/api/users/me/leagues', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const playerId = req.auth.user.playerId;
+  if (!playerId) return res.json([]);
+  const myTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
+  const myPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+  const divisions = db.divisions.filter((d) =>
+    (d.playerIds || []).includes(playerId) ||
+    (d.teamIds || []).some((id) => myTeamIds.includes(id)) ||
+    (d.pairingIds || []).some((id) => myPairingIds.includes(id))
+  );
+  // divisionId/leagueId/status added alongside the original leagueName/
+  // divisionName pair (kept for ProfileForm.jsx's existing inline summary)
+  // so the player portal's own "My Leagues & Divisions" section (NQT: list
+  // divisions/leagues they're in or have been in) can link straight into
+  // each one and show whether it's still running. Membership here is never
+  // cleared when a division completes, so this already covers past
+  // divisions, not just current ones.
+  const result = divisions.map((d) => {
+    const league = db.leagues.find((l) => l.id === d.leagueId);
+    return {
+      leagueId: d.leagueId,
+      leagueName: league?.name || 'Unknown league',
+      divisionId: d.id,
+      divisionName: d.name,
+      status: d.status || 'active',
+    };
+  });
+  res.json(result);
+}));
+
+// Shared account-creation helper: builds the User record (and its linked
+// Player roster entry, find-or-create by name) the same way whether the
+// account came from self-registration, the season CSV/Excel import, or the
+// wizard's "add a player manually" step. Doesn't write to disk - caller
+// batches the writeDb() once all rows in a request are processed.
+function createUserAccount(db, fields) {
+  // Quick Add (walk-in) only requires a first name, so lastName can be
+  // empty here - tolerate that without leaving a stray trailing space.
+  const fullName = `${fields.firstName} ${fields.lastName || ''}`.replace(/\s+/g, ' ').trim();
+  let linkedPlayer = db.players.find((p) => p.name.toLowerCase() === fullName.toLowerCase());
+  if (!linkedPlayer) {
+    linkedPlayer = { id: uuid(), name: fullName };
+    db.players.push(linkedPlayer);
+  }
+  const user = {
+    id: uuid(),
+    firstName: fields.firstName,
+    lastName: fields.lastName,
+    email: fields.email,
+    passwordHash: fields.passwordHash,
+    phone: fields.phone || '',
+    teamName: fields.teamName,
+    classification: fields.classification || null,
+    isAdmin: !!fields.isAdmin,
+    isCaptain: !!fields.isCaptain,
+    isLeagueManager: !!fields.isLeagueManager,
+    status: 'active',
+    playerId: linkedPlayer.id,
+    createdAt: new Date().toISOString(),
+  };
+  db.users.push(user);
+  return user;
+}
+
+// Keeps a User's linked Player roster entry's display name in sync whenever
+// the account's name changes, whether the edit came from the player
