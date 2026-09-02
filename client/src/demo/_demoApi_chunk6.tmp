@@ -1,0 +1,107 @@
+// "Ally Knockout (Double elimination)" - the demo/sandbox mirror of
+// server/src/index.js's generateAllyDoubleElimFixtures. Its own function
+// body (a direct port, not a call into generateDoubleElimFixtures above) so
+// this format has a genuinely independent scheduling type here too, same
+// as the real backend - see that file's comment for why.
+function generateAllyDoubleElimFixtures({ league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ----
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ----
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    current.forEach((fixture, i) => {
+      if (nextIsMergeRound) {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      } else {
+        const target = next[Math.floor(i / 2)];
+        fixture.nextFixtureId = target.id;
+        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+      }
+    });
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    wbSourceFixtures.forEach((fixture, i) => {
+      let dest, slot;
+      if (lbRoundIndex === 0) {
+        dest = lbDestFixtures[Math.floor(i / 2)];
+        slot = i % 2 === 0 ? 'home' : 'away';
+      } else if (i < lbRound.crossMatches) {
+        dest = lbDestFixtures[i];
+        slot = 'away';
+      } else {
+        const j = i - lbRound.crossMatches;
+        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
+        slot = j % 2 === 0 ? 'home' : 'away';
+      }
+      fixture.loserNextFixtureId = dest.id;
+      fixture.loserNextFixtureSlot = slot;
+    });
+  });
+
+  // ---- Grand Final ----
+  const wbFinal = wbByRound[wbByRound.length - 1][0];
+  const lbFinal = lbByRound[lbByRound.length - 1][0];
+  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
+  grandFinal.bracketRole = 'grand_final';
+  wbFinal.nextFixtureId = grandFinal.id;
+  wbFinal.nextFixtureSlot = 'home';
+  lbFinal.nextFixtureId = grandFinal.id;
+  lbFinal.nextFixtureSlot = 'away';
+
+  const allAllyFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
+  allAllyFixtures.forEach((f) => db.fixtures.push(f));
+  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(division, fixture));
+}
