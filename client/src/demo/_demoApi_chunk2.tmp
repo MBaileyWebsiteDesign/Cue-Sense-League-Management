@@ -1,0 +1,215 @@
+// ---------- account creation / profile helpers (ported from server/src/index.js) ----------
+
+function createUserAccount(fields) {
+  // Tolerates an empty/omitted lastName (e.g. a first-name-only Quick Add
+  // walk-in) without leaving a stray trailing space in the linked player's
+  // display name - mirrors server/src/index.js's createUserAccount.
+  const fullName = `${fields.firstName} ${fields.lastName || ''}`.replace(/\s+/g, ' ').trim();
+  let linkedPlayer = db.players.find((p) => p.name.toLowerCase() === fullName.toLowerCase());
+  if (!linkedPlayer) {
+    linkedPlayer = { id: uuid(), name: fullName };
+    db.players.push(linkedPlayer);
+  }
+  const user = {
+    id: uuid(),
+    firstName: fields.firstName,
+    lastName: fields.lastName,
+    email: fields.email,
+    passwordHash: fields.passwordHash || null,
+    phone: fields.phone || '',
+    teamName: fields.teamName,
+    classification: fields.classification || null,
+    isAdmin: !!fields.isAdmin,
+    isCaptain: !!fields.isCaptain,
+    isLeagueManager: !!fields.isLeagueManager,
+    status: 'active',
+    playerId: linkedPlayer.id,
+    createdAt: new Date().toISOString(),
+  };
+  db.users.push(user);
+  return user;
+}
+
+function syncLinkedPlayerName(user) {
+  if (!user.playerId) return;
+  const player = db.players.find((p) => p.id === user.playerId);
+  if (player) player.name = `${user.firstName} ${user.lastName || ''}`.replace(/\s+/g, ' ').trim();
+}
+
+function applyProfileFields(user, fields) {
+  const { firstName, lastName, email, phone, teamName, classification } = fields;
+  if (firstName !== undefined) {
+    if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
+    user.firstName = firstName.trim();
+  }
+  if (lastName !== undefined) {
+    if (!lastName || !lastName.trim()) throw new ApiError(400, 'Last name is required');
+    user.lastName = lastName.trim();
+  }
+  if (email !== undefined) {
+    if (!email || !email.trim()) throw new ApiError(400, 'Email is required');
+    const normalized = email.trim().toLowerCase();
+    if (db.users.some((u) => u.id !== user.id && u.email.toLowerCase() === normalized)) {
+      throw new ApiError(409, 'An account with this email already exists');
+    }
+    user.email = email.trim();
+  }
+  if (phone !== undefined) user.phone = phone ? phone.trim() : '';
+  if (teamName !== undefined) {
+    if (!teamName || !teamName.trim()) throw new ApiError(400, 'Team name is required');
+    user.teamName = teamName.trim();
+  }
+  if (classification !== undefined) {
+    if (classification && !CLASSIFICATIONS.includes(classification)) {
+      throw new ApiError(400, `classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
+    }
+    user.classification = classification || null;
+  }
+  syncLinkedPlayerName(user);
+}
+
+// ---------- fixture / bracket helpers (ported from server/src/index.js) ----------
+
+// Round visibility ("Manage Fixtures") - mirrors server/src/index.js's
+// isRoundVisible. Admins always see/act on every round; everyone else only
+// sees rounds the admin has released via setRoundVisibility below.
+function isRoundVisible(division, round) {
+  return !!division && Array.isArray(division.visibleRounds) && division.visibleRounds.includes(round);
+}
+
+function hydrateDivision(division) {
+  // Filtered once here, then reused below - mirrors the same fix in
+  // server/src/index.js's hydrateDivision (see that copy for the full note):
+  // computeStandings/computeTeamStandings used to each re-filter the whole
+  // db.fixtures array by divisionId themselves instead of reusing this.
+  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  const leagueName = league ? league.name : null;
+
+  // See server/src/index.js's hydrateDivision for the full note - mirrors
+  // `bothEntrantsKnown` here too so the demo build's fixture-list views can
+  // tell "genuinely scheduled" apart from "still waiting on an earlier
+  // knockout round's winner" the same way the live server does.
+  const isTeamsDivision = division.entryType === 'teams';
+  const displayFixtures = fixtures.map((f) => ({
+    ...f,
+    bothEntrantsKnown: isTeamsDivision
+      ? !!(f.homeTeamId && f.awayTeamId)
+      : !!(f.homePlayerId && f.awayPlayerId),
+  }));
+  // See server/src/index.js's hydrateDivision for the full note.
+  const totalRounds = division.scheduling === 'knockout_single_elim' && fixtures.length > 0
+    ? Math.max(...fixtures.map((f) => f.round))
+    : null;
+
+  let hydrated;
+  if (division.entryType === 'teams') {
+    const teams = db.teams
+      .filter((t) => division.teamIds.includes(t.id))
+      .map((t) => ({ ...t, players: db.players.filter((p) => t.playerIds.includes(p.id)) }));
+    const standings = computeTeamStandings(division, fixtures, db.teams);
+    hydrated = { ...division, leagueName, teams, fixtures: displayFixtures, standings };
+  } else if (division.entryType === 'doubles') {
+    const pairings = db.pairings
+      .filter((p) => division.pairingIds.includes(p.id))
+      .map((p) => ({ ...p, players: db.players.filter((pl) => p.playerIds.includes(pl.id)) }));
+    const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
+    hydrated = { ...division, leagueName, pairings, fixtures: displayFixtures, standings };
+  } else {
+    const players = db.players.filter((p) => division.playerIds.includes(p.id));
+    const standings = computeStandings(division, fixtures, db.players);
+    hydrated = { ...division, leagueName, players, fixtures: displayFixtures, standings };
+  }
+  hydrated.totalRounds = totalRounds;
+  hydrated.leaguePayment = league ? league.payment : null;
+  hydrated.leagueManagerUserIds = league && Array.isArray(league.managerUserIds) ? league.managerUserIds : [];
+
+  // Roll of Honour - mirrors server/src/index.js's
+  // recordChampionIfDivisionComplete (see that copy for the full note on why
+  // this is checked centrally here instead of at every fixture-completion
+  // call site).
+  recordChampionIfDivisionComplete(division, hydrated);
+
+  return hydrated;
+}
+
+function recordChampionIfDivisionComplete(division, hydrated) {
+  if (db.rollOfHonour.some((r) => r.divisionId === division.id)) return;
+
+  // Killer Classic/Cards Killer - mirrors server/src/index.js's own
+  // KILLER_TYPES branch (see that copy for the full note).
+  if (KILLER_TYPES.includes(division.scheduling)) {
+    if (!division.killer || division.killer.status !== 'finished' || !division.killer.winnerId) return;
+    const championId = division.killer.winnerId;
+    const championRow = hydrated.standings.find((row) => row.playerId === championId);
+    const championName = championRow ? championRow.playerName : 'Unknown';
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    db.rollOfHonour.push({
+      id: uuid(),
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : 'Unknown league',
+      divisionId: division.id,
+      divisionName: division.name,
+      entryType: division.entryType,
+      scheduling: division.scheduling,
+      championId,
+      championName,
+      recordedAt: new Date().toISOString(),
+    });
+    persist();
+    return;
+  }
+
+  if (!division.fixturesGenerated) return;
+  const fixtures = hydrated.fixtures;
+  if (fixtures.length === 0) return;
+  if (fixtures.some((f) => f.status !== 'completed')) return;
+
+  const idField = division.entryType === 'teams' ? 'teamId' : 'playerId';
+  const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
+  let championId = null;
+
+  if (division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally') {
+    const grandFinal = fixtures.find((f) => f.bracketRole === 'grand_final');
+    if (!grandFinal) return;
+    const finalFixture = grandFinal.resetFixtureId
+      ? fixtures.find((f) => f.id === grandFinal.resetFixtureId)
+      : grandFinal;
+    if (!finalFixture || finalFixture.status !== 'completed') return;
+    championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
+  } else if (division.scheduling === 'knockout_single_elim') {
+    const finalFixture = fixtures.find((f) => !f.nextFixtureId);
+    if (!finalFixture) return;
+    championId = division.entryType === 'teams' ? finalFixture.winnerTeamId : finalFixture.winnerPlayerId;
+  } else {
+    // A top standing with 0 points means nobody actually won a match (the
+    // division was closed early before any result was played out) - see
+    // the matching check in server/src/index.js.
+    const top = hydrated.standings[0];
+    if (!top || top.points === 0) return;
+    championId = top[idField];
+  }
+  if (!championId) return;
+
+  const championRow = hydrated.standings.find((row) => row[idField] === championId);
+  const championName = championRow ? championRow[nameField] : 'Unknown';
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+
+  db.rollOfHonour.push({
+    id: uuid(),
+    leagueId: division.leagueId,
+    leagueName: league ? league.name : 'Unknown league',
+    divisionId: division.id,
+    divisionName: division.name,
+    entryType: division.entryType,
+    scheduling: division.scheduling,
+    championId,
+    championName,
+    recordedAt: new Date().toISOString(),
+  });
+  // Not wrapped in persist()/op() - this is a side effect of a read
+  // (hydrateDivision runs on GETs too), so it saves immediately the same way
+  // server/src/db.js's writeDb() does inside recordChampionIfDivisionComplete,
+  // rather than waiting for whatever op() the caller happens to be inside.
+  persist();
+}
