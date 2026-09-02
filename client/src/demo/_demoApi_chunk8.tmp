@@ -1,0 +1,227 @@
+  getMyFixtures: op(() => {
+    const user = currentUser();
+    if (!user || !user.playerId) return [];
+    const playerId = user.playerId;
+    const myTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
+    const myPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+    const fixtures = db.fixtures.filter((f) => {
+      if (f.homePlayerId === playerId || f.awayPlayerId === playerId) return true;
+      if (myTeamIds.includes(f.homeTeamId) || myTeamIds.includes(f.awayTeamId)) return true;
+      if (myPairingIds.includes(f.homePlayerId) || myPairingIds.includes(f.awayPlayerId)) return true;
+      return false;
+    });
+    // Even a fixture you're actually in doesn't show up here until its round
+    // is released - see isRoundVisible above. Admins see everything.
+    const visibleFixtures = user.isAdmin
+      ? fixtures
+      : fixtures.filter((f) => isRoundVisible(db.divisions.find((d) => d.id === f.divisionId), f.round));
+    const enriched = visibleFixtures.map((f) => {
+      const division = db.divisions.find((d) => d.id === f.divisionId);
+      const league = db.leagues.find((l) => l.id === f.leagueId);
+      const isTeams = !!f.legs;
+      const isDoubles = division?.entryType === 'doubles';
+      const opponentId = isTeams
+        ? (myTeamIds.includes(f.homeTeamId) ? f.awayTeamId : f.homeTeamId)
+        : isDoubles
+          ? (myPairingIds.includes(f.homePlayerId) ? f.awayPlayerId : f.homePlayerId)
+          : (f.homePlayerId === playerId ? f.awayPlayerId : f.homePlayerId);
+      const opponentName = isTeams
+        ? db.teams.find((t) => t.id === opponentId)?.name
+        : isDoubles
+          ? db.pairings.find((p) => p.id === opponentId)?.name
+          : db.players.find((p) => p.id === opponentId)?.name;
+      return {
+        id: f.id,
+        leagueName: league?.name,
+        divisionName: division?.name,
+        round: f.round,
+        status: f.status,
+        scheduledDate: f.scheduledDate || null,
+        opponentName: opponentName || 'TBD',
+      };
+    });
+    enriched.sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || '') || a.round - b.round);
+    return enriched;
+  }),
+
+  // A player's own results currently awaiting THEIR confirmation - mirrors
+  // server/src/index.js's GET /api/users/me/pending-confirmations (see that
+  // route for the full design note). Powers the "Needs Your Confirmation"
+  // panel on the Player Portal.
+  getMyPendingConfirmations: op(() => {
+    const user = currentUser();
+    if (!user || !user.playerId) return [];
+    const playerId = user.playerId;
+    const results = [];
+
+    for (const f of db.fixtures) {
+      const division = db.divisions.find((d) => d.id === f.divisionId);
+      const league = db.leagues.find((l) => l.id === f.leagueId);
+      // Same round-visibility gate as everywhere else - see isRoundVisible.
+      if (!user.isAdmin && !isRoundVisible(division, f.round)) continue;
+
+      if (f.legs) {
+        const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+        const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
+        for (const leg of f.legs) {
+          if (leg.status !== 'pending_confirmation') continue;
+          const isHome = leg.homePlayerId === playerId;
+          const isAway = leg.awayPlayerId === playerId;
+          if (!isHome && !isAway) continue;
+          if (isHome && leg.homeConfirmed) continue;
+          if (isAway && leg.awayConfirmed) continue;
+          const opponentPlayer = db.players.find((p) => p.id === (isHome ? leg.awayPlayerId : leg.homePlayerId));
+          results.push({
+            fixtureId: f.id,
+            legNumber: leg.legNumber,
+            leagueName: league?.name,
+            divisionName: division?.name,
+            round: f.round,
+            opponentName: opponentPlayer?.name || (isHome ? awayTeam?.name : homeTeam?.name) || 'TBD',
+            scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+          });
+        }
+        continue;
+      }
+
+      if (f.status !== 'pending_confirmation') continue;
+      const isDoubles = division?.entryType === 'doubles';
+      const isHome = isHomeEntrant(division, f, playerId);
+      const isAway = isAwayEntrant(division, f, playerId);
+      if (!isHome && !isAway) continue;
+      if (isHome && f.homeConfirmed) continue;
+      if (isAway && f.awayConfirmed) continue;
+      const opponentId = isHome ? f.awayPlayerId : f.homePlayerId;
+      const opponentName = isDoubles
+        ? db.pairings.find((p) => p.id === opponentId)?.name
+        : db.players.find((p) => p.id === opponentId)?.name;
+      results.push({
+        fixtureId: f.id,
+        legNumber: null,
+        leagueName: league?.name,
+        divisionName: division?.name,
+        round: f.round,
+        opponentName: opponentName || 'TBD',
+        scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+        submittedAt: f.resultSubmittedAt || null,
+      });
+    }
+
+    results.sort((a, b) => (a.leagueName || '').localeCompare(b.leagueName || '') || a.round - b.round);
+    return results;
+  }),
+
+  // Admin: Game Adjustments - same shape as getMyFixtures but for any
+  // playerId, including every status (not just upcoming), since an admin
+  // might be specifically looking for a disputed/pending result to resolve.
+  adminGetPlayerFixtures: op((playerId) => {
+    const myTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
+    const myPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+    const fixtures = db.fixtures.filter((f) => {
+      if (f.homePlayerId === playerId || f.awayPlayerId === playerId) return true;
+      if (myTeamIds.includes(f.homeTeamId) || myTeamIds.includes(f.awayTeamId)) return true;
+      if (myPairingIds.includes(f.homePlayerId) || myPairingIds.includes(f.awayPlayerId)) return true;
+      if (f.legs) return f.legs.some((l) => l.homePlayerId === playerId || l.awayPlayerId === playerId);
+      return false;
+    });
+    const enriched = fixtures.map((f) => {
+      const division = db.divisions.find((d) => d.id === f.divisionId);
+      const league = db.leagues.find((l) => l.id === f.leagueId);
+      const isTeams = !!f.legs;
+      const isDoubles = division?.entryType === 'doubles';
+      const opponentId = isTeams
+        ? (myTeamIds.includes(f.homeTeamId) ? f.awayTeamId : f.homeTeamId)
+        : isDoubles
+          ? (myPairingIds.includes(f.homePlayerId) ? f.awayPlayerId : f.homePlayerId)
+          : (f.homePlayerId === playerId ? f.awayPlayerId : f.homePlayerId);
+      const opponentName = isTeams
+        ? db.teams.find((t) => t.id === opponentId)?.name
+        : isDoubles
+          ? db.pairings.find((p) => p.id === opponentId)?.name
+          : db.players.find((p) => p.id === opponentId)?.name;
+      return {
+        id: f.id,
+        leagueName: league?.name,
+        divisionName: division?.name,
+        round: f.round,
+        status: f.status,
+        scoreLabel: isTeams ? `${f.homeLegsWon}-${f.awayLegsWon} legs` : `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+        scheduledDate: f.scheduledDate || null,
+        opponentName: opponentName || 'TBD',
+      };
+    });
+    enriched.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || b.round - a.round);
+    return enriched;
+  }),
+
+  // Powers the Game Adjustments "Needs Attention" list - mirrors the server's
+  // GET /api/admin/fixtures/needs-attention (see that route for design notes).
+  adminGetFixturesNeedingAttention: op(() => {
+    const NEEDS_ATTENTION = ['pending_confirmation', 'disputed'];
+    const results = [];
+    for (const f of db.fixtures) {
+      const division = db.divisions.find((d) => d.id === f.divisionId);
+      const league = db.leagues.find((l) => l.id === f.leagueId);
+      if (f.legs) {
+        const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+        const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
+        for (const leg of f.legs) {
+          if (!NEEDS_ATTENTION.includes(leg.status)) continue;
+          results.push({
+            fixtureId: f.id,
+            legNumber: leg.legNumber,
+            leagueName: league?.name,
+            divisionName: division?.name,
+            round: f.round,
+            status: leg.status,
+            label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
+            scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+            disputeReason: leg.disputeReason || null,
+            noShowClaim: leg.noShowClaim || null,
+          });
+        }
+        continue;
+      }
+      if (!NEEDS_ATTENTION.includes(f.status)) continue;
+      const isDoubles = division?.entryType === 'doubles';
+      const homeName = isDoubles
+        ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
+        : db.players.find((p) => p.id === f.homePlayerId)?.name;
+      const awayName = isDoubles
+        ? db.pairings.find((p) => p.id === f.awayPlayerId)?.name
+        : db.players.find((p) => p.id === f.awayPlayerId)?.name;
+      results.push({
+        fixtureId: f.id,
+        legNumber: null,
+        leagueName: league?.name,
+        divisionName: division?.name,
+        round: f.round,
+        status: f.status,
+        label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
+        scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+        disputeReason: f.disputeReason || null,
+        noShowClaim: f.noShowClaim || null,
+      });
+    }
+    const STATUS_ORDER = { disputed: 0, pending_confirmation: 1 };
+    results.sort((a, b) =>
+      STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+      (a.leagueName || '').localeCompare(b.leagueName || '') ||
+      a.round - b.round
+    );
+    return results;
+  }),
+
+  adminListUsers: op((q = '') => {
+    const query = (q || '').trim().toLowerCase();
+    let users = db.users;
+    if (query) {
+      users = users.filter((u) =>
+        `${u.firstName} ${u.lastName}`.toLowerCase().includes(query) ||
+        u.email.toLowerCase().includes(query) ||
+        u.teamName.toLowerCase().includes(query)
+      );
+    }
+    users = [...users].sort((a, b) => a.lastName.localeCompare(b.lastName));
+    return users.map(publicUser);
+  }),
