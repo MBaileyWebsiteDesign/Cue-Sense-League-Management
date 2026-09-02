@@ -1,0 +1,300 @@
+// Rebuild the completed-round history the pairing engine needs, straight from
+// the fixture table. Returns complete:false the moment it hits a round that
+// is still being played, which is also the signal "do not append anything".
+function adaptiveHistory(division, fixtures) {
+  const isTeams = division.entryType === 'teams';
+  const HOME = isTeams ? 'homeTeamId' : 'homePlayerId';
+  const AWAY = isTeams ? 'awayTeamId' : 'awayPlayerId';
+  const WINNER = isTeams ? 'winnerTeamId' : 'winnerPlayerId';
+  const byRound = new Map();
+  for (const f of fixtures) {
+    if (!byRound.has(f.round)) byRound.set(f.round, []);
+    byRound.get(f.round).push(f);
+  }
+  const history = [];
+  for (const round of [...byRound.keys()].sort((a, b) => a - b)) {
+    const inRound = byRound.get(round);
+    if (inRound.some((f) => f.status !== 'completed' || f.closedEarly)) {
+      return { history, complete: false };
+    }
+    const matches = [];
+    const byes = [];
+    for (const f of inRound) {
+      if (f.byeSlot) {
+        const who = f[HOME] || f[AWAY];
+        if (!who) return { history, complete: false };
+        byes.push(who);
+      } else {
+        if (!f[HOME] || !f[AWAY] || !f[WINNER]) return { history, complete: false };
+        matches.push({ a: f[HOME], b: f[AWAY], winner: f[WINNER] });
+      }
+    }
+    const real = inRound.find((f) => !f.byeSlot) || inRound[0];
+    history.push({ bracket: real.bracketRole, matches, byes });
+  }
+  return { history, complete: true };
+}
+
+// Build and push the next round. Returns true if anything was added.
+function appendAdaptiveRound(db, league, division, fixtures) {
+  const { history, complete } = adaptiveHistory(division, fixtures);
+  if (!complete) return false;
+  let round;
+  try {
+    round = adaptiveNextRound(adaptiveEntrantIds(division), history);
+  } catch (err) {
+    // A pairing failure must never take a page down with it. The division
+    // simply stops advancing and an admin sees the outstanding round is
+    // missing, which is recoverable; a 500 on every poll is not.
+    console.error('ADEK: could not compute next round for division', division.id, err);
+    return false;
+  }
+  if (!round || !round.matches.length) return false;
+
+  const roundNo = fixtures.length ? Math.max(...fixtures.map((f) => f.round)) + 1 : 1;
+  const isTeams = division.entryType === 'teams';
+  const makeFixture = isTeams ? makeTeamFixture : makeSinglesFixture;
+  const created = [];
+
+  // The engine names its own rounds, and that name is the authoritative
+  // record of whether a match is one of the three where a rematch is
+  // permitted (Winners Final / Losers Final / Grand Final). Stamping it on
+  // the fixture means the rule is inspectable in the data rather than
+  // re-inferred - by the UI, by a report, or by anyone auditing a division.
+  for (const [a, b] of round.matches) {
+    const f = makeFixture({ league, division, round: roundNo });
+    f.bracketRole = round.bracket;
+    f.roundLabel = round.label;
+    f.roundKind = round.kind;
+    if (isTeams) { f.homeTeamId = a; f.awayTeamId = b; } else { f.homePlayerId = a; f.awayPlayerId = b; }
+    created.push(f);
+  }
+  for (const entrantId of round.byes) {
+    const f = makeFixture({ league, division, round: roundNo });
+    f.bracketRole = round.bracket;
+    f.roundLabel = round.label;
+    f.roundKind = round.kind;
+    f.byeSlot = 'away';
+    f.status = 'completed';
+    if (isTeams) { f.homeTeamId = entrantId; f.winnerTeamId = entrantId; } else { f.homePlayerId = entrantId; f.winnerPlayerId = entrantId; }
+    created.push(f);
+  }
+
+  // Dates: carry the previous round's date forward by the division's gap.
+  // assignScheduledDates only ever runs at generation time and needs a
+  // startDate that isn't persisted, so later rounds date themselves.
+  if (division.gapDays && roundNo > 1) {
+    const prev = fixtures
+      .filter((f) => f.round === roundNo - 1 && f.scheduledDate)
+      .map((f) => f.scheduledDate)
+      .sort();
+    if (prev.length) {
+      const d = new Date(`${prev[0]}T00:00:00`);
+      d.setDate(d.getDate() + Number(division.gapDays));
+      const iso = d.toISOString().slice(0, 10);
+      created.forEach((f) => { f.scheduledDate = iso; });
+    }
+  }
+
+  // Visibility: markAllRoundsVisible is a snapshot taken at generation time,
+  // so a round invented later would be invisible to every non-admin - players
+  // would never see their own match. Inherit the previous round's visibility,
+  // which is the closest thing to the admin's expressed intent.
+  if (roundNo === 1 || isRoundVisible(division, roundNo - 1)) {
+    if (!Array.isArray(division.visibleRounds)) division.visibleRounds = [];
+    if (!division.visibleRounds.includes(roundNo)) {
+      division.visibleRounds = [...division.visibleRounds, roundNo].sort((a, b) => a - b);
+    }
+  }
+
+  created.forEach((f) => db.fixtures.push(f));
+  return true;
+}
+
+// Called at the top of hydrateDivision, which already runs at the end of
+// every route that can complete a fixture (plus every plain GET) - the same
+// central hook recordChampionIfDivisionComplete uses, and for the same
+// reason: there is no single fixture-completion funnel to hook instead.
+// Every guard below is cheap and the common case (a round still in play)
+// bails on the first scan, so this is a no-op on virtually every request.
+function appendAdaptiveRoundsIfDue(db, division) {
+  if (!division || division.scheduling !== ADEK) return false;
+  if (!division.fixturesGenerated) return false;
+  if (division.status === 'completed') return false;
+  const fixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+  if (fixtures.length === 0) return false;
+  if (fixtures.some((f) => f.status !== 'completed')) return false;   // round still being played
+  if (fixtures.some((f) => f.closedEarly)) return false;              // division was force-closed
+  if (fixtures.some((f) => f.bracketRole === 'grand_final')) return false; // champion decided
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  if (!league) return false;
+  return appendAdaptiveRound(db, league, division, fixtures);
+}
+
+function generateAdaptiveDoubleElimFixtures({ db, league, division, entrantIds }) {
+  // Round 1 and nothing else - the rest of the event does not exist yet, and
+  // that is the entire point of the format.
+  appendAdaptiveRound(db, league, division, []);
+  void entrantIds;
+}
+
+// ---- "Pre Configured Double Elimination Knockout" fixture generation ----
+// (division.scheduling === 'knockout_double_elim_pcdek')
+//
+// IMPORTANT - read before touching this function or its rematch policy:
+// this format was originally specced as a library of 50 hand-authored,
+// per-entrant-count (1-50) bracket "templates" that would guarantee - not
+// just minimize - that no two players ever meet twice before the Grand
+// Final/Grand Final Reset, each one exhaustively validated against every
+// possible sequence of winners/losers before being allowed into the
+// library. That guarantee is proven mathematically impossible for a fixed
+// (non-adaptive) match-routing graph, for essentially every entrant count
+// above 2 - re-derived independently for this feature (a clean pigeonhole
+// argument: whichever losers-bracket box a winners-bracket dropout is
+// routed into, there is always at least one outcome branch where the only
+// available same-loss-count opponent there is someone they already beat,
+// because the routing has to be fixed in advance while the actual identity
+// of who's "safe" to pair them with depends on match results that haven't
+// happened yet) - and it matches, exactly, what this project's own prior
+// research already found twice on 2026-08-14: the Ally Knockout
+// bipartite-matching proof (claude/ally-knockout-2026-08-14.md - "impossible
+// to guarantee...for most entrant counts") and the Pre-Configured Knockout
+// spreadsheet analysis (claude/pre-configured-knockout-spreadsheet-analysis-2026-08-14.md
+// - the industry-standard "Superior seeding" algorithm, the same one used by
+// brackets-manager.js and Vertex42's templates, still produced a pre-final
+// rematch in 49.55% of 23,500 simulated tournaments). Building 50 templates
+// that claim to pass exhaustive zero-violation validation would mean either
+// faking that result or silently weakening the rule - neither acceptable.
+//
+// So this format is real, but scoped honestly: "pre configured" means each
+// entrant count's bracket SHAPE (round/box counts, bye placement, losers-
+// bracket merge structure) is a fully deterministic structural template -
+// see pcdekTemplateSummary() below, and buildDoubleElimBracket() in
+// services/bracket.js which actually derives it - rather than a bracket
+// dynamically invented ad hoc. It is not a hand-authored, independently
+// "validated" template per player count; it's the same deterministic
+// derivation every double-elim format here already uses, exposed as its
+// own inspectable template. On top of that shape, this uses the single
+// most effective losers-bracket wiring technique already proven in this
+// codebase - the same outside-in "mirrored" topology as
+// generateTestingDoubleElimFixtures (mirrors structurally-close dropouts
+// to opposite ends of the next round instead of pairing neighbours) - plus
+// the full reactive rematch/bye-fairness safety net every double-elim
+// format here shares (avoidRematchOnPlacement's multi-hop chain search,
+// avoidRepeatByeOnPlacement), which applies automatically to any fixture
+// with bracketRole 'winners'/'losers' via propagateWinner/propagateLoser,
+// regardless of scheduling type - nothing PCDEK-specific needed there.
+// rematchPolicy for this format is GRAND_FINAL_ONLY-*preferred*: the
+// generator and the runtime placement engine both actively work to
+// avoid every rematch before the Grand Final/Grand Final Reset, and in
+// practice succeed far more often than not (see the offline stress-test
+// numbers in claude/pcdek-format-2026-08-15.md), but - like every other
+// double-elim format in this codebase - cannot guarantee it in every
+// branch. Do not present this format to users as a hard guarantee.
+//
+// Identical to generateTestingDoubleElimFixtures in every other respect
+// (reserved-bye handling, Grand Final wiring, no power-of-two padding).
+// Late-entrant mid-tournament bracket rebuild is NOT supported for this
+// format either, for the same reason as Ally Knockout/Testing Double
+// Elimination - see the dedicated generator functions' own comments.
+function generatePCDEKFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const reservedCount = reservedByeCountFor(entrantIds.length);
+  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
+
+  // ---- Winners bracket ---- (identical to generateTestingDoubleElimFixtures)
+  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
+    pairs.map(() => {
+      const f = makeFixture({ league, division, round: roundIndex + 1 });
+      f.bracketRole = 'winners';
+      return f;
+    })
+  );
+  for (let round = 0; round < wbByRound.length - 1; round++) {
+    const thisRound = wbByRound[round];
+    const nextRound = wbByRound[round + 1];
+    thisRound.forEach((fixture, i) => {
+      const next = nextRound[Math.floor(i / 2)];
+      fixture.nextFixtureId = next.id;
+      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
+    });
+    if (thisRound.length % 2 === 1) {
+      nextRound[nextRound.length - 1].byeSlot = 'away';
+    }
+  }
+  winnersRounds[0].forEach(([a, b], i) => {
+    const fixture = wbByRound[0][i];
+    const isReserved = b === RESERVED_SLOT;
+    const awayValue = isReserved ? null : b;
+    if (b === null || isReserved) fixture.byeSlot = 'away';
+    if (isReserved) fixture.reserved = true;
+    if (division.entryType === 'teams') {
+      fixture.homeTeamId = a;
+      fixture.awayTeamId = awayValue;
+    } else {
+      fixture.homePlayerId = a;
+      fixture.awayPlayerId = awayValue;
+    }
+  });
+
+  // ---- Losers bracket ---- (mirrored topology, identical to
+  // generateTestingDoubleElimFixtures - see that function's own comments
+  // for why outside-in mirroring beats sequential/adjacent pairing)
+  const lbByRound = losersRounds.map((round, roundIndex) =>
+    Array.from({ length: round.boxCount }, () => {
+      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
+      f.bracketRole = 'losers';
+      return f;
+    })
+  );
+  losersRounds.forEach((round, i) => {
+    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
+  });
+  for (let round = 0; round < lbByRound.length - 1; round++) {
+    const current = lbByRound[round];
+    const next = lbByRound[round + 1];
+    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
+    if (nextIsMergeRound) {
+      current.forEach((fixture, i) => {
+        fixture.nextFixtureId = next[i].id;
+        fixture.nextFixtureSlot = 'home';
+      });
+    } else {
+      const n = current.length;
+      const pairCount = Math.floor(n / 2);
+      for (let p = 0; p < pairCount; p++) {
+        const home = current[p];
+        const away = current[n - 1 - p];
+        const target = next[p];
+        home.nextFixtureId = target.id;
+        home.nextFixtureSlot = 'home';
+        away.nextFixtureId = target.id;
+        away.nextFixtureSlot = 'away';
+      }
+      if (n % 2 === 1) {
+        const mid = current[pairCount];
+        const target = next[pairCount];
+        mid.nextFixtureId = target.id;
+        mid.nextFixtureSlot = 'home';
+      }
+    }
+  }
+  losersRounds.forEach((lbRound, lbRoundIndex) => {
+    if (lbRound.feedsFromWinnersRound === null) return;
+    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
+    const lbDestFixtures = lbByRound[lbRoundIndex];
+    const n = wbSourceFixtures.length;
+
+    if (lbRoundIndex === 0) {
+      const pairCount = Math.floor(n / 2);
+      for (let p = 0; p < pairCount; p++) {
+        const home = wbSourceFixtures[p];
+        const away = wbSourceFixtures[n - 1 - p];
+        const dest = lbDestFixtures[p];
+        home.loserNextFixtureId = dest.id;
+        home.loserNextFixtureSlot = 'home';
+        away.loserNextFixtureId = dest.id;
+        away.loserNextFixtureSlot = 'away';
+      }
+      if (n % 2 === 1) {
+        const mid = wbSourceFixtures[pairCount];
