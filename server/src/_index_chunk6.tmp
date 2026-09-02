@@ -1,0 +1,300 @@
+      fixture.frames = [];
+      fixture.winnerPlayerId = null; // void - see services/standings.js
+    }
+    fixture.status = 'completed';
+    fixture.disputeReason = null;
+    fixture.closedEarly = { at: closedAt, by: actorLabel };
+  }
+
+  if (outstanding.length > 0 || division.status !== 'completed') {
+    division.status = 'completed';
+    division.completedAt = closedAt;
+    division.completedBy = actorLabel;
+  }
+
+  return outstanding.length;
+}
+
+app.post('/api/divisions/:id/close-early', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const closedCount = closeOutstandingFixtures(db, division, req.adminSession.label);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.closeEarly',
+    targetType: 'division',
+    targetId: division.id,
+    details: closedCount > 0
+      ? `Closed the division early - force-completed ${closedCount} outstanding fixture(s) 0-0`
+      : 'Marked the division as complete (no outstanding fixtures)',
+  });
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// League-level equivalent of the route above: applies the exact same
+// force-complete-at-0-0 treatment to every division in the league in one
+// call, for "close the whole league's season early" rather than one
+// division at a time. Surfaced from the league management page.
+app.post('/api/leagues/:id/close-early', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+
+  const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+  let totalClosed = 0;
+  let divisionsAffected = 0;
+  for (const division of divisions) {
+    const closedCount = closeOutstandingFixtures(db, division, req.adminSession.label);
+    if (closedCount > 0) {
+      divisionsAffected += 1;
+      totalClosed += closedCount;
+    }
+  }
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.closeEarly',
+    targetType: 'league',
+    targetId: league.id,
+    details: totalClosed > 0
+      ? `Closed the league early - force-completed ${totalClosed} outstanding fixture(s) 0-0 across ${divisionsAffected} division(s)`
+      : 'Marked every division in the league as complete (no outstanding fixtures)',
+  });
+
+  writeDb(db);
+  res.json({
+    leagueId: league.id,
+    divisionsAffected,
+    fixturesClosed: totalClosed,
+    divisions: divisions.map((d) => hydrateDivision(db, d)),
+  });
+}));
+
+// Permanently deletes a league and everything that belongs to it - every
+// division, fixture, team and pairing scoped to it, plus its roll-of-honour
+// entries, and it's stripped out of any tour's divisionIds. This is the
+// destructive counterpart to close-early above (which just force-completes
+// outstanding fixtures but leaves the league and its history in place) -
+// use this to actually remove a league that was created by mistake or is no
+// longer wanted, not just to end its season. There's no undo.
+app.delete('/api/leagues/:id', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+
+  const divisions = db.divisions.filter((d) => d.leagueId === league.id);
+  const divisionIds = new Set(divisions.map((d) => d.id));
+
+  const fixturesRemoved = db.fixtures.filter((f) => f.leagueId === league.id).length;
+  db.fixtures = db.fixtures.filter((f) => f.leagueId !== league.id);
+  db.teams = db.teams.filter((t) => !divisionIds.has(t.divisionId));
+  db.pairings = db.pairings.filter((p) => !divisionIds.has(p.divisionId));
+  db.rollOfHonour = db.rollOfHonour.filter((r) => r.leagueId !== league.id);
+  db.tours.forEach((tour) => {
+    tour.divisionIds = tour.divisionIds.filter((id) => !divisionIds.has(id));
+  });
+  db.divisions = db.divisions.filter((d) => d.leagueId !== league.id);
+  db.leagues = db.leagues.filter((l) => l.id !== league.id);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.delete',
+    targetType: 'league',
+    targetId: league.id,
+    details: `Deleted league "${league.name}" - ${divisions.length} division(s), ${fixturesRemoved} fixture(s)`,
+  });
+
+  writeDb(db);
+  res.json({ deleted: true, leagueId: league.id, divisionsRemoved: divisions.length, fixturesRemoved });
+}));
+
+// ---- Singles players ----
+// Players are only ever registered `Users` now (see registeredPlayers()
+// below) - a captain picks a name from the list of people who've actually
+// signed up rather than typing an arbitrary free-text name. This keeps the
+// roster tied to real accounts instead of one-off placeholder names.
+
+// Every registered, active user has (via registration) a linked Player
+// record - this is the pool of names a captain/admin can pick from when
+// building a division roster or a team. Demo/seed players created directly
+// in db.players without a linked user (e.g. the seeded Premier League demo
+// data) are NOT included here, since they don't correspond to a real account.
+// ---------- League payment wall helpers ----------
+// `required: false` keeps the shape stable but inert, so every league (even
+// ones that never touch this feature) always has a payment object rather
+// than sometimes having one - callers never need an extra null check.
+function normalizePaymentConfig(input) {
+  const required = !!(input && input.required);
+  if (!required) {
+    return { required: false, amount: 0, currency: 'GBP', windowStart: null, windowEnd: null };
+  }
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new ApiError(400, 'Payment amount must be a number greater than 0');
+  }
+  const windowStart = input.windowStart || null;
+  const windowEnd = input.windowEnd || null;
+  if (windowStart && windowEnd && new Date(windowEnd) < new Date(windowStart)) {
+    throw new ApiError(400, 'Payment window end date cannot be before the start date');
+  }
+  return {
+    required: true,
+    amount,
+    currency: (input.currency || 'GBP').toUpperCase(),
+    windowStart,
+    windowEnd,
+  };
+}
+
+function formatMoney(amount, currency) {
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(amount);
+  } catch {
+    return `${amount} ${currency || 'GBP'}`;
+  }
+}
+
+// Throws unless `playerId` has a confirmed or waived payment record for the
+// league that owns `division` - a no-op when that league doesn't require
+// payment. Called from every place a player becomes an entrant: adding to a
+// singles division, a team, a pairing, and substituting a replacement in
+// (the season wizard's bulk CSV import is deliberately NOT gated here - see
+// the note at POST /api/admin/seasons/:leagueId/import-players for why).
+function assertPaymentCleared(db, division, playerId) {
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  if (!league || !league.payment || !league.payment.required) return;
+  const record = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === playerId);
+  if (record && ['confirmed', 'waived'].includes(record.status)) return;
+  const player = db.players.find((p) => p.id === playerId);
+  throw new ApiError(
+    402,
+    `${player ? player.name : 'This player'} hasn't paid the ${formatMoney(league.payment.amount, league.payment.currency)} entry fee for "${league.name}" yet - confirm or waive their payment from the league's Payments tab before adding them.`
+  );
+}
+
+function registeredPlayers(db) {
+  const linkedPlayerIds = new Set(
+    db.users.filter((u) => u.status === 'active' && u.playerId).map((u) => u.playerId)
+  );
+  return db.players
+    .filter((p) => linkedPlayerIds.has(p.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+app.get('/api/registered-players', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json(registeredPlayers(db));
+}));
+
+// Lets the "Pre Configured Double Elimination Knockout" player-count
+// selector in the client show what a given entrant count's bracket looks
+// like (round counts, byes, estimated games) before a division/roster even
+// exists - see pcdekTemplateSummary's own doc comment for what "template"
+// does and doesn't mean here. No division context needed, so this is a
+// plain reference-data lookup, not scoped to any league/division.
+app.get('/api/game-formats/pcdek/:playerCount', requireAuth, asyncRoute((req, res) => {
+  const playerCount = Number(req.params.playerCount);
+  if (!Number.isInteger(playerCount) || playerCount < 1 || playerCount > 50) {
+    throw new ApiError(400, 'playerCount must be a whole number from 1 to 50');
+  }
+  res.json(pcdekTemplateSummary(playerCount));
+}));
+
+// Powers the admin "Game Adjustments" page (search a player, then pick the
+// fixture to adjust) - same shape/logic as GET /api/users/me/fixtures, just
+// parameterized to any playerId rather than the logged-in account's own, and
+// admin-only. Includes every status (not just upcoming) since an admin might
+// specifically be looking for a `disputed` or `pending_confirmation` match to
+// resolve.
+app.get('/api/admin/players/:playerId/fixtures', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const playerId = req.params.playerId;
+  const myTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
+  const myPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
+
+  const fixtures = db.fixtures.filter((f) => {
+    if (f.homePlayerId === playerId || f.awayPlayerId === playerId) return true;
+    if (myTeamIds.includes(f.homeTeamId) || myTeamIds.includes(f.awayTeamId)) return true;
+    if (myPairingIds.includes(f.homePlayerId) || myPairingIds.includes(f.awayPlayerId)) return true;
+    if (f.legs) return f.legs.some((l) => l.homePlayerId === playerId || l.awayPlayerId === playerId);
+    return false;
+  });
+
+  const enriched = fixtures.map((f) => {
+    const division = db.divisions.find((d) => d.id === f.divisionId);
+    const league = db.leagues.find((l) => l.id === f.leagueId);
+    const isTeams = !!f.legs;
+    const isDoubles = division?.entryType === 'doubles';
+    const opponentId = isTeams
+      ? (myTeamIds.includes(f.homeTeamId) ? f.awayTeamId : f.homeTeamId)
+      : isDoubles
+        ? (myPairingIds.includes(f.homePlayerId) ? f.awayPlayerId : f.homePlayerId)
+        : (f.homePlayerId === playerId ? f.awayPlayerId : f.homePlayerId);
+    const opponentName = isTeams
+      ? db.teams.find((t) => t.id === opponentId)?.name
+      : isDoubles
+        ? db.pairings.find((p) => p.id === opponentId)?.name
+        : db.players.find((p) => p.id === opponentId)?.name;
+    return {
+      id: f.id,
+      leagueName: league?.name,
+      divisionName: division?.name,
+      round: f.round,
+      status: f.status,
+      scoreLabel: isTeams ? `${f.homeLegsWon}-${f.awayLegsWon} legs` : `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+      scheduledDate: f.scheduledDate || null,
+      opponentName: opponentName || 'TBD',
+    };
+  });
+
+  enriched.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || b.round - a.round);
+  res.json(enriched);
+}));
+
+// Powers the Game Adjustments page's "Needs Attention" list - every
+// pending_confirmation/disputed result across the whole app, so an admin can
+// jump straight to resolving one without first knowing (and searching for)
+// which player it involves. Scans both fixture-level status (singles/
+// doubles) and leg-level status (team fixtures, since an individual leg can
+// be disputed while the overall team match is still in_progress).
+app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const NEEDS_ATTENTION = ['pending_confirmation', 'disputed'];
+  const results = [];
+
+  for (const f of db.fixtures) {
+    const division = db.divisions.find((d) => d.id === f.divisionId);
+    const league = db.leagues.find((l) => l.id === f.leagueId);
+
+    if (f.legs) {
+      const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+      const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
+      for (const leg of f.legs) {
+        if (!NEEDS_ATTENTION.includes(leg.status)) continue;
+        results.push({
+          fixtureId: f.id,
+          legNumber: leg.legNumber,
+          leagueName: league?.name,
+          divisionName: division?.name,
+          round: f.round,
+          status: leg.status,
+          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
+          scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+          disputeReason: leg.disputeReason || null,
+          noShowClaim: leg.noShowClaim || null,
+        });
+      }
+      continue;
+    }
+
+    if (!NEEDS_ATTENTION.includes(f.status)) continue;
+    const isDoubles = division?.entryType === 'doubles';
