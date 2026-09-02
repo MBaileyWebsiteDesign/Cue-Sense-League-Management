@@ -1,0 +1,230 @@
+
+  generateFixtures: op((divisionId, data = {}) => {
+    const { startDate, gapDays, visibleByDefault } = data;
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    if (KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'Killer Classic and Cards Killer divisions don\'t generate fixtures - use startKiller instead');
+    }
+    if (division.fixturesGenerated) throw new ApiError(400, 'Fixtures have already been generated for this division');
+    const entrantIds = division.entryType === 'teams'
+      ? division.teamIds
+      : division.entryType === 'doubles'
+        ? division.pairingIds
+        : division.playerIds;
+    const entrantLabel = division.entryType === 'teams' ? 'teams' : division.entryType === 'doubles' ? 'pairings' : 'players';
+    if (entrantIds.length < 2) throw new ApiError(400, `A division needs at least 2 ${entrantLabel} before fixtures can be generated`);
+    if (division.entryType === 'doubles') {
+      const incomplete = db.pairings.filter(
+        (p) => division.pairingIds.includes(p.id) && p.playerIds.length !== division.pairingSize
+      );
+      if (incomplete.length > 0) {
+        throw new ApiError(
+          400,
+          `Every pairing needs exactly ${division.pairingSize} player(s) before fixtures can be generated - ` +
+            `incomplete: ${incomplete.map((p) => p.name).join(', ')}`
+        );
+      }
+    }
+    if (division.scheduling === 'knockout_single_elim') {
+      generateKnockoutFixtures({ league, division, entrantIds });
+    } else if (division.scheduling === 'knockout_double_elim') {
+      if (entrantIds.length < 4) {
+        throw new ApiError(
+          400,
+          `Double elimination needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
+        );
+      }
+      generateDoubleElimFixtures({ league, division, entrantIds });
+    } else if (division.scheduling === 'knockout_double_elim_ally') {
+      if (entrantIds.length < 4) {
+        throw new ApiError(
+          400,
+          `Ally Knockout needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
+        );
+      }
+      generateAllyDoubleElimFixtures({ league, division, entrantIds });
+    } else {
+      generateRoundRobinFixtures({ league, division, entrantIds });
+    }
+    if (startDate && gapDays) {
+      division.gapDays = Number(gapDays);
+      assignScheduledDates(division, startDate, gapDays);
+    }
+    if (visibleByDefault) markAllRoundsVisible(division);
+    division.fixturesGenerated = true;
+    return hydrateDivision(division);
+  }),
+
+  // Killer Classic/Cards Killer - mirrors server/src/index.js's POST
+  // /api/divisions/:id/killer/* routes, using the same pure logic module
+  // (logic/killer.js, byte-identical to server/src/services/killer.js).
+  startKiller: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    if (division.killer && division.killer.status !== 'not_started') {
+      throw new ApiError(400, 'This killer game has already been started');
+    }
+    const result = initKillerState(division.playerIds, division.scheduling, division.startingLives || 3);
+    if (!result.ok) throw new ApiError(400, result.error);
+    division.killer = result.state;
+    division.fixturesGenerated = true;
+    return hydrateDivision(division);
+  }),
+
+  recordKillerShot: op((divisionId, outcome, lastBall = false) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+    const result = recordKillerShotLogic(division.killer, outcome, { lastBall: !!lastBall });
+    if (!result.ok) throw new ApiError(400, result.error);
+    division.killer = result.state;
+    return hydrateDivision(division);
+  }),
+
+  undoKillerShot: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+    const result = undoLastKillerShotLogic(division.killer);
+    if (!result.ok) throw new ApiError(400, result.error);
+    division.killer = result.state;
+    return hydrateDivision(division);
+  }),
+
+  resetKiller: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    division.killer = null;
+    division.fixturesGenerated = false;
+    db.rollOfHonour = db.rollOfHonour.filter((r) => r.divisionId !== division.id);
+    return hydrateDivision(division);
+  }),
+
+  substitutePlayer: op((divisionId, outgoingPlayerId, incomingPlayerId, reason = 'substitution') => {
+    if (!outgoingPlayerId || !incomingPlayerId) throw new ApiError(400, 'outgoingPlayerId and incomingPlayerId are required');
+    if (outgoingPlayerId === incomingPlayerId) throw new ApiError(400, 'The replacement must be a different player from the one dropping out');
+    if (!['substitution', 'retirement'].includes(reason)) throw new ApiError(400, "reason must be 'substitution' or 'retirement'");
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.entryType !== 'singles') throw new ApiError(400, 'Player substitution is only available for singles divisions right now');
+    if (!division.playerIds.includes(outgoingPlayerId)) throw new ApiError(400, 'That player is not registered in this division');
+    if (division.playerIds.includes(incomingPlayerId)) throw new ApiError(400, 'That replacement is already registered in this division');
+    const incoming = registeredPlayers().find((p) => p.id === incomingPlayerId);
+    if (!incoming) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+    assertPaymentCleared(division, incoming.id);
+    const outgoing = db.players.find((p) => p.id === outgoingPlayerId);
+    const divisionFixtures = db.fixtures.filter((f) => f.divisionId === division.id);
+    const swapped = [];
+    const blockedInProgress = [];
+    for (const fixture of divisionFixtures) {
+      const isHome = fixture.homePlayerId === outgoingPlayerId;
+      const isAway = fixture.awayPlayerId === outgoingPlayerId;
+      if (!isHome && !isAway) continue;
+      if (fixture.status === 'completed') continue;
+      if (fixture.status === 'in_progress') {
+        blockedInProgress.push({ fixtureId: fixture.id, round: fixture.round });
+        continue;
+      }
+      if (isHome) fixture.homePlayerId = incomingPlayerId;
+      else fixture.awayPlayerId = incomingPlayerId;
+      swapped.push({ fixtureId: fixture.id, round: fixture.round });
+    }
+    division.playerIds.push(incomingPlayerId);
+    // A 'retirement' also drops the outgoing player from the roster, so
+    // their row disappears from the League Table - unlike a plain
+    // 'substitution', where they stay listed with their played-so-far
+    // record frozen. Either way, computeStandings only ever aggregates a
+    // row from that row's own fixtures, so this never touches opponents'
+    // already-completed results.
+    if (reason === 'retirement') {
+      division.playerIds = division.playerIds.filter((id) => id !== outgoingPlayerId);
+    }
+    if (!division.substitutions) division.substitutions = [];
+    division.substitutions.push({
+      id: uuid(), outgoingPlayerId, outgoingPlayerName: outgoing ? outgoing.name : 'Unknown player',
+      incomingPlayerId, incomingPlayerName: incoming.name, reason, at: new Date().toISOString(),
+      by: adminLabel(), fixturesSwapped: swapped.length,
+    });
+    recordAudit(db, {
+      actor: adminLabel(), action: 'division.substitute_player', targetType: 'division', targetId: division.id,
+      details: reason === 'retirement'
+        ? `${outgoing ? outgoing.name : 'A player'} retired from "${division.name}" - removed from the League Table, ${incoming.name} took over ${swapped.length} remaining fixture(s)`
+        : `Swapped ${outgoing ? outgoing.name : 'a player'} out for ${incoming.name} in "${division.name}" (${swapped.length} remaining fixture(s) reassigned)`,
+    });
+    return { division: hydrateDivision(division), swapped, blockedInProgress, reason };
+  }),
+
+  getFixture: op((id) => {
+    const fixture = db.fixtures.find((f) => f.id === id);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    const division = db.divisions.find((d) => d.id === fixture.divisionId);
+    const divisionName = division ? division.name : null;
+    if (!currentUser()?.isAdmin && !isRoundVisible(division, fixture.round)) {
+      throw new ApiError(404, 'Fixture not found');
+    }
+    if (division.entryType === 'teams') {
+      const withPlayers = (team) => (team ? { ...team, players: db.players.filter((p) => team.playerIds.includes(p.id)) } : null);
+      const homeTeam = withPlayers(db.teams.find((t) => t.id === fixture.homeTeamId));
+      const awayTeam = withPlayers(db.teams.find((t) => t.id === fixture.awayTeamId));
+      const legs = fixture.legs.map((leg) => ({
+        ...leg,
+        homePlayer: leg.homePlayerId ? db.players.find((p) => p.id === leg.homePlayerId) : null,
+        awayPlayer: leg.awayPlayerId ? db.players.find((p) => p.id === leg.awayPlayerId) : null,
+      }));
+      return { ...fixture, divisionName, legs, homeTeam, awayTeam, bothEntrantsKnown: !!(fixture.homeTeamId && fixture.awayTeamId) };
+    }
+    if (division.entryType === 'doubles') {
+      const withPlayers = (pairing) => (pairing ? { ...pairing, players: db.players.filter((p) => pairing.playerIds.includes(p.id)) } : null);
+      const homePairing = withPlayers(db.pairings.find((p) => p.id === fixture.homePlayerId));
+      const awayPairing = withPlayers(db.pairings.find((p) => p.id === fixture.awayPlayerId));
+      return { ...fixture, divisionName, homePairing, awayPairing, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) };
+    }
+    const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
+    const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
+    return { ...fixture, divisionName, homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) };
+  }),
+
+  // Ported from server/src/index.js's GET /api/overlay/fixtures/:id (see the
+  // design notes there) - normalizes singles/teams/doubles into the same
+  // { home, away } shape for the OBS-facing stream overlay page. There's no
+  // real auth boundary in demo mode to begin with, so this is really just
+  // "the same data, reshaped" rather than a public-vs-private distinction.
+  getOverlayFixture: op((id) => {
+    const fixture = db.fixtures.find((f) => f.id === id);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    return buildOverlayFixture(fixture);
+  }),
+
+  // Ported from server/src/index.js's GET /api/overlay/leagues/:id/arena -
+  // a public read-only board of today's table schedule plus recent results,
+  // reusing buildOverlayFixture for each fixture so the shapes stay
+  // consistent with the OBS overlay above.
+  getArena: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const today = new Date().toISOString().slice(0, 10);
+    const leagueFixtures = db.fixtures.filter((f) => f.leagueId === league.id);
+
+    const withOverlay = (fixture) => {
+      const division = db.divisions.find((d) => d.id === fixture.divisionId);
+      if (!division) return null;
+      return {
+        ...buildOverlayFixture(fixture),
+        tableId: fixture.tableId,
+        scheduledDate: fixture.scheduledDate,
+        scheduledTime: fixture.scheduledTime,
+      };
