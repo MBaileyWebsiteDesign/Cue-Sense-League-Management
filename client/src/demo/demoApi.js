@@ -3,4 +3,25 @@
 // server to talk to on Pages - so instead of fetch() calls, every method
 // here runs the same logic as the real Express routes in
 // server/src/index.js directly against an in-memory copy of the seeded demo
-// dataset (client/src/demo/demoData.json).
+// dataset (client/src/demo/demoData.json). Every method still returns a
+// Promise that resolves/rejects exactly like the real network version (same
+// shapes, same `.message` text on failure), so no page component needs to
+// know or care which api it's talking to.
+//
+// This is a genuine port of the real route logic (not a simplified rewrite)
+// so the demo behaves the same as a real deployment - it just keeps its
+// state in the browser's localStorage instead of a server-side JSON file,
+// which means a visitor's changes (scores, admin edits, new fixtures) stick
+// around across a refresh in *their own browser*, but nobody else sees them
+// and there's no way to reset short of clearing site data.
+import demoDataSeed from './demoData.json';
+import { generateRoundRobin, generateRoundRobinDouble } from './logic/roundRobin.js';
+import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './logic/bracket.js';
+import { computeStandings } from './logic/standings.js';
+import { computeTeamStandings } from './logic/teamStandings.js';
+import { computeTourStandings } from './logic/tours.js';
+import { buildPlayerProfile } from './logic/playerProfile.js';
+import { recordAudit } from './logic/auditLog.js';
+import { initKillerState, recordShot as recordKillerShotLogic, undoLastShot as undoLastKillerShotLogic, KILLER_TYPES } from './logic/killer.js';
+
+PLACEHOLDER_MARKER_DO_NOT_USE
