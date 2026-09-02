@@ -1,0 +1,300 @@
+    const homeName = isDoubles
+      ? db.pairings.find((p) => p.id === f.homePlayerId)?.name
+      : db.players.find((p) => p.id === f.homePlayerId)?.name;
+    const awayName = isDoubles
+      ? db.pairings.find((p) => p.id === f.awayPlayerId)?.name
+      : db.players.find((p) => p.id === f.awayPlayerId)?.name;
+    results.push({
+      fixtureId: f.id,
+      legNumber: null,
+      leagueName: league?.name,
+      divisionName: division?.name,
+      round: f.round,
+      status: f.status,
+      label: `${homeName || 'TBD'} vs ${awayName || 'TBD'}`,
+      scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+      disputeReason: f.disputeReason || null,
+      noShowClaim: f.noShowClaim || null,
+    });
+  }
+
+  const STATUS_ORDER = { disputed: 0, pending_confirmation: 1 };
+  results.sort((a, b) =>
+    STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+    (a.leagueName || '').localeCompare(b.leagueName || '') ||
+    a.round - b.round
+  );
+  res.json(results);
+}));
+
+// Powers the Admin Portal's "Issue / Bug Tracker" section - a read-only
+// mirror of the project's GitHub Issues (github.com/MBaileyWebsiteDesign/
+// Cue-Sense-League-Management/issues), admin-only. The repo is public, so
+// this deliberately doesn't need a GitHub token - it hits the same
+// unauthenticated REST endpoint anyone could call, just server-side to
+// avoid a browser CORS request and keep the repo name in one place. A
+// short in-memory cache keeps repeat page loads from tripping GitHub's
+// ~60-requests/hour unauthenticated rate limit; it's process-local and
+// simply resets on every deploy/restart. Deliberately NOT wrapped in
+// asyncRoute - that helper only catches synchronous throws (see its
+// definition above), not a rejected promise from an async handler, so
+// this handler manages its own fetch/catch and error response instead.
+const GITHUB_ISSUES_REPO = 'MBaileyWebsiteDesign/Cue-Sense-League-Management';
+const GITHUB_ISSUES_CACHE_MS = 60 * 1000;
+let githubIssuesCache = { at: 0, data: null };
+
+// Was admin-only (/api/admin/github-issues); the Issues / Bugs / Features
+// page it backs (see client/src/pages/IssuesBugsFeatures.jsx) is now
+// visible to every logged-in account, not just admins - see the Feature /
+// Requests routes just below it for the other half of that page.
+app.get('/api/github-issues', requireAuth, (req, res) => {
+  const now = Date.now();
+  if (githubIssuesCache.data && now - githubIssuesCache.at < GITHUB_ISSUES_CACHE_MS) {
+    res.json(githubIssuesCache.data);
+    return;
+  }
+
+  const githubHeaders = { Accept: 'application/vnd.github+json', 'User-Agent': 'cue-sense-pool-management' };
+  // Optional: set a GITHUB_ISSUES_TOKEN Fly secret to raise the rate limit
+  // from GitHub's unauthenticated 60/hour (shared across everything on the
+  // host's egress IP - trivial to exhaust) to 5000/hour. Any token works,
+  // even one with no special scopes, since this only ever reads a public
+  // repo's issues. Falls back to unauthenticated if the secret isn't set.
+  if (process.env.GITHUB_ISSUES_TOKEN) {
+    githubHeaders.Authorization = `Bearer ${process.env.GITHUB_ISSUES_TOKEN}`;
+  }
+
+  fetch(
+    `https://api.github.com/repos/${GITHUB_ISSUES_REPO}/issues?state=all&per_page=100&sort=updated&direction=desc`,
+    { headers: githubHeaders }
+  )
+    .then(async (ghRes) => {
+      if (!ghRes.ok) {
+        res.status(502).json({ error: `GitHub returned ${ghRes.status} fetching issues - try again shortly.` });
+        return;
+      }
+      const raw = await ghRes.json();
+      // The Issues API returns pull requests too - a PR is an issue with a
+      // `pull_request` key present; filter those out so this only shows
+      // real issues.
+      const issues = raw
+        .filter((item) => !item.pull_request)
+        .map((item) => ({
+          number: item.number,
+          title: item.title,
+          state: item.state,
+          htmlUrl: item.html_url,
+          labels: (item.labels || []).map((l) =>
+            typeof l === 'string' ? { name: l, color: '888888' } : { name: l.name, color: l.color }
+          ),
+          commentCount: item.comments,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+          author: item.user?.login || null,
+        }));
+      githubIssuesCache = { at: now, data: issues };
+      res.json(issues);
+    })
+    .catch((err) => {
+      res.status(502).json({ error: `Couldn't reach GitHub: ${err.message}` });
+    });
+});
+
+// Feature / Requests: the other half of the Issues / Bugs / Features page -
+// a lightweight in-app alternative to filing a GitHub issue, open to any
+// logged-in account (player, League Manager or Overall Admin) rather than
+// just admins. Every submission is ALSO filed as a real GitHub Issue
+// labeled "Enhancement" (see createGithubIssueForFeatureRequest just below)
+// so the project's GitHub tracker stays the single place engineering work
+// gets triaged from, while the in-app form stays friendly to people who
+// don't have (or want) a GitHub account. Requires a
+// GITHUB_FEATURE_REQUEST_TOKEN Fly secret with Issues read/write access to
+// this repo - a fine-grained PAT scoped to just this repo with "Issues:
+// Read and write" is enough. Without that secret set, requests still save
+// and show up in-app exactly as before; they just won't also become a
+// GitHub issue (a warning is logged so this is easy to notice).
+const GITHUB_FEATURE_REQUEST_LABEL = 'Enhancement';
+
+function createGithubIssueForFeatureRequest(request) {
+  const token = process.env.GITHUB_FEATURE_REQUEST_TOKEN;
+  if (!token) {
+    console.warn(`GITHUB_FEATURE_REQUEST_TOKEN not set - feature request ${request.id} was saved in-app only, not filed on GitHub`);
+    return Promise.resolve(null);
+  }
+
+  return fetch(`https://api.github.com/repos/${GITHUB_ISSUES_REPO}/issues`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'cue-sense-pool-management',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      title: request.title,
+      body: `${request.description}\n\n---\nSubmitted in-app by ${request.createdByName} via the Feature / Requests page.`,
+      labels: [GITHUB_FEATURE_REQUEST_LABEL],
+    }),
+  })
+    .then(async (ghRes) => {
+      if (!ghRes.ok) {
+        const errText = await ghRes.text().catch(() => '');
+        console.error(`GitHub issue creation failed (${ghRes.status}) for feature request ${request.id}: ${errText}`);
+        return null;
+      }
+      const issue = await ghRes.json();
+      return { number: issue.number, htmlUrl: issue.html_url };
+    })
+    .catch((err) => {
+      console.error(`Couldn't reach GitHub to file feature request ${request.id} as an issue: ${err.message}`);
+      return null;
+    });
+}
+
+app.get('/api/feature-requests', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const requests = [...db.featureRequests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(requests);
+}));
+
+app.post('/api/feature-requests', requireAuth, asyncRoute(async (req, res) => {
+  const title = (req.body.title || '').trim();
+  const description = (req.body.description || '').trim();
+  if (!title) throw new ApiError(400, 'A short title is required');
+  if (title.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+  if (!description) throw new ApiError(400, 'Details are required');
+  if (description.length > 4000) throw new ApiError(400, 'Description must be 4000 characters or fewer');
+
+  const db = readDb();
+  const request = {
+    id: uuid(),
+    title,
+    description,
+    createdAt: new Date().toISOString(),
+    createdByUserId: req.auth.user.id,
+    createdByName: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+    githubIssueNumber: null,
+    githubIssueUrl: null,
+  };
+  db.featureRequests.push(request);
+  writeDb(db);
+
+  // Best-effort: also file this as a GitHub issue. createGithubIssueForFeatureRequest
+  // never rejects (it catches its own errors and resolves null), so a GitHub-side
+  // problem here can never block or fail the in-app submission above, which is
+  // already saved by this point regardless of what happens next.
+  const issue = await createGithubIssueForFeatureRequest(request);
+  if (issue) {
+    const latest = readDb();
+    const saved = latest.featureRequests.find((r) => r.id === request.id);
+    if (saved) {
+      saved.githubIssueNumber = issue.number;
+      saved.githubIssueUrl = issue.htmlUrl;
+      writeDb(latest);
+      request.githubIssueNumber = issue.number;
+      request.githubIssueUrl = issue.htmlUrl;
+    }
+  }
+
+  res.status(201).json(request);
+}));
+
+// Moderation (e.g. removing a duplicate or spam submission) stays
+// admin-only, unlike reading/submitting requests.
+app.delete('/api/feature-requests/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const before = db.featureRequests.length;
+  db.featureRequests = db.featureRequests.filter((r) => r.id !== req.params.id);
+  if (db.featureRequests.length === before) throw new ApiError(404, 'Feature request not found');
+  writeDb(db);
+  res.status(204).end();
+}));
+
+// ---------- Guides ----------
+// Admin-uploaded reference documents (PDF/Word) - see client/src/pages/
+// Guides.jsx. Each guide carries its own "visibility" flags for which
+// account type(s) can see it (player, captain, leagueManager, admin - every
+// account is at least a "player" for this purpose, same convention as
+// PlayerPortal.jsx). Only an Overall Admin can upload, edit, or remove a
+// guide; everyone else gets a filtered, view-only list/download. The file
+// itself is streamed straight to disk under DATA_DIR/guides (the same
+// persistent volume db.json lives on - see db.js's DATA_DIR) rather than
+// stored inline in db.json, since PDFs/Word docs are binary and can be
+// large; db.json only ever holds each guide's metadata.
+const GUIDES_DIR = path.join(DATA_DIR, 'guides');
+if (!existsSync(GUIDES_DIR)) mkdirSync(GUIDES_DIR, { recursive: true });
+
+const GUIDE_ROLES = ['player', 'captain', 'leagueManager', 'admin'];
+// Deliberately narrow (per Matt's choice) - matches the Player/League
+// Manager/Admin Guide.docx files already in this project. Checked by
+// extension, not just multer's reported mimetype, since that's supplied by
+// the browser and easy to spoof either way - the extension is what ends up
+// on the downloaded file too.
+const GUIDE_EXTENSIONS = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+const guideStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, GUIDES_DIR),
+  // Never trust the browser-supplied original filename for the on-disk
+  // name (path traversal, collisions) - a fresh uuid plus the validated
+  // extension is all storage needs; the real name is kept separately as
+  // originalFileName for display/download.
+  filename: (req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname).toLowerCase()}`),
+});
+// No file-size limit is set here (Matt's explicit choice, despite the
+// app's general single-JSON-file-database scale sensitivity noted
+// elsewhere in this file) - diskStorage streams straight to disk rather
+// than buffering in memory, so an unusually large PDF doesn't blow up
+// server memory the way multer's default memoryStorage would.
+const uploadGuideFile = multer({
+  storage: guideStorage,
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!GUIDE_EXTENSIONS[ext]) {
+      cb(new ApiError(400, 'Only PDF and Word documents (.pdf, .doc, .docx) can be uploaded as a Guide'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+function userGuideRoles(user) {
+  const roles = ['player'];
+  if (user.isCaptain) roles.push('captain');
+  if (user.isLeagueManager) roles.push('leagueManager');
+  if (user.isAdmin) roles.push('admin');
+  return roles;
+}
+
+// An Overall Admin can always see/download every guide (needed to manage
+// visibility on one that isn't flagged for admins themselves); everyone
+// else needs at least one of their own roles ticked on the guide.
+function guideVisibleToUser(guide, user) {
+  if (user.isAdmin) return true;
+  return userGuideRoles(user).some((role) => guide.visibility[role]);
+}
+
+// Never send storedFileName (the on-disk name) to the client - downloads
+// go through the id-based route below instead, same as every other
+// admin-only-detail/public-shape split in this file.
+function publicGuide(guide) {
+  return {
+    id: guide.id,
+    title: guide.title,
+    description: guide.description,
+    originalFileName: guide.originalFileName,
+    mimeType: guide.mimeType,
+    size: guide.size,
+    visibility: guide.visibility,
+    uploadedByName: guide.uploadedByName,
+    createdAt: guide.createdAt,
+    updatedAt: guide.updatedAt,
+  };
+}
+
+function parseGuideVisibility(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const visibility = {};
