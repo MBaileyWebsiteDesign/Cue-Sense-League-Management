@@ -1,0 +1,300 @@
+  for (const role of GUIDE_ROLES) visibility[role] = !!source[role];
+  return visibility;
+}
+
+app.get('/api/guides', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const user = req.auth.user;
+  // Admins manage the full set (including a guide not currently flagged
+  // for admins) - everyone else only ever sees what applies to them.
+  const guides = user.isAdmin ? db.guides : db.guides.filter((g) => guideVisibleToUser(g, user));
+  guides.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(guides.map(publicGuide));
+}));
+
+app.post('/api/guides', requireAdmin, uploadGuideFile.single('file'), asyncRoute((req, res) => {
+  // Validation failures below all clean up the file multer already wrote
+  // to disk before erroring, so a rejected upload never leaves an orphan
+  // file behind.
+  const cleanupAndThrow = (status, message) => {
+    if (req.file) {
+      try { unlinkSync(req.file.path); } catch (err) { console.error(`Couldn't clean up rejected guide upload: ${err.message}`); }
+    }
+    throw new ApiError(status, message);
+  };
+
+  if (!req.file) throw new ApiError(400, 'A PDF or Word document is required');
+
+  const title = (req.body.title || '').trim();
+  if (!title) cleanupAndThrow(400, 'A title is required');
+  if (title.length > 200) cleanupAndThrow(400, 'Title must be 200 characters or fewer');
+
+  const description = (req.body.description || '').trim();
+  if (description.length > 2000) cleanupAndThrow(400, 'Description must be 2000 characters or fewer');
+
+  let visibilityInput;
+  try {
+    visibilityInput = req.body.visibility ? JSON.parse(req.body.visibility) : {};
+  } catch {
+    cleanupAndThrow(400, 'Invalid visibility data');
+  }
+  const visibility = parseGuideVisibility(visibilityInput);
+  if (!GUIDE_ROLES.some((role) => visibility[role])) {
+    cleanupAndThrow(400, 'Choose at least one account type who can view this guide');
+  }
+
+  const db = readDb();
+  const guide = {
+    id: uuid(),
+    title,
+    description,
+    storedFileName: req.file.filename,
+    originalFileName: req.file.originalname,
+    mimeType: GUIDE_EXTENSIONS[path.extname(req.file.originalname).toLowerCase()] || req.file.mimetype,
+    size: req.file.size,
+    visibility,
+    uploadedByUserId: req.auth.user.id,
+    uploadedByName: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  db.guides.push(guide);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'guide.upload',
+    targetType: 'guide',
+    targetId: guide.id,
+    details: `Uploaded guide "${title}" (${req.file.originalname})`,
+  });
+  writeDb(db);
+
+  res.status(201).json(publicGuide(guide));
+}));
+
+app.patch('/api/guides/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const guide = db.guides.find((g) => g.id === req.params.id);
+  if (!guide) throw new ApiError(404, 'Guide not found');
+
+  if (req.body.title !== undefined) {
+    const title = String(req.body.title).trim();
+    if (!title) throw new ApiError(400, 'A title is required');
+    if (title.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+    guide.title = title;
+  }
+  if (req.body.description !== undefined) {
+    const description = String(req.body.description).trim();
+    if (description.length > 2000) throw new ApiError(400, 'Description must be 2000 characters or fewer');
+    guide.description = description;
+  }
+  if (req.body.visibility !== undefined) {
+    const visibility = parseGuideVisibility(req.body.visibility);
+    if (!GUIDE_ROLES.some((role) => visibility[role])) {
+      throw new ApiError(400, 'Choose at least one account type who can view this guide');
+    }
+    guide.visibility = visibility;
+  }
+  guide.updatedAt = new Date().toISOString();
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'guide.update',
+    targetType: 'guide',
+    targetId: guide.id,
+    details: `Updated guide "${guide.title}"`,
+  });
+  writeDb(db);
+
+  res.json(publicGuide(guide));
+}));
+
+app.delete('/api/guides/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const guide = db.guides.find((g) => g.id === req.params.id);
+  if (!guide) throw new ApiError(404, 'Guide not found');
+
+  db.guides = db.guides.filter((g) => g.id !== guide.id);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'guide.delete',
+    targetType: 'guide',
+    targetId: guide.id,
+    details: `Removed guide "${guide.title}"`,
+  });
+  writeDb(db);
+
+  const filePath = path.join(GUIDES_DIR, guide.storedFileName);
+  if (existsSync(filePath)) {
+    try { unlinkSync(filePath); } catch (err) { console.error(`Couldn't delete guide file ${filePath}: ${err.message}`); }
+  }
+
+  res.status(204).end();
+}));
+
+app.get('/api/guides/:id/download', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const guide = db.guides.find((g) => g.id === req.params.id);
+  if (!guide) throw new ApiError(404, 'Guide not found');
+  if (!guideVisibleToUser(guide, req.auth.user)) throw new ApiError(403, "You don't have access to this guide");
+
+  const filePath = path.join(GUIDES_DIR, guide.storedFileName);
+  if (!existsSync(filePath)) throw new ApiError(404, 'Guide file is missing');
+
+  res.download(filePath, guide.originalFileName);
+}));
+
+app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
+  const { playerId } = req.body;
+  if (!playerId) throw new ApiError(400, 'playerId is required');
+
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.entryType !== 'singles') {
+    throw new ApiError(400, `This is a ${division.entryType} division - add players to a ${division.entryType === 'teams' ? 'team' : 'pairing'} instead`);
+  }
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+  }
+
+  const player = registeredPlayers(db).find((p) => p.id === playerId);
+  if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+  assertPaymentCleared(db, division, player.id);
+  if (!division.playerIds.includes(player.id)) {
+    division.playerIds.push(player.id);
+  }
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot remove players after fixtures have been generated for this division');
+  }
+  division.playerIds = division.playerIds.filter((id) => id !== req.params.playerId);
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// ---------- Open divisions: browse + join requests (NQT) ----------
+// "Is Open" divisions (see POST /api/leagues/:leagueId/divisions above) are
+// discoverable by any logged-in player and can be requested rather than
+// added directly by an admin/League Manager. A request just queues up -
+// approving it is the same effect as an admin adding the player directly
+// (division.playerIds.push), rejecting it just closes the request out with
+// no side effects. Singles-only for now, same scope as Quick Add (walk-in)
+// and the late-entrant flow.
+
+// Every open, still-active singles division across every league, for a
+// player to browse and request. Doesn't need requireAnyAdmin - any
+// logged-in account can see what's open, the gate is on requesting/
+// approving, not browsing.
+app.get('/api/open-divisions', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const myPlayerId = req.auth.user.playerId;
+  const result = db.divisions
+    .filter((d) => d.isOpen && d.status !== 'completed' && d.entryType === 'singles')
+    .map((d) => {
+      const league = db.leagues.find((l) => l.id === d.leagueId);
+      const alreadyIn = myPlayerId ? d.playerIds.includes(myPlayerId) : false;
+      const pendingRequest = myPlayerId
+        ? db.joinRequests.find((r) => r.divisionId === d.id && r.playerId === myPlayerId && r.status === 'pending')
+        : null;
+      return {
+        divisionId: d.id,
+        divisionName: d.name,
+        leagueId: d.leagueId,
+        leagueName: league?.name || 'Unknown league',
+        playerCount: d.playerIds.length,
+        fixturesGenerated: d.fixturesGenerated,
+        alreadyIn,
+        requestStatus: alreadyIn ? 'member' : pendingRequest ? 'pending' : null,
+      };
+    });
+  res.json(result);
+}));
+
+// A logged-in player requests to join one open division. One pending
+// request per (player, division) at a time - re-requesting after a
+// rejection is allowed (a League Manager may reconsider), but not while
+// one is already pending.
+app.post('/api/divisions/:id/join-requests', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  if (!division.isOpen) throw new ApiError(400, 'This division is not open for join requests');
+  if (division.entryType !== 'singles') throw new ApiError(400, 'Only singles divisions accept join requests right now');
+  const playerId = req.auth.user.playerId;
+  if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
+  if (division.playerIds.includes(playerId)) throw new ApiError(400, "You're already in this division");
+  const existing = db.joinRequests.find((r) => r.divisionId === division.id && r.playerId === playerId && r.status === 'pending');
+  if (existing) throw new ApiError(400, 'You already have a pending request for this division');
+
+  const request = {
+    id: uuid(),
+    divisionId: division.id,
+    playerId,
+    userId: req.auth.user.id,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    decidedAt: null,
+    decidedBy: null,
+  };
+  db.joinRequests.push(request);
+  writeDb(db);
+  res.status(201).json(request);
+}));
+
+// Pending join requests across every division in one league, for that
+// league's "Admin: Manage this League" -> Join Requests subsection -
+// League Manager (scoped to their assigned league) or Overall Admin, same
+// access pattern as everything else on that panel.
+app.get('/api/leagues/:id/join-requests', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+  const divisionIds = new Set(db.divisions.filter((d) => d.leagueId === league.id).map((d) => d.id));
+  const result = db.joinRequests
+    .filter((r) => r.status === 'pending' && divisionIds.has(r.divisionId))
+    .map((r) => {
+      const division = db.divisions.find((d) => d.id === r.divisionId);
+      const player = db.players.find((p) => p.id === r.playerId);
+      return {
+        id: r.id,
+        divisionId: r.divisionId,
+        divisionName: division?.name || 'Unknown division',
+        playerId: r.playerId,
+        playerName: player?.name || 'Unknown player',
+        createdAt: r.createdAt,
+      };
+    });
+  res.json(result);
+}));
+
+app.post('/api/join-requests/:id/approve', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const request = db.joinRequests.find((r) => r.id === req.params.id);
+  if (!request) throw new ApiError(404, 'Join request not found');
+  if (request.status !== 'pending') throw new ApiError(400, 'This request has already been decided');
+  const division = db.divisions.find((d) => d.id === request.divisionId);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+  if (division.fixturesGenerated) {
+    throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+  }
+  assertPaymentCleared(db, division, request.playerId);
+  if (!division.playerIds.includes(request.playerId)) {
+    division.playerIds.push(request.playerId);
+  }
+  request.status = 'approved';
+  request.decidedAt = new Date().toISOString();
+  request.decidedBy = req.adminSession.label;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'join_request.approve',
+    targetType: 'division',
