@@ -1,0 +1,258 @@
+      }
+    }
+  }
+
+  static prune(met, alive) {
+    const out = new Set();
+    for (const p of met) {
+      const [a, b] = p.split('|').map(Number);
+      if (alive.has(a) && alive.has(b)) out.add(p);
+    }
+    return out;
+  }
+
+  safe(W, L, Q, used, met) {
+    const lbAlive = L.length + Q.reduce((s, q) => s + q[0].length, 0);
+    if (W.size <= 1 && lbAlive <= 1) return true;   // champion, or exempt Grand Final
+    const k = this.key(W, L, Q, used, met);
+    const hit = this.memo.get(k);
+    if (hit !== undefined) return hit;
+    if (--this.budget <= 0) { this.exhausted = true; return false; }
+    const res = this.search(W, L, Q, used, met) !== null;
+    this.memo.set(k, res);
+    return res;
+  }
+
+  // `preferWb` only reorders which of the two candidate blocks is tried first
+  // at the root; both are still filtered by the same adversarial safety check,
+  // so it changes WHICH safe round is chosen, never whether it is safe. The
+  // recursive safety probes below deliberately don't pass it - they ask "does
+  // any rematch-free continuation exist", where order is irrelevant and would
+  // only invalidate the memo key.
+  search(W, L, Q, used, met, preferWb = false) {
+    const lbAlive = L.length + Q.reduce((s, q) => s + q[0].length, 0);
+
+    const tryLb = () => {
+      if (lbAlive < 2) return null;
+      for (const [m, bye, newQ] of this.lbActions(W, L, Q, used, met)) {
+        let ok = true;
+        for (let bits = 0; bits < (1 << m.length); bits++) {
+          const surv = bye !== null ? [bye] : [];
+          m.forEach(([a, b], i) => surv.push((bits >> i & 1) ? a : b));
+          surv.sort((a, b) => a - b);
+          const alive = new Set([...surv, ...W]);
+          newQ.forEach((q) => q[0].forEach((p) => alive.add(p)));
+          const nu = new Set([...used, ...(bye !== null ? [bye] : [])].filter((x) => alive.has(x)));
+          if (!this.safe(W, surv, newQ, nu, Endgame.prune(met, alive))) { ok = false; break; }
+        }
+        if (ok) return ['lb', m, bye, newQ];
+      }
+      return null;
+    };
+
+    const tryWb = () => {
+      if (W.size < 2) return null;
+      for (const [m, bye] of this.wbActions(W, used)) {
+        let ok = true;
+        for (let bits = 0; bits < (1 << m.length); bits++) {
+          const win = bye !== null ? [bye] : []; const drop = [];
+          m.forEach(([a, b], i) => {
+            const [w_, l_] = (bits >> i & 1) ? [a, b] : [b, a];
+            win.push(w_); drop.push(l_);
+          });
+          const nmet = new Set(met);
+          m.forEach(([a, b]) => nmet.add(pk(a, b)));
+          const nu = new Set([...used, ...(bye !== null ? [bye] : [])]);
+          const nQ = [...Q, [drop.slice().sort((a, b) => a - b), 0]];
+          if (!this.safe(new Set(win), L, nQ, nu, nmet)) { ok = false; break; }
+        }
+        if (ok) return ['wb', m, bye, Q];
+      }
+      return null;
+    };
+
+    return preferWb ? (tryWb() || tryLb()) : (tryLb() || tryWb());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Engine
+// ---------------------------------------------------------------------------
+
+class Engine {
+  constructor(entrantIds) {
+    this.byId = new Map();
+    entrantIds.forEach((id, i) => this.byId.set(id, {
+      id, seed: i, losses: 0, byes: 0, wave: null, met: new Set(), lbGames: 0,
+    }));
+    this.index = new Map(entrantIds.map((id, i) => [id, i]));
+    this.W = entrantIds.map((id) => this.byId.get(id));
+    this.L = [];
+    this.Q = [];               // [{ players: [p], held: n }]
+    this.wbRoundNo = 0;
+    this.lbRoundNo = 0;
+    // Which winners round's losers most recently walked into the losers
+    // bracket, and how many losers rounds have been played since - see
+    // lbLabel.
+    this.lbWave = 0;
+    this.lbStage = 0;
+    // Losers rounds played since the last winners round - the brackets run in
+    // strict alternation, see paceSaysLb.
+    this.lbSinceWb = 0;
+    this.roundNo = 0;
+    this.champion = null;
+    if (entrantIds.length === 1) { this.champion = this.W[0]; this.W = []; }
+  }
+
+  bySeed(list) { return [...list].sort((a, b) => a.seed - b.seed); }
+  lbAlive() { return this.L.length + this.Q.reduce((s, w) => s + w.players.length, 0); }
+
+  // -- losers-round naming ---------------------------------------------------
+  // A losers round is named after the WINNERS round whose losers walked into
+  // it - so the loser of Winners Round 2 lands in Losers Round 2 - rather than
+  // by how many losers rounds happen to have been played. That is how anyone
+  // reads a double-elimination bracket, and counting instead made the two
+  // brackets look unrelated: because the losers pool has to play itself down
+  // between drop waves (see paceSaysLb), a Winners Round 3 loser was landing
+  // in something called "Losers Round 6".
+  //
+  // Those play-down rounds admit nobody new, so they have no winners round of
+  // their own. They continue the last one: Losers Round 2, then 2b, 2c...
+  //
+  // `fresh` is the players entering the losers bracket for the first time this
+  // round; each carries the winners round they fell from as `wave`.
+  lbLabel(fresh) {
+    const waves = [...new Set(fresh.map((p) => p.wave).filter(Boolean))].sort((a, b) => a - b);
+    if (waves.length) {
+      // Two drop waves can be admitted together when the pool pairs better
+      // that way; name both rather than silently dropping one.
+      const name = waves.length > 1
+        ? `Losers Rounds ${waves[0]}-${waves[waves.length - 1]}`
+        : `Losers Round ${waves[0]}`;
+      return { label: name, wave: waves[waves.length - 1], stage: 0 };
+    }
+    // No arrivals: a play-down continuing the last drop wave.
+    if (!this.lbWave) return { label: `Losers Round ${this.lbRoundNo + 1}`, wave: 0, stage: 0 };
+    const stage = this.lbStage + 1;
+    // 1 -> 'b', 2 -> 'c'. Past 'z' keep it unique rather than pretty.
+    const suffix = stage <= 24 ? String.fromCharCode(98 + stage - 1) : `(${stage + 1})`;
+    return { label: `Losers Round ${this.lbWave}${suffix}`, wave: this.lbWave, stage };
+  }
+
+  // -- replay -------------------------------------------------------------
+
+  applyRound(bracket, matches, byes) {
+    this.roundNo += 1;
+    if (bracket === BRACKET_WINNERS) this.wbRoundNo += 1;
+    if (bracket === BRACKET_LOSERS) this.lbRoundNo += 1;
+    if (bracket === BRACKET_WINNERS) this.lbSinceWb = 0;
+    if (bracket === BRACKET_LOSERS) this.lbSinceWb += 1;
+    for (const { a, b } of matches) {
+      a.met.add(b.id); b.met.add(a.id);
+    }
+    if (bracket === BRACKET_WINNERS) {
+      const survivors = [...byes]; const drops = [];
+      for (const { a, b, winner } of matches) {
+        const loser = winner === a ? b : a;
+        loser.losses += 1; loser.wave = this.wbRoundNo;
+        survivors.push(winner); drops.push(loser);
+      }
+      this.W = this.bySeed(survivors);
+      if (drops.length) this.Q.push({ players: this.bySeed(drops), held: 0 });
+    } else if (bracket === BRACKET_LOSERS) {
+      // Whoever appears in a losers round has, by definition, been admitted
+      // from the waiting room. History records only matches and byes, so
+      // admission is re-derived here rather than stored.
+      const appeared = new Set();
+      matches.forEach(({ a, b }) => { appeared.add(a.id); appeared.add(b.id); });
+      byes.forEach((p) => appeared.add(p.id));
+      // Whoever left the waiting room this round is a first-time arrival, and
+      // that is what names the round (see lbLabel). Replay has to recompute it
+      // the same way generation does, or the suffix counter drifts.
+      const fresh = this.Q.flatMap((w) => w.players).filter((p) => appeared.has(p.id));
+      const named = this.lbLabel(fresh);
+      this.lbWave = named.wave; this.lbStage = named.stage;
+      this.Q = this.Q
+        .map((w) => ({ players: w.players.filter((p) => !appeared.has(p.id)), held: w.held }))
+        .filter((w) => w.players.length > 0);
+      const keep = [...byes];
+      for (const { a, b, winner } of matches) {
+        const loser = winner === a ? b : a;
+        loser.losses += 1;
+        a.lbGames += 1; b.lbGames += 1;
+        keep.push(winner);
+      }
+      this.L = this.bySeed(keep);
+      this.Q.forEach((w) => { w.held += 1; });
+    } else {
+      const { a, b, winner } = matches[0];
+      (winner === a ? b : a).losses += 1;
+      this.champion = winner;
+      this.W = []; this.L = []; this.Q = [];
+    }
+    for (const p of byes) p.byes += 1;
+  }
+
+  // -- conflict views -------------------------------------------------------
+
+  blocked(pool) {
+    const ids = new Set(pool.map((p) => p.id));
+    const m = new Map();
+    for (const p of pool) m.set(p.id, new Set([...p.met].filter((x) => ids.has(x))));
+    return m;
+  }
+
+  // Forward-looking entanglement: opponents already met who are STILL ALIVE
+  // anywhere, losers pool or winners bracket. A winners-bracket opponent is a
+  // conflict-in-waiting - the moment they drop they become unpairable with
+  // this player. Ranking on the live set rather than the current pool is what
+  // stops the engine spending a player's one bye on someone about to become
+  // the pool's most-constrained hub.
+  live(pool) {
+    const alive = new Set();
+    this.W.forEach((p) => alive.add(p.id));
+    this.L.forEach((p) => alive.add(p.id));
+    this.Q.forEach((w) => w.players.forEach((p) => alive.add(p.id)));
+    const m = new Map();
+    for (const p of pool) m.set(p.id, new Set([...p.met].filter((x) => alive.has(x) && x !== p.id)));
+    return m;
+  }
+
+  // -- next round -----------------------------------------------------------
+
+  nextRound() {
+    if (this.champion) return null;
+    if (this.W.length === 1 && this.lbAlive() === 1) {
+      this.flush();
+      return this.mk(BRACKET_GRAND_FINAL, 'grand_final', [[this.W[0], this.L[0]]], [], 'Grand Final');
+    }
+    if (this.W.length <= 1 && this.lbAlive() <= 1) return null;
+
+    // L5 gets first refusal on EVERY endgame decision - including winners
+    // rounds, whose pairing decides which conflicts the losers bracket has to
+    // live with later.
+    const solved = this.solveEndgame();
+    if (solved) return solved;
+
+    if (this.W.length <= 1) { this.flush(); return this.lbRound(); }
+    if (this.lbAlive() <= 1) return this.wbRound();
+
+    const plan = this.bestLbPlan();
+    if (!plan) return this.wbRound();          // L4: never force a dirty round
+    if (!this.paceSaysLb(plan)) return this.wbRound();
+    return this.lbRound(plan);
+  }
+
+  flush() { while (this.Q.length) this.L = this.bySeed(this.L.concat(this.Q.shift().players)); }
+
+  solveEndgame() {
+    // Nobody has lost yet, so there are no conflicts to plan around and every
+    // pairing is equivalent by symmetry. Skipping the search here costs
+    // nothing and keeps the opening round instant for a mid-sized field, where
+    // the raised solverAt would otherwise have it enumerate every pairing of a
+    // full bracket to answer a question with no wrong answer.
+    if (this.roundNo === 0) return null;
+    const alive = [...this.W, ...this.L, ...this.Q.flatMap((w) => w.players)];
+    if (alive.length > CFG.solverAt) return null;
+    const met = new Set();
+    const ids = new Set(alive.map((p) => p.id));
