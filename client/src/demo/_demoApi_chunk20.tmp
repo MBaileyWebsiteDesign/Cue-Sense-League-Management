@@ -1,0 +1,139 @@
+  // Powers the admin "Manage Fixtures" page - mirrors server/src/index.js's
+  // POST /api/divisions/:id/rounds/:round/visibility.
+  setRoundVisibility: op((divisionId, round, visible) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const roundNum = Number(round);
+    if (!Number.isInteger(roundNum)) throw new ApiError(400, 'round must be a whole number');
+    const roundExists = db.fixtures.some((f) => f.divisionId === division.id && f.round === roundNum);
+    if (!roundExists) throw new ApiError(404, 'No fixtures found for this round in this division');
+    if (!Array.isArray(division.visibleRounds)) division.visibleRounds = [];
+    if (visible) {
+      if (!division.visibleRounds.includes(roundNum)) division.visibleRounds.push(roundNum);
+    } else {
+      division.visibleRounds = division.visibleRounds.filter((r) => r !== roundNum);
+    }
+    recordAudit(db, {
+      actor: adminLabel(), action: visible ? 'division.round_release' : 'division.round_hide',
+      targetType: 'division', targetId: division.id,
+      details: `Round ${roundNum} ${visible ? 'released to players' : 'hidden from players'} (${division.name})`,
+    });
+    return hydrateDivision(division);
+  }),
+
+  // Convenience for correcting a division where rounds ended up visible
+  // before an admin was ready (e.g. legacy data saved before fixtures
+  // started defaulting to hidden) - mirrors the server's POST
+  // /api/divisions/:id/hide-all-rounds.
+  hideAllRounds: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    const hadVisibleRounds = Array.isArray(division.visibleRounds) && division.visibleRounds.length > 0;
+    division.visibleRounds = [];
+    if (hadVisibleRounds) {
+      recordAudit(db, {
+        actor: adminLabel(), action: 'division.hide_all_rounds', targetType: 'division', targetId: division.id,
+        details: `Hid all rounds from players (${division.name})`,
+      });
+    }
+    return hydrateDivision(division);
+  }),
+
+  getRegisteredPlayers: op(() => registeredPlayers()),
+
+  addPlayer: op((divisionId, playerId) => {
+    if (!playerId) throw new ApiError(400, 'playerId is required');
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.entryType !== 'singles') {
+      throw new ApiError(400, `This is a ${division.entryType} division - add players to a ${division.entryType === 'teams' ? 'team' : 'pairing'} instead`);
+    }
+    if (division.fixturesGenerated) throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    const player = registeredPlayers().find((p) => p.id === playerId);
+    if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
+    assertPaymentCleared(division, player.id);
+    if (!division.playerIds.includes(player.id)) division.playerIds.push(player.id);
+    return hydrateDivision(division);
+  }),
+
+  removePlayer: op((divisionId, playerId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.fixturesGenerated) throw new ApiError(400, 'Cannot remove players after fixtures have been generated for this division');
+    division.playerIds = division.playerIds.filter((id) => id !== playerId);
+    return hydrateDivision(division);
+  }),
+
+  // Mirrors server/src/index.js's POST /api/divisions/:id/quick-add-player.
+  quickAddPlayer: op((divisionId, firstName, lastName) => {
+    if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.entryType !== 'singles') {
+      throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
+    }
+    const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_ally';
+    let reservedFixture = null;
+    if (division.fixturesGenerated) {
+      if (isKnockout) {
+        reservedFixture = db.fixtures.find((f) => f.divisionId === division.id && f.reserved && f.status !== 'completed');
+      }
+      if (!reservedFixture) {
+        throw new ApiError(
+          400,
+          isKnockout
+            ? 'No reserved late-entrant slot is open for this division right now'
+            : 'Cannot add players after fixtures have been generated for this division'
+        );
+      }
+    }
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+
+    const user = createUserAccount({
+      firstName: firstName.trim(),
+      lastName: lastName ? lastName.trim() : '',
+      email: `walkin-${uuid()}@no-login.cuesense`,
+      teamName: 'Unassigned',
+    });
+    const newPlayerId = user.playerId;
+
+    if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
+    if (reservedFixture) {
+      reservedFixture.awayPlayerId = newPlayerId;
+      reservedFixture.reserved = false;
+      reservedFixture.byeSlot = null;
+    }
+
+    if (league && league.payment && league.payment.required) {
+      const existing = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === newPlayerId);
+      if (!existing) {
+        db.leaguePayments.push({
+          id: uuid(),
+          leagueId: league.id,
+          playerId: newPlayerId,
+          status: 'unpaid',
+          amount: league.payment.amount,
+          currency: league.payment.currency,
+          confirmedBy: null,
+          confirmedAt: null,
+          notes: '',
+        });
+      }
+    }
+
+    recordAudit(db, {
+      actor: adminLabel(),
+      action: reservedFixture ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
+      targetType: 'division',
+      targetId: division.id,
+      details: reservedFixture
+        ? `Quick-added late entrant ${user.firstName} ${user.lastName} to "${division.name}" - claimed a reserved bracket slot`
+        : `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
+    });
+
+    return {
+      division: hydrateDivision(division),
+      player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` },
+      outcome: { method: reservedFixture ? 'reserved-slot' : 'added' },
+    };
+  }),
