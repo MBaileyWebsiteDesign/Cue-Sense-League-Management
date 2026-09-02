@@ -1,0 +1,300 @@
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
+    homePlayerId: null,
+    awayPlayerId: null,
+    raceTo: division.raceTo,
+    frames: [],
+    homeFrameScore: 0,
+    awayFrameScore: 0,
+    status: 'scheduled', // scheduled -> in_progress -> completed
+    winnerPlayerId: null,
+    nextFixtureId: null,
+    nextFixtureSlot: null,
+    // Knockout only: set to 'home' or 'away' when this fixture structurally
+    // can never receive an entrant on that side (a bye, from a round whose
+    // survivor count was odd - see buildBracketRounds/generateKnockoutFixtures).
+    // null for every non-knockout fixture and every genuine two-sided
+    // knockout fixture.
+    byeSlot: null,
+    // Knockout only: true for a round-1 bye box deliberately held open for
+    // a day-of late entrant (see MAX_RESERVED_BYE_COUNT) instead of being
+    // auto-resolved at generation time like an ordinary bye. Cleared to
+    // false the moment it's claimed (claim-reserved-slot below) or when an
+    // admin closes late entry for the division (close-late-entry below) -
+    // resolveByeIfNeeded skips any fixture while this is still true.
+    reserved: false,
+    // Double-elimination only (bracketRole stays 'single' for round robin and
+    // single-elimination fixtures, which don't use any of the fields below).
+    bracketRole: 'single', // 'single' | 'winners' | 'losers' | 'grand_final' | 'grand_final_reset'
+    loserNextFixtureId: null, // where this fixture's LOSER drops to in the losers bracket (winners-bracket fixtures only)
+    loserNextFixtureSlot: null,
+    resetFixtureId: null, // set on a completed grand_final fixture once a bracket-reset decider has been created
+  };
+}
+
+function makeTeamFixture({ league, division, round }) {
+  const legs = Array.from({ length: division.legsPerMatch }, (_, i) => ({
+    legNumber: i + 1,
+    homePlayerId: null,
+    awayPlayerId: null,
+    raceTo: division.raceTo,
+    frames: [],
+    homeFrameScore: 0,
+    awayFrameScore: 0,
+    status: 'pending', // pending (not nominated) -> scheduled -> in_progress -> completed
+    winnerPlayerId: null,
+  }));
+  return {
+    id: uuid(),
+    leagueId: league.id,
+    divisionId: division.id,
+    round,
+    scheduledDate: null,
+    tableId: null,
+    scheduledTime: null,
+    timer: { startedAt: null, elapsedSeconds: 0, running: false },
+    shotClock: { durationSeconds: 60, startedAt: null, running: false },
+    homeTeamId: null,
+    awayTeamId: null,
+    legs,
+    homeLegsWon: 0,
+    awayLegsWon: 0,
+    status: 'scheduled', // scheduled -> in_progress -> completed
+    winnerTeamId: null,
+    nextFixtureId: null,
+    nextFixtureSlot: null,
+    // See makeSinglesFixture's byeSlot comment - same meaning here.
+    byeSlot: null,
+    // See makeSinglesFixture's reserved comment - same meaning here (teams
+    // knockout brackets can carry reserved boxes too, they just have no
+    // claim route today - an unclaimed one just falls back to an ordinary
+    // bye at close-late-entry, same as any other division).
+    reserved: false,
+    bracketRole: 'single',
+    loserNextFixtureId: null,
+    loserNextFixtureSlot: null,
+    resetFixtureId: null,
+  };
+}
+
+function generateRoundRobinFixtures({ db, league, division, entrantIds }) {
+  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
+  const rounds = division.scheduling === 'round_robin_double'
+    ? generateRoundRobinDouble(entrantIds)
+    : generateRoundRobin(entrantIds);
+  rounds.forEach((pairs, roundIndex) => {
+    pairs.forEach(([a, b]) => {
+      const fixture = makeFixture({ league, division, round: roundIndex + 1 });
+      if (division.entryType === 'teams') {
+        fixture.homeTeamId = a;
+        fixture.awayTeamId = b;
+      } else {
+        fixture.homePlayerId = a;
+        fixture.awayPlayerId = b;
+      }
+      db.fixtures.push(fixture);
+    });
+  });
+}
+
+// Marks a bye fixture (one side missing) as an automatic win, and propagates
+// the winner into the next round straight away. A no-op for a fixture still
+// held open as a reserved late-entrant slot (see MAX_RESERVED_BYE_COUNT) -
+// that one only resolves via claim-reserved-slot or close-late-entry below.
+function resolveByeIfNeeded(db, division, fixture) {
+  if (fixture.reserved) return;
+  if (division.entryType === 'teams') {
+    if (fixture.homeTeamId && fixture.awayTeamId) return;
+    const winnerTeamId = fixture.homeTeamId || fixture.awayTeamId;
+    if (!winnerTeamId) return; // shouldn't happen, but don't crash on a fully-empty fixture
+    fixture.status = 'completed';
+    fixture.winnerTeamId = winnerTeamId;
+    propagateWinner(db, division, fixture, winnerTeamId);
+  } else {
+    if (fixture.homePlayerId && fixture.awayPlayerId) return;
+    const winnerPlayerId = fixture.homePlayerId || fixture.awayPlayerId;
+    if (!winnerPlayerId) return;
+    fixture.status = 'completed';
+    fixture.winnerPlayerId = winnerPlayerId;
+    propagateWinner(db, division, fixture, winnerPlayerId);
+  }
+}
+
+// Checks whether two entrants (player IDs, or team IDs for a teams
+// division) have already played a completed fixture against each other in
+// this division - the source of truth avoidRematchOnPlacement below uses
+// to decide whether a would-be pairing is actually a repeat.
+function haveAlreadyPlayed(db, division, aId, bId) {
+  if (!aId || !bId) return false;
+  const isTeams = division.entryType === 'teams';
+  return db.fixtures.some((f) => {
+    if (f.divisionId !== division.id || f.status !== 'completed') return false;
+    const home = isTeams ? f.homeTeamId : f.homePlayerId;
+    const away = isTeams ? f.awayTeamId : f.awayPlayerId;
+    return (home === aId && away === bId) || (home === bId && away === aId);
+  });
+}
+
+// Whether `entrantId` has already been awarded ANY bye in this division -
+// round 1's natural/reserved one or a later-round structural one (see
+// buildBracketRounds/buildDoubleElimBracket). A bye fixture is
+// indistinguishable in the data from any other completed fixture except
+// that one side was never filled in (resolveByeIfNeeded deliberately
+// leaves the empty side null rather than backfilling it), so that's what
+// this checks for - used by avoidRepeatByeOnPlacement below to stop the
+// same entrant collecting a second bye while someone else in the draw
+// hasn't had one yet.
+//
+// excludeFixtureId must be passed as the very fixture currently being
+// resolved (see avoidRepeatByeOnPlacement's call site) - resolveByeIfNeeded
+// marks a bye fixture 'completed' *before* calling propagateWinner, so by
+// the time this runs, that fixture already satisfies every criterion below
+// for the entrant who just received it. Without excluding it, an entrant's
+// first-ever bye is mistaken for prior history of their own still-in-
+// progress placement and incorrectly treated as a repeat - most easily
+// reproduced whenever a round 1 bye's winner advances straight into a
+// round 2 box that's itself a structural bye (e.g. a fresh 9-entrant
+// double-elim division, no late entrants involved at all).
+function hasHadBye(db, division, entrantId, excludeFixtureId) {
+  if (!entrantId) return false;
+  const isTeams = division.entryType === 'teams';
+  return db.fixtures.some((f) => {
+    if (f.id === excludeFixtureId) return false;
+    if (f.divisionId !== division.id || f.status !== 'completed') return false;
+    const home = isTeams ? f.homeTeamId : f.homePlayerId;
+    const away = isTeams ? f.awayTeamId : f.awayPlayerId;
+    if (home !== entrantId && away !== entrantId) return false;
+    return !home || !away;
+  });
+}
+
+// Double-elimination rematch avoidance, shared by propagateWinner (losers-
+// bracket-internal advancement) and propagateLoser (a winners-bracket
+// loser dropping into the losers bracket).
+//
+// Most losers-bracket placements can never repeat an earlier pairing by
+// construction: two winners-bracket losers arriving in the same "entry"
+// round always come from two different winners-round-1 matches (so never
+// played each other), and two fresh losers paired off against each other
+// in the "leftover" portion of a merge round both come from winners
+// matches still in progress this round (so, per single-elimination-tree
+// properties, can't have met yet either) - see buildDoubleElimBracket's
+// comments. The one spot this isn't true: a merge round's box also seats
+// an *already-waiting* losers-bracket survivor, whose route through the
+// bracket is entirely independent of whoever the incoming entrant is -
+// there's nothing structural stopping those two from having played each
+// other already. Likewise, once that survivor's own box was decided by an
+// earlier swap (see below), later losers-bracket-internal consolidation
+// rounds inherit the same risk.
+//
+// So: before seating `entrantId` into `fixture[idField]`/`fixture[slotField]`,
+// check whether whoever already occupies that destination's other slot is
+// someone `entrantId` has already played. If so, look for a sibling
+// fixture - same round, same bracketRole, not yet completed, wired via the
+// same id/slot field pair (to EITHER slot - see occupantAt, which works
+// out each sibling's own "other slot" instead of assuming it matches this
+// fixture's, so a 'home'-wired sibling and an 'away'-wired one are equally
+// valid swap partners) - and swap the two fixtures' routing so each one's
+// *eventual* winner/loser lands somewhere rematch-free instead. This only
+// ever repoints not-yet-decided assignments, so it's always safe to do
+// (and redo, on a result correction) right up until each one's result
+// actually lands. If no rematch-free sibling exists, the placement goes
+// ahead as originally wired - not every case can be avoided (see the docs
+// on this feature).
+//
+// Widened from an earlier version that only considered siblings wired to
+// the *same* target slot as this fixture. That halved the usable sibling
+// pool for no real reason (the swap itself is slot-safe either way - it
+// always exchanges a fixture's id/slot pair together) and was responsible
+// for real missed rematches in production: with only same-slot siblings
+// eligible, it's common for all of them to already be decided and routed
+// by the time a problem pairing is detected, leaving nothing left to swap
+// with.
+// FIX (2026-08-14, see claude/double-elim-rematch-fix-2026-08-14.md): the
+// swap above - reroute an unclaimed same-round sibling's wiring instead of
+// this fixture's own - was the only mitigation this function had. It only
+// works when another fixture in the SAME round + bracketRole hasn't
+// completed yet and still has a live outbound route to trade. Simulating
+// thousands of tournaments showed that in every recorded failure that pool
+// was already empty - overwhelmingly in the losers bracket, whose later
+// rounds routinely shrink to just one or two fixtures, so by the time the
+// second half of a pairing completes there is nothing left in that round to
+// swap wiring with. No amount of searching harder within "this round's
+// unclaimed routes" fixes that - there's genuinely nothing there.
+//
+// So: when that first attempt finds no eligible sibling, fall back to a
+// second, independent mitigation that doesn't depend on unclaimed routing
+// at all. Look at the OTHER boxes in the destination's own round (same
+// bracketRole) that haven't started play yet (no frames recorded, not
+// completed, not a bye box). If one of them already holds an occupant who
+// (a) hasn't played `entrantId` and (b) wouldn't hand dest's existing
+// occupant a rematch either, swap the two ALREADY-PLACED occupants
+// directly - `entrantId` goes there, that box's occupant comes here. This
+// never touches any fixture's routing (idField/slotField), only the two
+// fixtures' own player-slot fields, so it cannot create or duplicate a
+// routing target (the historical PR #40 failure mode this whole area has to
+// stay careful around). The caller is told via the return value that
+// placement was handled directly, so it must skip its own normal
+// assignment into `dest`.
+//
+// Like the routing-swap above, this remains a best-effort mitigation, not a
+// guarantee: many losers-bracket rounds shrink to a single box with no
+// sibling box to trade with either, and no swap of any kind can help there.
+function avoidRematchOnPlacement(db, division, fixture, idField, slotField, entrantId) {
+  const targetId = fixture[idField];
+  const targetSlot = fixture[slotField];
+  if (!targetId || !entrantId) return false;
+  const dest = db.fixtures.find((f) => f.id === targetId);
+  if (!dest) return false;
+  const isTeams = division.entryType === 'teams';
+  const otherSlotOf = (slot) => (slot === 'home' ? 'away' : 'home');
+  const playerField = (slot) => (isTeams
+    ? (slot === 'home' ? 'homeTeamId' : 'awayTeamId')
+    : (slot === 'home' ? 'homePlayerId' : 'awayPlayerId'));
+  const readSlot = (fx, slot) => fx[playerField(slot)];
+  const occupant = readSlot(dest, otherSlotOf(targetSlot));
+  if (!occupant || !haveAlreadyPlayed(db, division, entrantId, occupant)) return false;
+
+  const siblings = db.fixtures.filter((f) =>
+    f.id !== fixture.id &&
+    f.divisionId === fixture.divisionId &&
+    f.bracketRole === fixture.bracketRole &&
+    f.round === fixture.round &&
+    f.status !== 'completed' &&
+    f[idField]
+  );
+  // Each sibling's own "other slot" is relative to ITS OWN slotField, not
+  // this fixture's targetSlot - a sibling wired to 'away' fills the 'away'
+  // side of its destination, so the slot worth checking there is 'home'.
+  const occupantAt = (fx) => {
+    const d = db.fixtures.find((x) => x.id === fx[idField]);
+    return d ? readSlot(d, otherSlotOf(fx[slotField])) : null;
+  };
+  const pick =
+    siblings.find((f) => !occupantAt(f)) ||
+    siblings.find((f) => {
+      const o = occupantAt(f);
+      return o && !haveAlreadyPlayed(db, division, entrantId, o);
+    });
+  if (pick) {
+    const ours = { id: fixture[idField], slot: fixture[slotField] };
+    fixture[idField] = pick[idField];
+    fixture[slotField] = pick[slotField];
+    pick[idField] = ours.id;
+    pick[slotField] = ours.slot;
+    return false;
+  }
+
+  // CHAIN SEARCH (2026-08-14, fourth pass - replaces the single-hop
+  // alt-box swap above; see
+  // claude/double-elim-rematch-chain-search-2026-08-14.md for the
+  // dedicated rematch-only test run that motivated this and the before/
+  // after numbers). The single-hop swap could only resolve a conflict by
+  // trading entrantId directly with ONE other occupant. That fails
+  // whenever the only occupants immediately available are each themselves
+  // incompatible with either side - a case a longer chain of swaps can
+  // often still resolve (move A into dest, which frees up A's old seat for
+  // B, which frees up B's old seat for entrantId, and so on). This is a
+  // backtracking search for an augmenting path of any length over every
+  // not-yet-started, non-bye box in the same bracketRole (any round, same
+  // scope PR #44 already widened to) that currently holds at least one
