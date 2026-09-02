@@ -229,7 +229,10 @@ class Endgame {
     if (W.size <= 1) need = Q.length;
     Q.forEach((q, i) => { if (q[1] >= this.maxHold) need = Math.max(need, i + 1); });
     need = Math.min(need, Q.length);
-    for (let k = need; k <= Q.length; k++) {
+    // Prefer the FULLEST roster: a wave that has dropped joins the very next
+    // losers round. Ascending k made the solver play a survivors-only round
+    // and hold the fresh wave back, which is what produced "Losers Round 1b".
+    for (let k = Q.length; k >= need; k--) {
       let roster = [...L];
       for (let i = 0; i < k; i++) roster = roster.concat(Q[i][0]);
       roster.sort((a, b) => a - b);
@@ -375,7 +378,8 @@ class Engine {
   // in something called "Losers Round 6".
   //
   // Those play-down rounds admit nobody new, so they have no winners round of
-  // their own. They continue the last one: Losers Round 2, then 2b, 2c...
+  // their own. They continue the last one: Losers Round 2, then
+  // "Losers Round 2 (cont.)", "Losers Round 2 (cont. 2)"...
   //
   // `fresh` is the players entering the losers bracket for the first time this
   // round; each carries the winners round they fell from as `wave`.
@@ -392,9 +396,10 @@ class Engine {
     // No arrivals: a play-down continuing the last drop wave.
     if (!this.lbWave) return { label: `Losers Round ${this.lbRoundNo + 1}`, wave: 0, stage: 0 };
     const stage = this.lbStage + 1;
-    // 1 -> 'b', 2 -> 'c'. Past 'z' keep it unique rather than pretty.
-    const suffix = stage <= 24 ? String.fromCharCode(98 + stage - 1) : `(${stage + 1})`;
-    return { label: `Losers Round ${this.lbWave}${suffix}`, wave: this.lbWave, stage };
+    // NOT a letter suffix. The chart uppercases round labels, so "Losers
+    // Round 1b" was drawn as "LOSERS ROUND 1B" and read as "Losers Round 18".
+    const suffix = stage === 1 ? '(cont.)' : `(cont. ${stage})`;
+    return { label: `Losers Round ${this.lbWave} ${suffix}`, wave: this.lbWave, stage };
   }
 
   // -- replay -------------------------------------------------------------
@@ -492,7 +497,7 @@ class Engine {
     const solved = this.solveEndgame();
     if (solved) return solved;
 
-    if (this.W.length <= 1) { this.flush(); return this.lbRound(); }
+    if (this.W.length <= 1) return this.lbRound();
     if (this.lbAlive() <= 1) return this.wbRound();
 
     const plan = this.bestLbPlan();
@@ -593,13 +598,19 @@ class Engine {
 
   minWaves() {
     let need = this.L.length < 2 ? 1 : 0;
+    // Winners bracket spent: everything still waiting joins now, so the round
+    // is labelled from its real arrivals instead of being flushed in silently.
+    if (this.W.length <= 1) need = this.Q.length;
     this.Q.forEach((w, i) => { if (w.held >= CFG.maxHold) need = Math.max(need, i + 1); });
     return Math.min(need, this.Q.length);
   }
 
   // L2 - try every legal roster (current pool plus 0..k held waves, admitted
-  // oldest first) and take the cheapest rematch-free plan. Preference: fewest
-  // byes, then fewest waves pulled forward, then the larger pool.
+  // oldest first) and take the cheapest rematch-free plan. Preference: MOST
+  // waves admitted, then fewest byes, then the larger pool. Admitting comes
+  // first because the whole promise of the naming is that the losers of
+  // Winners Round X play in Losers Round X - holding a wave back to save a
+  // bye is what produced survivors-only rounds like "Losers Round 1b".
   bestLbPlan() {
     const lo = this.minWaves();
     let roster = [...this.L]; let best = null;
@@ -608,9 +619,8 @@ class Engine {
       if (k < lo || roster.length < 2) continue;
       const plan = this.plan(this.bySeed(roster), k);
       if (!plan) continue;
-      const key = [plan.byes.length, k, -roster.length];
+      const key = [this.Q.length - k, plan.byes.length, -roster.length];
       if (!best || lexLess(key, best.key)) best = { key, plan };
-      if (plan.byes.length === 0 && k === lo) break;
     }
     return best ? best.plan : null;
   }
@@ -677,9 +687,11 @@ class Engine {
     const alive = this.lbAlive();
     const target = Math.max(Math.floor(this.W.length / 2), 1);
     if (alive <= target) return false;
-    if (plan.byes.length && this.W.length > 1) {
+    if (plan.byes.length && this.W.length > 1 && !this.Q.length) {
       // this roster needs a bye; waiting for the next drop wave may remove
-      // the need, and costs nobody anything (F6)
+      // the need, and costs nobody anything (F6). Only when nothing is
+      // already waiting: holding a wave back to dodge a bye is what starved
+      // the losers bracket and made its tail run long after the Winners Final.
       if ((alive + Math.floor(this.W.length / 2)) % 2 === 0) return false;
     }
     return true;
