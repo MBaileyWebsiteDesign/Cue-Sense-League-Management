@@ -1,0 +1,221 @@
+  adminGetUser: op((id) => {
+    const user = db.users.find((u) => u.id === id);
+    if (!user) throw new ApiError(404, 'User not found');
+    return publicUser(user);
+  }),
+
+  adminGetUserByPlayer: op((playerId) => {
+    const user = db.users.find((u) => u.playerId === playerId) || null;
+    return { user: publicUser(user) };
+  }),
+
+  adminUpdateUser: op((id, data) => {
+    const user = db.users.find((u) => u.id === id);
+    if (!user) throw new ApiError(404, 'User not found');
+    applyProfileFields(user, data);
+    recordAudit(db, {
+      actor: adminLabel(), action: 'user.edit', targetType: 'user', targetId: user.id,
+      details: `Edited profile for ${user.firstName} ${user.lastName}`,
+    });
+    return publicUser(user);
+  }),
+
+  adminSetPermissions: op((id, permissions) => {
+    const { isAdmin, isCaptain, isLeagueManager } = permissions;
+    const user = db.users.find((u) => u.id === id);
+    if (!user) throw new ApiError(404, 'User not found');
+    const changes = [];
+    if (isAdmin !== undefined && !!isAdmin !== user.isAdmin) {
+      user.isAdmin = !!isAdmin;
+      changes.push(user.isAdmin ? 'granted admin' : 'revoked admin');
+    }
+    if (isCaptain !== undefined && !!isCaptain !== user.isCaptain) {
+      user.isCaptain = !!isCaptain;
+      changes.push(user.isCaptain ? 'marked as captain' : 'unmarked as captain');
+    }
+    if (isLeagueManager !== undefined && !!isLeagueManager !== user.isLeagueManager) {
+      user.isLeagueManager = !!isLeagueManager;
+      changes.push(user.isLeagueManager ? 'granted League Manager' : 'revoked League Manager');
+      if (!user.isLeagueManager) {
+        for (const league of db.leagues) {
+          if (Array.isArray(league.managerUserIds) && league.managerUserIds.includes(user.id)) {
+            league.managerUserIds = league.managerUserIds.filter((mid) => mid !== user.id);
+          }
+        }
+      }
+    }
+    if (changes.length > 0) {
+      recordAudit(db, {
+        actor: adminLabel(), action: 'user.permissions', targetType: 'user', targetId: user.id,
+        details: `${user.firstName} ${user.lastName}: ${changes.join(', ')}`,
+      });
+    }
+    return publicUser(user);
+  }),
+
+  adminSetStatus: op((id, status) => {
+    if (!STATUSES.includes(status)) throw new ApiError(400, `status must be one of: ${STATUSES.join(', ')}`);
+    const user = db.users.find((u) => u.id === id);
+    if (!user) throw new ApiError(404, 'User not found');
+    user.status = status;
+    recordAudit(db, {
+      actor: adminLabel(), action: 'user.status', targetType: 'user', targetId: user.id,
+      details: `Set status of ${user.firstName} ${user.lastName} to ${status}`,
+    });
+    return publicUser(user);
+  }),
+
+  adminResetPassword: op((id) => {
+    const user = db.users.find((u) => u.id === id);
+    if (!user) throw new ApiError(404, 'User not found');
+    recordAudit(db, {
+      actor: adminLabel(), action: 'user.reset_password', targetType: 'user', targetId: user.id,
+      details: `Force-reset password for ${user.firstName} ${user.lastName}`,
+    });
+    return { ok: true };
+  }),
+
+  adminImportUsers: op((rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(400, 'rows must be a non-empty array');
+    const created = [];
+    const skipped = [];
+    const errors = [];
+    rows.forEach((row, index) => {
+      const rowNum = index + 1;
+      try {
+        const firstName = (row.firstName || '').trim();
+        const lastName = (row.lastName || '').trim();
+        const email = (row.email || '').trim();
+        const teamName = (row.teamName || '').trim() || 'Unassigned';
+        const classification = (row.classification || '').trim().toUpperCase() || null;
+        const isAdminFlag = row.isAdmin === true || String(row.isAdmin).trim().toLowerCase() === 'true' || String(row.isAdmin).trim() === '1';
+        const isCaptain = row.isCaptain === true || String(row.isCaptain).trim().toLowerCase() === 'true' || String(row.isCaptain).trim() === '1';
+        if (!firstName) throw new Error('firstName is required');
+        if (!lastName) throw new Error('lastName is required');
+        if (!email) throw new Error('email is required');
+        if (classification && !CLASSIFICATIONS.includes(classification)) {
+          throw new Error(`classification must be one of: ${CLASSIFICATIONS.join(', ')}`);
+        }
+        const normalizedEmail = email.toLowerCase();
+        const existing = db.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+        if (existing) {
+          skipped.push({ row: rowNum, name: `${existing.firstName} ${existing.lastName}`, email, reason: 'an account with this email already exists' });
+          return;
+        }
+        const user = createUserAccount({
+          firstName, lastName, email, phone: (row.phone || '').trim(), teamName, classification,
+          isAdmin: isAdminFlag, isCaptain,
+        });
+        created.push({ row: rowNum, name: `${firstName} ${lastName}`, email, tempPassword: '(not needed in demo mode)' });
+      } catch (err) {
+        errors.push({ row: rowNum, reason: err.message });
+      }
+    });
+    if (created.length > 0) {
+      recordAudit(db, {
+        actor: adminLabel(), action: 'user.bulk_import', targetType: 'user', targetId: null,
+        details: `Bulk-imported ${created.length} user account(s) from Manage Users`,
+      });
+    }
+    return { created, skipped, errors };
+  }),
+
+  adminSendResetLink: op((id) => {
+    const user = db.users.find((u) => u.id === id);
+    if (!user) throw new ApiError(404, 'User not found');
+    const token = randomToken();
+    const expiresAt = Date.now() + 60 * 60 * 1000;
+    db.passwordResets.push({ id: uuid(), userId: user.id, token, createdAt: new Date().toISOString(), expiresAt, usedAt: null });
+    const resetLink = `${window.location.origin}${window.location.pathname}#/reset-password?token=${token}`;
+    recordAudit(db, {
+      actor: adminLabel(), action: 'user.send_reset_link', targetType: 'user', targetId: user.id,
+      details: `Generated a password reset link for ${user.firstName} ${user.lastName} (${user.email})`,
+    });
+    return { resetLink, expiresAt, email: user.email };
+  }),
+
+  adminGetAuditLog: op(() => [...db.auditLog].reverse().slice(0, 200)),
+
+  // Issues / Bugs / Features page. The GitHub-backed Issue / Bug Tracker
+  // half has no demo equivalent - there's no live repo to read from a
+  // static Pages build, and this demo never invents data that isn't really
+  // there - so it surfaces a clear message instead of the network version's
+  // fetch. The Feature / Requests half is genuine in-app data (submitted by
+  // whoever is using this demo session), so that's a real, fully working op
+  // like everything else here.
+  getGithubIssues: () => Promise.reject(new Error("GitHub Issues aren't available in this demo build.")),
+  getFeatureRequests: op(() => [...db.featureRequests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))),
+  submitFeatureRequest: op((title, description) => {
+    const trimmedTitle = (title || '').trim();
+    const trimmedDescription = (description || '').trim();
+    if (!trimmedTitle) throw new ApiError(400, 'A short title is required');
+    if (trimmedTitle.length > 200) throw new ApiError(400, 'Title must be 200 characters or fewer');
+    if (!trimmedDescription) throw new ApiError(400, 'Details are required');
+    if (trimmedDescription.length > 4000) throw new ApiError(400, 'Description must be 4000 characters or fewer');
+    const user = currentUser();
+    if (!user) throw new ApiError(401, 'Login required for this action');
+    const request = {
+      id: uuid(),
+      title: trimmedTitle,
+      description: trimmedDescription,
+      createdAt: new Date().toISOString(),
+      createdByUserId: user.id,
+      createdByName: `${user.firstName} ${user.lastName}`.trim(),
+    };
+    db.featureRequests.push(request);
+    return request;
+  }),
+  adminDeleteFeatureRequest: op((id) => {
+    const before = db.featureRequests.length;
+    db.featureRequests = db.featureRequests.filter((r) => r.id !== id);
+    if (db.featureRequests.length === before) throw new ApiError(404, 'Feature request not found');
+    return null;
+  }),
+
+  // Guides (client/src/pages/Guides.jsx): real PDF/Word file storage on the
+  // persistent volume, same reasoning as getGithubIssues above - nothing
+  // genuine to show/upload in a client-only static build, so this surfaces
+  // a clear message instead of pretending to store a file nobody could
+  // actually download afterward.
+  getGuides: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  uploadGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  updateGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  deleteGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+  downloadGuide: () => Promise.reject(new Error("Guides aren't available in this demo build.")),
+
+  adminCreateSeason: op((data) => {
+    const { name, leagueCount, playersPerLeague, payment } = data;
+    if (!name || !name.trim()) throw new ApiError(400, 'Season name is required');
+    const count = Number(leagueCount);
+    const perLeague = Number(playersPerLeague);
+    if (!Number.isInteger(count) || count < 1 || count > 50) {
+      throw new ApiError(400, 'Number of leagues must be a whole number between 1 and 50');
+    }
+    if (!Number.isInteger(perLeague) || perLeague < 2 || perLeague > 200) {
+      throw new ApiError(400, 'Players per league must be a whole number between 2 and 200');
+    }
+    const league = {
+      id: uuid(),
+      name: name.trim(),
+      sport: 'English 8-Ball Pool',
+      format: { matchFormat: 'singles', raceTo: 6, scheduling: 'round_robin_single' },
+      startDate: null,
+      endDate: null,
+      createdAt: new Date().toISOString(),
+      payment: normalizePaymentConfig(payment),
+      managerUserIds: [],
+      tables: [],
+    };
+    db.leagues.push(league);
+    const divisions = [];
+    for (let i = 0; i < count; i++) {
+      const division = {
+        id: uuid(), leagueId: league.id, name: `League ${i + 1}`, order: i,
+        entryType: 'singles', scheduling: 'round_robin_single', playerIds: [], teamIds: [],
+        legsPerMatch: null, gapDays: null, targetPlayerCount: perLeague, fixturesGenerated: false,
+      };
+      db.divisions.push(division);
+      divisions.push(division);
+    }
+    return { ...league, divisions };
+  }),
