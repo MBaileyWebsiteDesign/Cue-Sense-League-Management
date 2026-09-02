@@ -1,0 +1,300 @@
+    throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
+  }
+  const effectiveLegsPerMatch = legsPerMatch !== undefined ? legsPerMatch : division.legsPerMatch || 5;
+  const effectivePairingSize = pairingSize !== undefined ? pairingSize : division.pairingSize || 2;
+  if (entryType === 'teams' && (!Number.isInteger(Number(effectiveLegsPerMatch)) || Number(effectiveLegsPerMatch) < 1)) {
+    throw new ApiError(400, 'legsPerMatch must be a positive whole number');
+  }
+  if (entryType === 'doubles' && ![2, 3].includes(Number(effectivePairingSize))) {
+    throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
+  }
+
+  if (entryType !== division.entryType) {
+    const hasRoster = division.playerIds.length > 0 || division.teamIds.length > 0 || division.pairingIds.length > 0;
+    if (hasRoster) {
+      throw new ApiError(400, "Can't change entry type: this division already has players, teams or pairings registered - remove them first.");
+    }
+  }
+
+  division.entryType = entryType;
+  division.scheduling = scheduling;
+  division.raceTo = isKiller ? null : Number(raceTo);
+  division.startingLives = isKiller ? Number(startingLives) : null;
+  division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
+  division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Changed game type for "${division.name}" - entryType: ${entryType}, scheduling: ${scheduling}, ${isKiller ? `startingLives: ${startingLives}` : `raceTo: ${raceTo}`}`,
+  });
+
+  writeDb(db);
+  const hydrated = hydrateDivision(db, division);
+  res.json(hydrated);
+}));
+
+// ---------- Killer Classic / Cards Killer ----------
+// See server/src/services/killer.js for the game logic itself - these
+// routes just load the division, check permissions, and persist whatever
+// that module hands back. division.killer is the entire live state; there
+// are no Fixture records for these two formats.
+
+// Starts the game from whoever's currently on the division's roster
+// (division.playerIds - the same "Add player" flow every singles division
+// uses). Reuses fixturesGenerated as the "roster is now locked" flag so
+// every existing roster-locking check elsewhere in the app (SinglesRoster,
+// PlayerSubstitutionPanel, close-early, etc.) applies to a started killer
+// game without needing its own parallel set of checks.
+app.post('/api/divisions/:id/killer/start', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+  if (division.killer && division.killer.status !== 'not_started') {
+    throw new ApiError(400, 'This killer game has already been started');
+  }
+
+  const result = initKillerState(division.playerIds, division.scheduling, division.startingLives || 3);
+  if (!result.ok) throw new ApiError(400, result.error);
+
+  division.killer = result.state;
+  division.fixturesGenerated = true; // locks the roster, same as every other format once play begins
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Started ${division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'} for "${division.name}" - ${division.playerIds.length} player(s), ${division.startingLives} lives each`,
+  });
+
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+// Records one shot's outcome and advances the game. See
+// services/killer.js's recordShot for what each outcome means.
+app.post('/api/divisions/:id/killer/shot', requireAnyAdmin, asyncRoute((req, res) => {
+  const { outcome, lastBall } = req.body || {};
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+  if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+
+  const result = recordKillerShot(division.killer, outcome, { lastBall: !!lastBall });
+  if (!result.ok) throw new ApiError(400, result.error);
+  division.killer = result.state;
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// Undoes the last recorded shot (whole-state snapshot restore - see
+// undoLastShot in services/killer.js). Mirrors the "undo last frame"
+// affordance every other scoring UI in this app has.
+app.post('/api/divisions/:id/killer/undo', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+  if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+
+  const result = undoLastKillerShot(division.killer);
+  if (!result.ok) throw new ApiError(400, result.error);
+  division.killer = result.state;
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// Resets the game back to "not started" (roster unlocked again) - for a
+// setup mistake (wrong roster, wrong starting lives) rather than an
+// in-progress correction (use undo for that). Also removes any Roll of
+// Honour entry already recorded for this division, matching DELETE
+// /api/divisions/:id's own cleanup, so a re-played game can be recorded
+// again once it finishes rather than being silently skipped by the
+// dedup check in recordChampionIfDivisionComplete.
+app.post('/api/divisions/:id/killer/reset', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+
+  division.killer = null;
+  division.fixturesGenerated = false;
+  db.rollOfHonour = db.rollOfHonour.filter((r) => r.divisionId !== division.id);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Reset killer game for "${division.name}" - roster unlocked`,
+  });
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// Toggles "Is Open" on an already-existing division - previously this could
+// only be set once, at creation time (see the New Division form in
+// client/src/pages/LeagueDetail.jsx). Lets an admin open a division for
+// join requests after the fact, or close one back off without deleting and
+// recreating it. Deliberately its own route rather than folded into the
+// PATCH above: PATCH is locked out entirely once fixturesGenerated (it's
+// about the game type, which can't change once a roster/bracket exists),
+// but closing join requests should still be possible at any point, and
+// opening is only blocked because a locked roster makes it pointless -
+// see POST /api/join-requests/:id/approve's own fixturesGenerated check.
+app.post('/api/divisions/:id/set-open', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const { isOpen } = req.body || {};
+  if (typeof isOpen !== 'boolean') throw new ApiError(400, 'isOpen must be true or false');
+  if (isOpen && division.fixturesGenerated) {
+    throw new ApiError(400, "Can't open this division for join requests once fixtures have been generated.");
+  }
+
+  division.isOpen = isOpen;
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `${isOpen ? 'Opened' : 'Closed'} "${division.name}" for join requests`,
+  });
+
+  writeDb(db);
+  const hydrated = hydrateDivision(db, division);
+  res.json(hydrated);
+}));
+
+// League-level version of the above: toggles "Open For Registration" on an
+// already-existing league. Unlike a division, a league has no roster or
+// fixturesGenerated flag of its own, so there's nothing to lock this
+// behind - it can be flipped at any time. See the "---------- Open
+// leagues ----------" block further down for what "open" actually exposes.
+app.post('/api/leagues/:id/set-open', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+
+  const { isOpenForRegistration } = req.body || {};
+  if (typeof isOpenForRegistration !== 'boolean') throw new ApiError(400, 'isOpenForRegistration must be true or false');
+
+  league.isOpenForRegistration = isOpenForRegistration;
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league.edit',
+    targetType: 'league',
+    targetId: league.id,
+    details: `${isOpenForRegistration ? 'Opened' : 'Closed'} "${league.name}" for interest registration`,
+  });
+
+  writeDb(db);
+  res.json(league);
+}));
+
+// League Manager (scoped to their assigned league) or Overall Admin -
+// mirrors DELETE /api/leagues/:id one level down. Permanently deletes just
+// this division and everything scoped to it (fixtures, teams/pairings,
+// roll-of-honour entries, and its slot in any tour's divisionIds), leaving
+// the rest of the league untouched.
+app.delete('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  const fixturesRemoved = db.fixtures.filter((f) => f.divisionId === division.id).length;
+  db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
+  db.teams = db.teams.filter((t) => t.divisionId !== division.id);
+  db.pairings = db.pairings.filter((p) => p.divisionId !== division.id);
+  db.rollOfHonour = db.rollOfHonour.filter((r) => r.divisionId !== division.id);
+  db.tours.forEach((tour) => {
+    tour.divisionIds = tour.divisionIds.filter((id) => id !== division.id);
+  });
+  db.divisions = db.divisions.filter((d) => d.id !== division.id);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.delete',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Deleted division "${division.name}" from league "${league ? league.name : 'Unknown'}" - ${fixturesRemoved} fixture(s)`,
+  });
+
+  writeDb(db);
+  res.json({ deleted: true, divisionId: division.id, fixturesRemoved });
+}));
+
+// ---------- Close a division early ----------
+// Lets an admin force-finish a division without waiting on the normal
+// submit -> confirm handshake: every fixture that isn't already completed
+// is force-completed at 0-0 (0 legs each for a team fixture), with no
+// winner, exactly as if it had been abandoned - no player action or
+// confirmation is needed or possible. A 0-0/no-winner result is a genuinely
+// new outcome for a singles/doubles fixture (normal race-to-N play can never
+// end level - see the override route above), so it's treated as a void: it
+// counts as "played" for both sides in standings/career stats, but isn't a
+// win or a loss for either one and awards no points - see the matching
+// changes in services/standings.js and services/playerProfile.js. A team
+// fixture closed this way is simply a 0-0 draw, which the standings/legs
+// model already supported before this feature existed. Available at both
+// the division level (this route) and the league level (POST
+// /api/leagues/:id/close-early below, which applies this to every division
+// in the league in one call).
+function closeOutstandingFixtures(db, division, actorLabel) {
+  const outstanding = db.fixtures.filter((f) => f.divisionId === division.id && f.status !== 'completed');
+  const closedAt = new Date().toISOString();
+
+  for (const fixture of outstanding) {
+    if (division.entryType === 'teams') {
+      fixture.homeLegsWon = 0;
+      fixture.awayLegsWon = 0;
+      fixture.winnerTeamId = null; // drawn - computeTeamStandings already awards 1 point each for this
+      fixture.legs = fixture.legs.map((leg) => (leg.status === 'completed' ? leg : {
+        ...leg,
+        homePlayerId: leg.homePlayerId,
+        awayPlayerId: leg.awayPlayerId,
+        frames: [],
+        homeFrameScore: 0,
+        awayFrameScore: 0,
+        status: 'completed',
+        winnerPlayerId: null,
+      }));
+    } else {
+      fixture.homeFrameScore = 0;
+      fixture.awayFrameScore = 0;
