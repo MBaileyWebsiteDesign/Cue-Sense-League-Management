@@ -1,0 +1,88 @@
+  getLeagueJoinRequests: op((leagueId) => {
+    const divisionIds = new Set(db.divisions.filter((d) => d.leagueId === leagueId).map((d) => d.id));
+    return db.joinRequests
+      .filter((r) => r.status === 'pending' && divisionIds.has(r.divisionId))
+      .map((r) => {
+        const division = db.divisions.find((d) => d.id === r.divisionId);
+        const player = db.players.find((p) => p.id === r.playerId);
+        return {
+          id: r.id, divisionId: r.divisionId, divisionName: division?.name || 'Unknown division',
+          playerId: r.playerId, playerName: player?.name || 'Unknown player', createdAt: r.createdAt,
+        };
+      });
+  }),
+
+  approveJoinRequest: op((requestId) => {
+    const request = db.joinRequests.find((r) => r.id === requestId);
+    if (!request) throw new ApiError(404, 'Join request not found');
+    if (request.status !== 'pending') throw new ApiError(400, 'This request has already been decided');
+    const division = db.divisions.find((d) => d.id === request.divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    }
+    if (!division.playerIds.includes(request.playerId)) {
+      division.playerIds.push(request.playerId);
+    }
+    request.status = 'approved';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = adminLabel();
+    return hydrateDivision(division);
+  }),
+
+  rejectJoinRequest: op((requestId) => {
+    const request = db.joinRequests.find((r) => r.id === requestId);
+    if (!request) throw new ApiError(404, 'Join request not found');
+    if (request.status !== 'pending') throw new ApiError(400, 'This request has already been decided');
+    request.status = 'rejected';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = adminLabel();
+    return { rejected: true, requestId: request.id };
+  }),
+
+  setLeagueOpen: op((leagueId, isOpenForRegistration) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    league.isOpenForRegistration = !!isOpenForRegistration;
+    return league;
+  }),
+
+  // League-level open/interest flow - mirrors server/src/index.js's
+  // "---------- Open leagues ----------" block.
+  getOpenLeagues: op(() => {
+    const user = currentUser();
+    const myPlayerId = user?.playerId || null;
+    return db.leagues
+      .filter((l) => l.isOpenForRegistration)
+      .map((l) => {
+        const divisions = db.divisions.filter((d) => d.leagueId === l.id);
+        const alreadyRegistered = myPlayerId
+          ? db.leagueInterests.some((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status !== 'declined')
+          : false;
+        const pendingInterest = myPlayerId
+          ? db.leagueInterests.find((r) => r.leagueId === l.id && r.playerId === myPlayerId && r.status === 'pending')
+          : null;
+        return {
+          leagueId: l.id,
+          leagueName: l.name,
+          sport: l.sport,
+          divisionCount: divisions.length,
+          payment: {
+            required: !!(l.payment && l.payment.required),
+            amount: l.payment ? l.payment.amount : 0,
+            currency: l.payment ? l.payment.currency : 'GBP',
+          },
+          divisions: divisions.map((d) => ({
+            name: d.name,
+            entryType: d.entryType,
+            raceTo: d.raceTo,
+            legsPerMatch: d.legsPerMatch,
+            pairingSize: d.pairingSize,
+            scheduling: d.scheduling,
+            startingLives: d.startingLives,
+          })),
+          alreadyRegistered,
+          requestStatus: alreadyRegistered ? (pendingInterest ? 'pending' : 'assigned') : null,
+        };
+      });
+  }),
