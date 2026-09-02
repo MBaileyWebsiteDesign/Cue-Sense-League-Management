@@ -19,7 +19,11 @@ const SCHEDULING_LABELS = {
   knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
   round_robin_double: 'Round Robin - Double',
   round_robin_single: 'Round Robin - Single',
+  killer_classic: 'Killer Classic',
+  cards_killer: 'Cards Killer',
 };
+
+const KILLER_SCHEDULING_TYPES = ['killer_classic', 'cards_killer'];
 
 function schedulingLabel(scheduling) {
   return SCHEDULING_LABELS[scheduling] || 'Round Robin - Single';
@@ -36,11 +40,13 @@ function entryTypeLabel(division) {
 }
 
 function DivisionGameStyle({ division }) {
+  const isKiller = KILLER_SCHEDULING_TYPES.includes(division.scheduling);
   return (
     <li>
       <strong>{division.name}</strong>{' '}
       <span className="muted">
-        · {entryTypeLabel(division)} · race to {division.raceTo} · {schedulingLabel(division.scheduling)}
+        · {isKiller ? `${division.startingLives || 3} lives each` : entryTypeLabel(division)}
+        {!isKiller && ` · race to ${division.raceTo}`} · {schedulingLabel(division.scheduling)}
       </span>
     </li>
   );

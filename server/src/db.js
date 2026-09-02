@@ -201,6 +201,11 @@ export function readDb() {
       const owningLeague = state.leagues.find((l) => l.id === division.leagueId);
       division.raceTo = (owningLeague && owningLeague.format && owningLeague.format.raceTo) || 6;
     }
+    // Killer Classic/Cards Killer (see server/src/services/killer.js)
+    // post-date every division created before it existed, so both default
+    // to null - same as a freshly-created non-killer division.
+    if (division.startingLives === undefined) division.startingLives = null;
+    if (division.killer === undefined) division.killer = null;
   }
   for (const fixture of state.fixtures) {
     // Set only on a fixture that was force-completed 0-0 by close-early

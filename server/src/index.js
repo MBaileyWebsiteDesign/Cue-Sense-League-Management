@@ -14,6 +14,7 @@ import { computeStandings } from './services/standings.js';
 import { computeTeamStandings } from './services/teamStandings.js';
 import { computeTourStandings } from './services/tours.js';
 import { buildPlayerProfile } from './services/playerProfile.js';
+import { initKillerState, recordShot as recordKillerShot, undoLastShot as undoLastKillerShot, KILLER_TYPES, CARDS_KILLER_MAX_PLAYERS } from './services/killer.js';
 import { ApiError } from './errors.js';
 import {
   CLASSIFICATIONS,
@@ -86,7 +87,7 @@ const asyncRoute = (fn) => (req, res, next) => {
   }
 };
 
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek'];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek', ...KILLER_TYPES];
 // Divisions using any double-elimination format share almost all downstream
 // logic (champion detection, knockout-only UI, public bracket view) - only
 // fixture *generation* (generateDoubleElimFixtures /
@@ -116,6 +117,19 @@ const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 
 //     guard in checkGrandFinalReset).
 //   * late-entrant rebuild is not supported (nothing to rebuild).
 const ADEK = 'knockout_double_elim_adek';
+
+// Killer Classic / Cards Killer (see server/src/services/killer.js) are not
+// match-based at all - a single free-for-all game runs for the whole
+// division, so these two scheduling types never generate Fixture records
+// and never go through generate-fixtures. Their entire live state
+// (turn order, lives, current player, deck for Cards Killer) lives on
+// division.killer instead - see POST /api/divisions/:id/killer/start below
+// and the routes that follow it. Both are forced to entryType 'singles'
+// (see createDivision/PATCH below) since "team" or "pairing" doesn't map
+// onto a game with no fixed sides, and both ignore raceTo/legsPerMatch/
+// pairingSize entirely - division.startingLives (default 3, matching both
+// rule sheets' "three tally marks") replaces raceTo as this format's one
+// game-length setting.
 
 // ---------- Accounts & auth ----------
 // One account model, one login. `db.users` holds everyone; `isAdmin` and
@@ -844,12 +858,15 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
 //   robin but a separate cup division as a knockout.
 
 app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, res) => {
-  const { name, order = 0, entryType = 'singles', legsPerMatch = 5, pairingSize = 2, raceTo = 6 } = req.body;
+  const { name, order = 0, legsPerMatch = 5, pairingSize = 2, raceTo = 6, startingLives = 3 } = req.body;
+  let { entryType = 'singles' } = req.body;
   const db = readDb();
   const league = db.leagues.find((l) => l.id === req.params.leagueId);
   if (!league) throw new ApiError(404, 'League not found');
   assertLeagueAccess(req, league);
   const scheduling = req.body.scheduling || league.format.scheduling || 'round_robin_single';
+  const isKiller = KILLER_TYPES.includes(scheduling);
+  if (isKiller) entryType = 'singles'; // no fixed sides in a free-for-all game - see the KILLER_TYPES comment above
 
   if (!name || !name.trim()) throw new ApiError(400, 'Division name is required');
   if (!['singles', 'teams', 'doubles'].includes(entryType)) {
@@ -864,8 +881,14 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
   if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
     throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
   }
-  if (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1) {
+  // raceTo (Match Format / Race To) doesn't apply to Killer Classic/Cards
+  // Killer - there's no per-match frame race, just lives - so it's skipped
+  // entirely for those and startingLives is validated instead.
+  if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
     throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+  }
+  if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+    throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
   }
 
   const division = {
@@ -882,7 +905,17 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
     // division ever generates reads it from here (see makeSinglesFixture/
     // makeTeamFixture) - changing it after fixtures already exist has no
     // effect on fixtures already created, only ones generated after.
-    raceTo: Number(raceTo),
+    // null for Killer Classic/Cards Killer, which use startingLives instead.
+    raceTo: isKiller ? null : Number(raceTo),
+    // Killer Classic/Cards Killer only - lives each player starts the game
+    // with (see server/src/services/killer.js). null for every other format.
+    startingLives: isKiller ? Number(startingLives) : null,
+    // Killer Classic/Cards Killer only - the live game state (turn order,
+    // lives, current player, deck). Set by POST
+    // /api/divisions/:id/killer/start, not at creation, so the roster can
+    // still be built up first exactly like every other format. null until
+    // then, and null again for every non-killer division.
+    killer: null,
     playerIds: [],
     teamIds: [],
     pairingIds: [],
@@ -1016,11 +1049,38 @@ function hydrateDivision(db, division) {
 }
 
 function recordChampionIfDivisionComplete(db, division, hydrated) {
+  if (db.rollOfHonour.some((r) => r.divisionId === division.id)) return; // already recorded
+
+  // Killer Classic/Cards Killer never generate fixtures - the win condition
+  // is division.killer.status === 'finished' instead of "every fixture
+  // completed", so this is handled entirely separately from the
+  // fixture-based formats below.
+  if (KILLER_TYPES.includes(division.scheduling)) {
+    if (!division.killer || division.killer.status !== 'finished' || !division.killer.winnerId) return;
+    const championId = division.killer.winnerId;
+    const championRow = hydrated.standings.find((row) => row.playerId === championId);
+    const championName = championRow ? championRow.playerName : 'Unknown';
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    db.rollOfHonour.push({
+      id: uuid(),
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : 'Unknown league',
+      divisionId: division.id,
+      divisionName: division.name,
+      entryType: division.entryType,
+      scheduling: division.scheduling,
+      championId,
+      championName,
+      recordedAt: new Date().toISOString(),
+    });
+    writeDb(db);
+    return;
+  }
+
   if (!division.fixturesGenerated) return;
   const fixtures = hydrated.fixtures;
   if (fixtures.length === 0) return;
   if (fixtures.some((f) => f.status !== 'completed')) return;
-  if (db.rollOfHonour.some((r) => r.divisionId === division.id)) return; // already recorded
 
   const idField = division.entryType === 'teams' ? 'teamId' : 'playerId';
   const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
@@ -1118,12 +1178,15 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
   }
 
   const {
-    entryType = division.entryType,
     scheduling = division.scheduling,
     raceTo = division.raceTo,
+    startingLives = division.startingLives || 3,
     legsPerMatch,
     pairingSize,
   } = req.body || {};
+  let { entryType = division.entryType } = req.body || {};
+  const isKiller = KILLER_TYPES.includes(scheduling);
+  if (isKiller) entryType = 'singles'; // see the KILLER_TYPES comment above createDivision
 
   if (!['singles', 'teams', 'doubles'].includes(entryType)) {
     throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
@@ -1131,8 +1194,11 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
   if (!SCHEDULING_TYPES.includes(scheduling)) {
     throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
   }
-  if (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1) {
+  if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
     throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+  }
+  if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+    throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
   }
   const effectiveLegsPerMatch = legsPerMatch !== undefined ? legsPerMatch : division.legsPerMatch || 5;
   const effectivePairingSize = pairingSize !== undefined ? pairingSize : division.pairingSize || 2;
@@ -1152,7 +1218,8 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
 
   division.entryType = entryType;
   division.scheduling = scheduling;
-  division.raceTo = Number(raceTo);
+  division.raceTo = isKiller ? null : Number(raceTo);
+  division.startingLives = isKiller ? Number(startingLives) : null;
   division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
   division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
 
@@ -1161,12 +1228,136 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
     action: 'division.edit',
     targetType: 'division',
     targetId: division.id,
-    details: `Changed game type for "${division.name}" - entryType: ${entryType}, scheduling: ${scheduling}, raceTo: ${raceTo}`,
+    details: `Changed game type for "${division.name}" - entryType: ${entryType}, scheduling: ${scheduling}, ${isKiller ? `startingLives: ${startingLives}` : `raceTo: ${raceTo}`}`,
   });
 
   writeDb(db);
   const hydrated = hydrateDivision(db, division);
   res.json(hydrated);
+}));
+
+// ---------- Killer Classic / Cards Killer ----------
+// See server/src/services/killer.js for the game logic itself - these
+// routes just load the division, check permissions, and persist whatever
+// that module hands back. division.killer is the entire live state; there
+// are no Fixture records for these two formats.
+
+// Starts the game from whoever's currently on the division's roster
+// (division.playerIds - the same "Add player" flow every singles division
+// uses). Reuses fixturesGenerated as the "roster is now locked" flag so
+// every existing roster-locking check elsewhere in the app (SinglesRoster,
+// PlayerSubstitutionPanel, close-early, etc.) applies to a started killer
+// game without needing its own parallel set of checks.
+app.post('/api/divisions/:id/killer/start', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+  if (division.killer && division.killer.status !== 'not_started') {
+    throw new ApiError(400, 'This killer game has already been started');
+  }
+
+  const result = initKillerState(division.playerIds, division.scheduling, division.startingLives || 3);
+  if (!result.ok) throw new ApiError(400, result.error);
+
+  division.killer = result.state;
+  division.fixturesGenerated = true; // locks the roster, same as every other format once play begins
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Started ${division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'} for "${division.name}" - ${division.playerIds.length} player(s), ${division.startingLives} lives each`,
+  });
+
+  writeDb(db);
+  res.status(201).json(hydrateDivision(db, division));
+}));
+
+// Records one shot's outcome and advances the game. See
+// services/killer.js's recordShot for what each outcome means.
+app.post('/api/divisions/:id/killer/shot', requireAnyAdmin, asyncRoute((req, res) => {
+  const { outcome, lastBall } = req.body || {};
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+  if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+
+  const result = recordKillerShot(division.killer, outcome, { lastBall: !!lastBall });
+  if (!result.ok) throw new ApiError(400, result.error);
+  division.killer = result.state;
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// Undoes the last recorded shot (whole-state snapshot restore - see
+// undoLastShot in services/killer.js). Mirrors the "undo last frame"
+// affordance every other scoring UI in this app has.
+app.post('/api/divisions/:id/killer/undo', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+  if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+
+  const result = undoLastKillerShot(division.killer);
+  if (!result.ok) throw new ApiError(400, result.error);
+  division.killer = result.state;
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
+}));
+
+// Resets the game back to "not started" (roster unlocked again) - for a
+// setup mistake (wrong roster, wrong starting lives) rather than an
+// in-progress correction (use undo for that). Also removes any Roll of
+// Honour entry already recorded for this division, matching DELETE
+// /api/divisions/:id's own cleanup, so a re-played game can be recorded
+// again once it finishes rather than being silently skipped by the
+// dedup check in recordChampionIfDivisionComplete.
+app.post('/api/divisions/:id/killer/reset', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+
+  if (!KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+  }
+
+  division.killer = null;
+  division.fixturesGenerated = false;
+  db.rollOfHonour = db.rollOfHonour.filter((r) => r.divisionId !== division.id);
+
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'division.edit',
+    targetType: 'division',
+    targetId: division.id,
+    details: `Reset killer game for "${division.name}" - roster unlocked`,
+  });
+
+  writeDb(db);
+  res.json(hydrateDivision(db, division));
 }));
 
 // Toggles "Is Open" on an already-existing division - previously this could
@@ -2291,6 +2482,7 @@ app.get('/api/open-leagues', optionalAuth, asyncRoute((req, res) => {
           legsPerMatch: d.legsPerMatch,
           pairingSize: d.pairingSize,
           scheduling: d.scheduling,
+          startingLives: d.startingLives,
         })),
         alreadyRegistered,
         requestStatus: alreadyRegistered ? (pendingInterest ? 'pending' : 'assigned') : null,
@@ -4872,6 +5064,9 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
   const league = db.leagues.find((l) => l.id === division.leagueId);
+  if (KILLER_TYPES.includes(division.scheduling)) {
+    throw new ApiError(400, 'Killer Classic and Cards Killer divisions don\'t generate fixtures - use POST /api/divisions/:id/killer/start instead');
+  }
   if (division.fixturesGenerated) {
     throw new ApiError(400, 'Fixtures have already been generated for this division');
   }

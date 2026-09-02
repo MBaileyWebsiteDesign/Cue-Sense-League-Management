@@ -22,6 +22,7 @@ import { computeTeamStandings } from './logic/teamStandings.js';
 import { computeTourStandings } from './logic/tours.js';
 import { buildPlayerProfile } from './logic/playerProfile.js';
 import { recordAudit } from './logic/auditLog.js';
+import { initKillerState, recordShot as recordKillerShotLogic, undoLastShot as undoLastKillerShotLogic, KILLER_TYPES } from './logic/killer.js';
 
 const uuid = () => crypto.randomUUID();
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
@@ -33,7 +34,14 @@ const MAX_RESERVED_BYE_COUNT = 4;
 function reservedByeCountFor(entrantCount) {
   return Math.max(0, Math.min(MAX_RESERVED_BYE_COUNT, Math.floor(entrantCount / 2) - 1));
 }
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally'];
+// Deliberately narrower than the real server's SCHEDULING_TYPES (server/src/
+// index.js) - Testing Double Elimination/PCDEK/ADEK were never ported to
+// this demo build, so they're left out here too rather than accepted at
+// creation and then failing (or silently falling back to round robin) the
+// moment "Generate Fixtures" is clicked. Killer Classic/Cards Killer ARE
+// fully ported (see logic/killer.js and the killer start/shot/undo/reset
+// methods below), so they're included.
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', ...KILLER_TYPES];
 const DB_KEY = 'poolLeagueDemoDb';
 const CURRENT_USER_KEY = 'poolLeagueDemoCurrentUserId';
 
@@ -81,6 +89,11 @@ function backfillState(base) {
     if (division.isOpen === undefined) {
       division.isOpen = false;
     }
+    // Killer Classic/Cards Killer post-date every division in the bundled
+    // seed data - default to null, same as a freshly-created non-killer
+    // division (mirrors server/src/db.js's readDb() migration).
+    if (division.startingLives === undefined) division.startingLives = null;
+    if (division.killer === undefined) division.killer = null;
   }
   if (!base.joinRequests) base.joinRequests = [];
   if (!base.leagueInterests) base.leagueInterests = [];
@@ -318,11 +331,36 @@ function hydrateDivision(division) {
 }
 
 function recordChampionIfDivisionComplete(division, hydrated) {
+  if (db.rollOfHonour.some((r) => r.divisionId === division.id)) return;
+
+  // Killer Classic/Cards Killer - mirrors server/src/index.js's own
+  // KILLER_TYPES branch (see that copy for the full note).
+  if (KILLER_TYPES.includes(division.scheduling)) {
+    if (!division.killer || division.killer.status !== 'finished' || !division.killer.winnerId) return;
+    const championId = division.killer.winnerId;
+    const championRow = hydrated.standings.find((row) => row.playerId === championId);
+    const championName = championRow ? championRow.playerName : 'Unknown';
+    const league = db.leagues.find((l) => l.id === division.leagueId);
+    db.rollOfHonour.push({
+      id: uuid(),
+      leagueId: division.leagueId,
+      leagueName: league ? league.name : 'Unknown league',
+      divisionId: division.id,
+      divisionName: division.name,
+      entryType: division.entryType,
+      scheduling: division.scheduling,
+      championId,
+      championName,
+      recordedAt: new Date().toISOString(),
+    });
+    persist();
+    return;
+  }
+
   if (!division.fixturesGenerated) return;
   const fixtures = hydrated.fixtures;
   if (fixtures.length === 0) return;
   if (fixtures.some((f) => f.status !== 'completed')) return;
-  if (db.rollOfHonour.some((r) => r.divisionId === division.id)) return;
 
   const idField = division.entryType === 'teams' ? 'teamId' : 'playerId';
   const nameField = division.entryType === 'teams' ? 'teamName' : 'playerName';
@@ -2279,10 +2317,13 @@ export const demoApi = {
   }),
 
   createDivision: op((leagueId, data) => {
-    const { name, order = 0, entryType = 'singles', legsPerMatch = 5, pairingSize = 2 } = data;
+    const { name, order = 0, legsPerMatch = 5, pairingSize = 2, raceTo = 6, startingLives = 3 } = data;
+    let { entryType = 'singles' } = data;
     const league = db.leagues.find((l) => l.id === leagueId);
     if (!league) throw new ApiError(404, 'League not found');
     const scheduling = data.scheduling || league.format.scheduling || 'round_robin_single';
+    const isKiller = KILLER_TYPES.includes(scheduling);
+    if (isKiller) entryType = 'singles';
     if (!name || !name.trim()) throw new ApiError(400, 'Division name is required');
     if (!['singles', 'teams', 'doubles'].includes(entryType)) {
       throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
@@ -2294,8 +2335,17 @@ export const demoApi = {
     if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
       throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
     }
+    if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+      throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+    }
+    if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+      throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
+    }
     const division = {
       id: uuid(), leagueId: league.id, name: name.trim(), order, entryType, scheduling,
+      raceTo: isKiller ? null : Number(raceTo),
+      startingLives: isKiller ? Number(startingLives) : null,
+      killer: null,
       playerIds: [], teamIds: [], pairingIds: [],
       legsPerMatch: entryType === 'teams' ? Number(legsPerMatch) : null,
       pairingSize: entryType === 'doubles' ? Number(pairingSize) : null,
@@ -2311,6 +2361,57 @@ export const demoApi = {
     };
     db.divisions.push(division);
     return division;
+  }),
+
+  // Mirrors server/src/index.js's PATCH /api/divisions/:id ("Change Game
+  // Type").
+  updateDivision: op((id, data) => {
+    const division = db.divisions.find((d) => d.id === id);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (division.fixturesGenerated) {
+      throw new ApiError(400, "Can't change game type once fixtures have been generated for this division.");
+    }
+    const {
+      scheduling = division.scheduling,
+      raceTo = division.raceTo,
+      startingLives = division.startingLives || 3,
+      legsPerMatch,
+      pairingSize,
+    } = data || {};
+    let { entryType = division.entryType } = data || {};
+    const isKiller = KILLER_TYPES.includes(scheduling);
+    if (isKiller) entryType = 'singles';
+    if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+      throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+    }
+    if (!SCHEDULING_TYPES.includes(scheduling)) throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
+    if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+      throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+    }
+    if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+      throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
+    }
+    const effectiveLegsPerMatch = legsPerMatch !== undefined ? legsPerMatch : division.legsPerMatch || 5;
+    const effectivePairingSize = pairingSize !== undefined ? pairingSize : division.pairingSize || 2;
+    if (entryType === 'teams' && (!Number.isInteger(Number(effectiveLegsPerMatch)) || Number(effectiveLegsPerMatch) < 1)) {
+      throw new ApiError(400, 'legsPerMatch must be a positive whole number');
+    }
+    if (entryType === 'doubles' && ![2, 3].includes(Number(effectivePairingSize))) {
+      throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
+    }
+    if (entryType !== division.entryType) {
+      const hasRoster = division.playerIds.length > 0 || division.teamIds.length > 0 || division.pairingIds.length > 0;
+      if (hasRoster) {
+        throw new ApiError(400, "Can't change entry type: this division already has players, teams or pairings registered - remove them first.");
+      }
+    }
+    division.entryType = entryType;
+    division.scheduling = scheduling;
+    division.raceTo = isKiller ? null : Number(raceTo);
+    division.startingLives = isKiller ? Number(startingLives) : null;
+    division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
+    division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
+    return hydrateDivision(division);
   }),
 
   getDivision: op((id) => {
@@ -2450,6 +2551,7 @@ export const demoApi = {
             legsPerMatch: d.legsPerMatch,
             pairingSize: d.pairingSize,
             scheduling: d.scheduling,
+            startingLives: d.startingLives,
           })),
           alreadyRegistered,
           requestStatus: alreadyRegistered ? (pendingInterest ? 'pending' : 'assigned') : null,
@@ -2912,6 +3014,9 @@ export const demoApi = {
     const division = db.divisions.find((d) => d.id === divisionId);
     if (!division) throw new ApiError(404, 'Division not found');
     const league = db.leagues.find((l) => l.id === division.leagueId);
+    if (KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'Killer Classic and Cards Killer divisions don\'t generate fixtures - use startKiller instead');
+    }
     if (division.fixturesGenerated) throw new ApiError(400, 'Fixtures have already been generated for this division');
     const entrantIds = division.entryType === 'teams'
       ? division.teamIds
@@ -2959,6 +3064,63 @@ export const demoApi = {
     }
     if (visibleByDefault) markAllRoundsVisible(division);
     division.fixturesGenerated = true;
+    return hydrateDivision(division);
+  }),
+
+  // Killer Classic/Cards Killer - mirrors server/src/index.js's POST
+  // /api/divisions/:id/killer/* routes, using the same pure logic module
+  // (logic/killer.js, byte-identical to server/src/services/killer.js).
+  startKiller: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    if (division.killer && division.killer.status !== 'not_started') {
+      throw new ApiError(400, 'This killer game has already been started');
+    }
+    const result = initKillerState(division.playerIds, division.scheduling, division.startingLives || 3);
+    if (!result.ok) throw new ApiError(400, result.error);
+    division.killer = result.state;
+    division.fixturesGenerated = true;
+    return hydrateDivision(division);
+  }),
+
+  recordKillerShot: op((divisionId, outcome, lastBall = false) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+    const result = recordKillerShotLogic(division.killer, outcome, { lastBall: !!lastBall });
+    if (!result.ok) throw new ApiError(400, result.error);
+    division.killer = result.state;
+    return hydrateDivision(division);
+  }),
+
+  undoKillerShot: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    if (!division.killer) throw new ApiError(400, 'This killer game has not been started yet');
+    const result = undoLastKillerShotLogic(division.killer);
+    if (!result.ok) throw new ApiError(400, result.error);
+    division.killer = result.state;
+    return hydrateDivision(division);
+  }),
+
+  resetKiller: op((divisionId) => {
+    const division = db.divisions.find((d) => d.id === divisionId);
+    if (!division) throw new ApiError(404, 'Division not found');
+    if (!KILLER_TYPES.includes(division.scheduling)) {
+      throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
+    }
+    division.killer = null;
+    division.fixturesGenerated = false;
+    db.rollOfHonour = db.rollOfHonour.filter((r) => r.divisionId !== division.id);
     return hydrateDivision(division);
   }),
 

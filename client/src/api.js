@@ -235,6 +235,14 @@ const networkApi = {
     request(`/divisions/${divisionId}/late-entrants`, { method: 'POST', body: JSON.stringify({ playerIds }) }),
   generateFixtures: (divisionId, data = {}) =>
     request(`/divisions/${divisionId}/generate-fixtures`, { method: 'POST', body: JSON.stringify(data) }),
+  // Killer Classic / Cards Killer - see server/src/services/killer.js.
+  // These divisions never generate fixtures; startKiller is their
+  // equivalent of generateFixtures.
+  startKiller: (divisionId) => request(`/divisions/${divisionId}/killer/start`, { method: 'POST' }),
+  recordKillerShot: (divisionId, outcome, lastBall = false) =>
+    request(`/divisions/${divisionId}/killer/shot`, { method: 'POST', body: JSON.stringify({ outcome, lastBall }) }),
+  undoKillerShot: (divisionId) => request(`/divisions/${divisionId}/killer/undo`, { method: 'POST' }),
+  resetKiller: (divisionId) => request(`/divisions/${divisionId}/killer/reset`, { method: 'POST' }),
   seedFromGroups: (divisionId, sources) =>
     request(`/divisions/${divisionId}/seed-from-groups`, { method: 'POST', body: JSON.stringify({ sources }) }),
   reorderEntrants: (divisionId, order) =>
