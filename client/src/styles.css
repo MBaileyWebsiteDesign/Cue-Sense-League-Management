@@ -399,6 +399,30 @@ h2 { margin-top: 0; }
 
 .btn-danger:hover:not(:disabled) { background: #fecaca; }
 
+.btn-killer-safe {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.btn-killer-safe:hover:not(:disabled) { background: #15803d; }
+
+.btn-killer-miss {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.btn-killer-miss:hover:not(:disabled) { background: #b91c1c; }
+
+.btn-killer-black {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
+}
+
+.btn-killer-black:hover:not(:disabled) { background: #000; }
+
 .btn-link {
   background: none;
   border: none;

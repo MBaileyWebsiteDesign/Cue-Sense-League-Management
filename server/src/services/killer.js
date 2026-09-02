@@ -152,14 +152,15 @@ export function initKillerState(playerIds, format, startingLives) {
 
 // outcome: 'break_miss' (only legal while isBreakShot - nothing potted on
 // the break, no life lost, same player goes again), 'missed' (or white
-// potted/off the table - loses a life), or 'potted' (life kept). Pass
-// { lastBall: true } alongside 'potted' when that shot cleared the table, so
-// the next player's shot is flagged as a fresh break.
+// potted/off the table - loses a life), 'potted' (life kept), or
+// 'potted_black' (life kept AND a bonus life gained). Pass { lastBall: true }
+// alongside 'potted' when that shot cleared the table, so the next player's
+// shot is flagged as a fresh break.
 export function recordShot(state, outcome, { lastBall = false } = {}) {
   if (!state || state.status !== 'in_progress') {
     return { ok: false, error: 'This killer game is not in progress.' };
   }
-  if (!['break_miss', 'missed', 'potted'].includes(outcome)) {
+  if (!['break_miss', 'missed', 'potted', 'potted_black'].includes(outcome)) {
     return { ok: false, error: `Unknown shot outcome: ${outcome}` };
   }
   const format = state.format;
@@ -199,6 +200,15 @@ export function recordShot(state, outcome, { lastBall = false } = {}) {
       }
     }
     advanceTurn(working, format);
+    pushLog(working, { type: 'turn', playerId: working.currentPlayerId, detail: working.isBreakShot ? 'Breaks off' : 'To play' });
+    return { ok: true, state: working };
+  }
+
+  if (outcome === 'potted_black') {
+    working.lives[current] = (working.lives[current] || 0) + 1;
+    pushLog(working, { type: 'potted_black', playerId: current, detail: `Potted black - gained a life (${working.lives[current]} left)` });
+    advanceTurn(working, format);
+    working.isBreakShot = false;
     pushLog(working, { type: 'turn', playerId: working.currentPlayerId, detail: working.isBreakShot ? 'Breaks off' : 'To play' });
     return { ok: true, state: working };
   }

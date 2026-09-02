@@ -222,8 +222,8 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
           <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
           <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
           <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
-          <option value="killer_classic">Killer Classic (free-for-all, turn order drawn at random)</option>
-          <option value="cards_killer">Cards Killer (free-for-all, turn order drawn from a shuffled deck)</option>
+          <option value="killer_classic">Killer Classic (Players play in order)</option>
+          <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
         </select>
       </label>
       {isKiller ? (
@@ -403,9 +403,17 @@ function StartKillerGameButton({ division, disabled, title, onChange, setError }
 // follow along on the division page while a manager referees from their own
 // device. See server/src/services/killer.js for exactly what each action
 // means; this component just calls the matching route and reloads.
+// Lives-at-a-glance colour: red on the last life, yellow with two left,
+// green once a player is comfortably ahead on lives (3+).
+function killerLifeColor(lives) {
+  if (lives <= 0) return undefined;
+  if (lives === 1) return '#dc2626';
+  if (lives === 2) return '#ca8a04';
+  return '#16a34a';
+}
+
 function KillerBoard({ division, canManage, onChange, setError }) {
   const killer = division.killer;
-  const [lastBall, setLastBall] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
 
@@ -414,12 +422,11 @@ function KillerBoard({ division, canManage, onChange, setError }) {
   const nameOf = (playerId) => division.players.find((p) => p.id === playerId)?.name || 'Unknown player';
   const isFinished = killer.status === 'finished';
 
-  const doShot = async (outcome) => {
+  const doShot = async (outcome, lastBall = false) => {
     setError('');
     setBusy(true);
     try {
-      await api.recordKillerShot(division.id, outcome, outcome === 'potted' ? lastBall : false);
-      setLastBall(false);
+      await api.recordKillerShot(division.id, outcome, lastBall);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -492,16 +499,17 @@ function KillerBoard({ division, canManage, onChange, setError }) {
             const lives = killer.lives[playerId] || 0;
             const isCurrent = !isFinished && killer.currentPlayerId === playerId;
             const place = finishPlace.get(playerId);
+            const lifeColor = killerLifeColor(lives);
             return (
               <tr key={playerId} style={isCurrent ? { fontWeight: 'bold' } : undefined}>
                 <td>
-                  <Link to={`/players/${playerId}`}>{nameOf(playerId)}</Link>
+                  <Link to={`/players/${playerId}`} style={lifeColor ? { color: lifeColor } : undefined}>{nameOf(playerId)}</Link>
                   {isCurrent && <span> — {killer.isBreakShot ? 'breaking off' : 'to play'}</span>}
                   {killer.winnerId === playerId && <span> — winner</span>}
                 </td>
                 <td>
                   {lives > 0
-                    ? '●'.repeat(lives)
+                    ? <span style={{ color: lifeColor }}>{'●'.repeat(lives)}</span>
                     : <span className="muted">out{place ? ` (finished ${place === 2 ? 'runner-up' : `${place}th`})` : ''}</span>}
                 </td>
                 <td></td>
@@ -523,18 +531,20 @@ function KillerBoard({ division, canManage, onChange, setError }) {
                 Nothing on break (shoots again)
               </button>
             )}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 'normal' }}>
-              <input type="checkbox" checked={lastBall} onChange={(e) => setLastBall(e.target.checked)} />
-              Potted the last ball (re-rack)
-            </label>
-            <button className="btn btn-primary" disabled={busy} onClick={() => doShot('potted')}>
-              Potted - safe
+            <button className="btn btn-killer-safe" disabled={busy} onClick={() => doShot('potted')}>
+              Potted - Safe
+            </button>
+            <button className="btn btn-killer-black" disabled={busy} onClick={() => doShot('potted_black')}>
+              Potted Black (Gain a Life)
             </button>
             {!killer.isBreakShot && (
-              <button className="btn" disabled={busy} onClick={() => doShot('missed')}>
-                Missed / white potted (lose a life)
+              <button className="btn btn-killer-miss" disabled={busy} onClick={() => doShot('missed')}>
+                Missed / Potted White
               </button>
             )}
+            <button className="btn btn-killer-safe" disabled={busy} onClick={() => doShot('potted', true)}>
+              Potted Last Ball (Re-Rack)
+            </button>
           </div>
         </div>
       )}

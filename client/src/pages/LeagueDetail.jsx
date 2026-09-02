@@ -760,8 +760,8 @@ export default function LeagueDetail() {
               <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
               <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
               <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
-              <option value="killer_classic">Killer Classic (free-for-all, turn order drawn at random)</option>
-              <option value="cards_killer">Cards Killer (free-for-all, turn order drawn from a shuffled deck)</option>
+              <option value="killer_classic">Killer Classic (Players play in order)</option>
+              <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
             </select>
           </label>
           {isKiller ? (
