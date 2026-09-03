@@ -370,10 +370,11 @@ export default function PlayerPortal() {
       </div>
 
       <div className="inline-form" style={{ justifyContent: 'center', margin: '1rem 0' }}>
-        <Link className="btn btn-primary" to="/adhoc-game/new">Ad Hoc Game</Link>
         {user.playerId && (
-          <Link className="btn" to={`/players/${user.playerId}`}>View my stats &amp; match history</Link>
+          <Link className="btn btn-primary" to={`/players/${user.playerId}`}>View my stats &amp; match history</Link>
         )}
+        <Link className="btn btn-primary" to="/adhoc-game/new">Ad Hoc Game</Link>
+        <Link className="btn btn-primary" to="/open-leagues">Leagues I can Join</Link>
       </div>
 
       <MyFixtures />
