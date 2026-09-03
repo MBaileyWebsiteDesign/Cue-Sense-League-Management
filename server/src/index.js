@@ -1394,12 +1394,19 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
 // every existing roster-locking check elsewhere in the app (SinglesRoster,
 // PlayerSubstitutionPanel, close-early, etc.) applies to a started killer
 // game without needing its own parallel set of checks.
-app.post('/api/divisions/:id/killer/start', requireAnyAdmin, asyncRoute((req, res) => {
+//
+// Deliberately requireAuth only, not requireAnyAdmin/assertLeagueAccess -
+// this is the Killer equivalent of POST /api/divisions/:id/generate-fixtures
+// (also open to any signed-in user), so a standard player running their own
+// Ad Hoc Game can start a Killer Classic/Cards Killer game themselves rather
+// than needing an Overall Admin to do it for them. See killer/shot and
+// killer/undo just below, which get the same treatment for the same reason -
+// otherwise a standard player could start the game but never actually play
+// it, since nobody would be able to record a shot.
+app.post('/api/divisions/:id/killer/start', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
 
   if (!KILLER_TYPES.includes(division.scheduling)) {
     throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
@@ -1415,7 +1422,7 @@ app.post('/api/divisions/:id/killer/start', requireAnyAdmin, asyncRoute((req, re
   division.fixturesGenerated = true; // locks the roster, same as every other format once play begins
 
   recordAudit(db, {
-    actor: req.adminSession.label,
+    actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
     action: 'division.edit',
     targetType: 'division',
     targetId: division.id,
@@ -1428,13 +1435,16 @@ app.post('/api/divisions/:id/killer/start', requireAnyAdmin, asyncRoute((req, re
 
 // Records one shot's outcome and advances the game. See
 // services/killer.js's recordShot for what each outcome means.
-app.post('/api/divisions/:id/killer/shot', requireAnyAdmin, asyncRoute((req, res) => {
+//
+// requireAuth only - see the comment on killer/start above; this is the
+// Killer equivalent of POST /api/fixtures/:id/frames (also requireAuth
+// only, not restricted to the fixture's own two players), so scoring stays
+// open to any signed-in user the same way frame-recording already is.
+app.post('/api/divisions/:id/killer/shot', requireAuth, asyncRoute((req, res) => {
   const { outcome, lastBall } = req.body || {};
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
 
   if (!KILLER_TYPES.includes(division.scheduling)) {
     throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
@@ -1452,12 +1462,12 @@ app.post('/api/divisions/:id/killer/shot', requireAnyAdmin, asyncRoute((req, res
 // Undoes the last recorded shot (whole-state snapshot restore - see
 // undoLastShot in services/killer.js). Mirrors the "undo last frame"
 // affordance every other scoring UI in this app has.
-app.post('/api/divisions/:id/killer/undo', requireAnyAdmin, asyncRoute((req, res) => {
+//
+// requireAuth only - see the comment on killer/start above.
+app.post('/api/divisions/:id/killer/undo', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
 
   if (!KILLER_TYPES.includes(division.scheduling)) {
     throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
@@ -1479,12 +1489,15 @@ app.post('/api/divisions/:id/killer/undo', requireAnyAdmin, asyncRoute((req, res
 // /api/divisions/:id's own cleanup, so a re-played game can be recorded
 // again once it finishes rather than being silently skipped by the
 // dedup check in recordChampionIfDivisionComplete.
-app.post('/api/divisions/:id/killer/reset', requireAnyAdmin, asyncRoute((req, res) => {
+//
+// requireAuth only - see the comment on killer/start above; a standard
+// player who set their own Ad Hoc Killer game up wrong should be able to
+// unlock the roster and fix it themselves, the same way they could freely
+// add/remove players before starting it in the first place.
+app.post('/api/divisions/:id/killer/reset', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
-  const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
 
   if (!KILLER_TYPES.includes(division.scheduling)) {
     throw new ApiError(400, 'This division is not a Killer Classic or Cards Killer division');
@@ -1495,7 +1508,7 @@ app.post('/api/divisions/:id/killer/reset', requireAnyAdmin, asyncRoute((req, re
   db.rollOfHonour = db.rollOfHonour.filter((r) => r.divisionId !== division.id);
 
   recordAudit(db, {
-    actor: req.adminSession.label,
+    actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
     action: 'division.edit',
     targetType: 'division',
     targetId: division.id,
