@@ -864,8 +864,8 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
 //   triples fixture is scored exactly like a singles fixture: one continuous
 //   frame race, no legs, `homePlayerId`/`awayPlayerId` just hold a Pairing id
 //   instead of a Player id - see the "Pairings" section below)
-// - scheduling: "round_robin_single" (default - Round Robin - Single, everyone
-//   plays everyone once), "round_robin_double" (Round Robin - Double,
+// - scheduling: "round_robin_single" (default - Standard League - Single Leg, everyone
+//   plays everyone once), "round_robin_double" (Standard League - Double Leg,
 //   everyone plays everyone twice - a home leg and an away leg with sides
 //   swapped, see services/roundRobin.js), "knockout_single_elim"
 //   (single-elimination bracket, byes only in a round whose survivor count

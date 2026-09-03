@@ -15,8 +15,8 @@ const SCHEDULING_LABELS = {
   knockout_double_elim: 'Knockout (double elim)',
   knockout_double_elim_pcdek: 'Pre Configured Double Elim Knockout',
   knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
-  round_robin_double: 'Round Robin - Double',
-  round_robin_single: 'Round Robin - Single',
+  round_robin_double: 'Standard League - Double Leg',
+  round_robin_single: 'Standard League - Single Leg',
   killer_classic: 'Killer Classic',
   cards_killer: 'Cards Killer',
   free_play: 'Free Play',
@@ -25,7 +25,7 @@ const SCHEDULING_LABELS = {
 const KILLER_SCHEDULING_TYPES = ['killer_classic', 'cards_killer'];
 
 function schedulingLabel(scheduling) {
-  return SCHEDULING_LABELS[scheduling] || 'Round Robin - Single';
+  return SCHEDULING_LABELS[scheduling] || 'Standard League - Single Leg';
 }
 
 function entryTypeLabel(division) {

@@ -22,9 +22,9 @@ full-featured competition management that Wix has no built-in system for.
   - **Entry type** — `singles` (one player vs. one player), `teams` (team vs. team), or
     `doubles` (a named 2-3 player `Pairing` vs. `Pairing`, alternate-shot - see
     **Doubles / triples format** below).
-  - **Scheduling** — `round_robin_single` (Round Robin - Single: everyone/every team
-    plays everyone/every team else exactly once), `round_robin_double` (Round Robin -
-    Double: everyone/every team plays everyone/every team else twice, a home leg and
+  - **Scheduling** — `round_robin_single` (Standard League - Single Leg: everyone/every team
+    plays everyone/every team else exactly once), `round_robin_double` (Standard League -
+    Double Leg: everyone/every team plays everyone/every team else twice, a home leg and
     an away leg with sides swapped), `knockout_single_elim` (single-elimination
     bracket), or `knockout_double_elim` (double-elimination: winners bracket + losers
     bracket + Grand Final, with a bracket-reset decider if needed - see below).

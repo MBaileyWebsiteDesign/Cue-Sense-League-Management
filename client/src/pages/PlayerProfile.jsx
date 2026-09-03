@@ -9,8 +9,8 @@ const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 // Same labels used on the Roll of Honour page, duplicated locally rather
 // than importing across pages for one small constant.
 const SCHEDULING_LABEL = {
-  round_robin_single: 'Round Robin - Single',
-  round_robin_double: 'Round Robin - Double',
+  round_robin_single: 'Standard League - Single Leg',
+  round_robin_double: 'Standard League - Double Leg',
   knockout_single_elim: 'Knockout (single elim)',
   knockout_double_elim: 'Knockout (double elim)',
   knockout_double_elim_pcdek: 'Pre Configured Double Elim Knockout',
