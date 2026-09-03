@@ -15,6 +15,7 @@ function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_double_elim_pcdek') return 'Generate Fixtures (Pre Configured Double Elimination Knockout)';
   if (division.scheduling === 'knockout_double_elim_adek') return 'Generate Fixtures (Adaptive Double Elimination Knockout - round 1 only)';
   if (division.scheduling === 'round_robin_double') return 'Generate Fixtures (Round Robin - Double, home and away)';
+  if (division.scheduling === 'free_play') return 'Generate Fixtures (Free Play, no frame count target)';
   return 'Generate Fixtures (Round Robin - Single, play each other once)';
 }
 
@@ -134,16 +135,17 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
   const [saving, setSaving] = useState(false);
 
   const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
+  const isFreePlay = scheduling === 'free_play';
   const onSchedulingChange = (value) => {
     setScheduling(value);
-    if (value === 'killer_classic' || value === 'cards_killer') setEntryType('singles');
+    if (value === 'killer_classic' || value === 'cards_killer' || value === 'free_play') setEntryType('singles');
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
     let raceTo;
-    if (!isKiller) {
+    if (!isKiller && !isFreePlay) {
       const numericFormatValue = Number(formatValue);
       if (formatMode === 'bestOf') {
         if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
@@ -158,7 +160,7 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
         }
         raceTo = numericFormatValue;
       }
-    } else if (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1) {
+    } else if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
       setError('Starting lives must be a whole number of 1 or more');
       return;
     }
@@ -184,9 +186,11 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
     <form className="form" style={{ marginTop: 8, marginBottom: 8 }} onSubmit={onSubmit}>
       <label>
         Entry type
-        <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller}>
+        <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller || isFreePlay}>
           {isKiller ? (
             <option value="singles">Singles (one player at a time, everyone in the game together)</option>
+          ) : isFreePlay ? (
+            <option value="singles">Singles (one player vs one player)</option>
           ) : (
             <>
               <option value="singles">Singles (one player vs one player)</option>
@@ -196,13 +200,13 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
           )}
         </select>
       </label>
-      {entryType === 'teams' && !isKiller && (
+      {entryType === 'teams' && !isKiller && !isFreePlay && (
         <label>
           Legs per match
           <input type="number" min="1" value={legsPerMatch} onChange={(e) => setLegsPerMatch(e.target.value)} required />
         </label>
       )}
-      {entryType === 'doubles' && !isKiller && (
+      {entryType === 'doubles' && !isKiller && !isFreePlay && (
         <label>
           Players per pairing
           <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
@@ -224,6 +228,7 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
           <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
           <option value="killer_classic">Killer Classic (Players play in order)</option>
           <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
+          <option value="free_play">Free Play (2 player free style, no frame count target)</option>
         </select>
       </label>
       {isKiller ? (
@@ -231,6 +236,11 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
           Starting lives
           <input type="number" min="1" value={startingLives} onChange={(e) => setStartingLives(e.target.value)} required />
         </label>
+      ) : isFreePlay ? (
+        <p className="muted" style={{ fontSize: '0.8rem' }}>
+          Free Play has no frame count target, so Match format/Race to don't apply - frames are still recorded one
+          at a time, and either player can finish the match themselves whenever the scores aren't level.
+        </p>
       ) : (
         <>
           <label>
@@ -1671,7 +1681,9 @@ export default function DivisionDetail() {
             ? `${division.pairingSize === 3 ? 'Triples' : 'Doubles'} league · ${division.pairingSize} players per pairing`
             : isKiller
               ? `${division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'} · free-for-all, ${division.startingLives || 3} lives each`
-              : 'Singles league'}
+              : division.scheduling === 'free_play'
+                ? 'Free Play · 2 player free style, no frame count target'
+                : 'Singles league'}
       </p>
       {error && <p className="error">{error}</p>}
 

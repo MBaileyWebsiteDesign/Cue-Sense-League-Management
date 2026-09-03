@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const KILLER_SCHEDULING = ['killer_classic', 'cards_killer'];
+const FREE_PLAY_SCHEDULING = 'free_play';
 
 // Step 1: game setup - deliberately the same fields and behaviour as
 // LeagueDetail.jsx's "+ New Division" form (see its onAddDivision/showForm
@@ -26,18 +27,19 @@ function GameSetupForm({ onCreated }) {
   const [submitting, setSubmitting] = useState(false);
 
   const isKiller = KILLER_SCHEDULING.includes(scheduling);
+  const isFreePlay = scheduling === FREE_PLAY_SCHEDULING;
 
   const onSchedulingChange = (value) => {
     setScheduling(value);
-    // No fixed sides in a free-for-all game.
-    if (KILLER_SCHEDULING.includes(value)) setEntryType('singles');
+    // No fixed sides in a free-for-all/2-player game.
+    if (KILLER_SCHEDULING.includes(value) || value === FREE_PLAY_SCHEDULING) setEntryType('singles');
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
     let raceTo;
-    if (!isKiller) {
+    if (!isKiller && !isFreePlay) {
       const numericFormatValue = Number(formatValue);
       if (formatMode === 'bestOf') {
         if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
@@ -87,9 +89,11 @@ function GameSetupForm({ onCreated }) {
       </label>
       <label>
         Entry type
-        <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller}>
+        <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller || isFreePlay}>
           {isKiller ? (
             <option value="singles">Singles (one player at a time, everyone in the game together)</option>
+          ) : isFreePlay ? (
+            <option value="singles">Singles (one player vs one player)</option>
           ) : (
             <>
               <option value="singles">Singles (one player vs one player)</option>
@@ -103,8 +107,13 @@ function GameSetupForm({ onCreated }) {
             Killer Classic/Cards Killer are free-for-all games with no fixed sides, so this is locked to Singles.
           </span>
         )}
+        {isFreePlay && (
+          <span className="muted" style={{ fontSize: '0.8rem' }}>
+            Free Play is a 2-player game, so this is locked to Singles.
+          </span>
+        )}
       </label>
-      {entryType === 'teams' && !isKiller && (
+      {entryType === 'teams' && !isKiller && !isFreePlay && (
         <label>
           Legs per match
           <input
@@ -116,7 +125,7 @@ function GameSetupForm({ onCreated }) {
           />
         </label>
       )}
-      {entryType === 'doubles' && !isKiller && (
+      {entryType === 'doubles' && !isKiller && !isFreePlay && (
         <label>
           Players per pairing
           <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
@@ -138,6 +147,7 @@ function GameSetupForm({ onCreated }) {
           <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
           <option value="killer_classic">Killer Classic (Players play in order)</option>
           <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
+          <option value="free_play">Free Play (2 player free style, no frame count target)</option>
         </select>
       </label>
       {isKiller ? (
@@ -155,6 +165,11 @@ function GameSetupForm({ onCreated }) {
             {' '}{scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'}, so Match format/Race to don't apply.
           </span>
         </label>
+      ) : isFreePlay ? (
+        <p className="muted" style={{ fontSize: '0.8rem' }}>
+          Free Play has no frame count target, so Match format/Race to don't apply - frames are still recorded one
+          at a time, and either player can finish the match themselves whenever the scores aren't level.
+        </p>
       ) : (
         <>
           <label>

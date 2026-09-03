@@ -19,6 +19,7 @@ const SCHEDULING_LABEL = {
   knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
   killer_classic: 'Killer Classic',
   cards_killer: 'Cards Killer',
+  free_play: 'Free Play',
 };
 
 // Admin-only panel shown above Career - lets an admin edit the account

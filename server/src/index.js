@@ -87,7 +87,14 @@ const asyncRoute = (fn) => (req, res, next) => {
   }
 };
 
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek', ...KILLER_TYPES];
+// Free Play: a 2-player free-style singles game with no race-to-frames
+// target - see the fuller comment further down (above where Killer Classic/
+// Cards Killer are documented) for how this differs from every other
+// format. Declared here, ahead of SCHEDULING_TYPES, purely so it can be
+// used in that array below without a temporal-dead-zone error.
+const FREE_PLAY = 'free_play';
+
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek', FREE_PLAY, ...KILLER_TYPES];
 // Divisions using any double-elimination format share almost all downstream
 // logic (champion detection, knockout-only UI, public bracket view) - only
 // fixture *generation* (generateDoubleElimFixtures /
@@ -130,6 +137,26 @@ const ADEK = 'knockout_double_elim_adek';
 // pairingSize entirely - division.startingLives (default 3, matching both
 // rule sheets' "three tally marks") replaces raceTo as this format's one
 // game-length setting.
+
+// Free Play (scheduling: FREE_PLAY = 'free_play') - "2 player free style
+// without frame count target". Unlike Killer, this DOES go through the
+// normal Fixture/generate-fixtures engine (it falls into
+// generateRoundRobinFixtures' default branch, same as round_robin_single)
+// and frames are still recorded one at a time exactly as normal - the only
+// difference is there's no raceTo to reach. Forced to entryType 'singles'
+// at creation (see createDivision/POST /api/adhoc-games/PATCH below), same
+// reasoning as Killer, and division.raceTo/fixture.raceTo are both null.
+// Two consequences of a null raceTo, handled specifically where they occur:
+//   * POST /api/fixtures/:id/frames' "race target reached" guard is skipped
+//     entirely when fixture.raceTo is null - otherwise `0 >= null` is true
+//     in JS and would block the very first frame.
+//   * POST /api/fixtures/:id/submit-result finishes a Free Play fixture
+//     immediately (status -> 'completed' in the same request, winner =
+//     whichever side currently has more frames) rather than moving it to
+//     'pending_confirmation' and waiting on both sides - either player can
+//     end their own Free Play match without the opponent also confirming.
+//     Submitting while scores are level is rejected (there's no target to
+//     break the tie by, so the frame history has to do it).
 
 // ---------- Accounts & auth ----------
 // One account model, one login. `db.users` holds everyone; `isAdmin` and
@@ -875,7 +902,8 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
   assertLeagueAccess(req, league);
   const scheduling = req.body.scheduling || league.format.scheduling || 'round_robin_single';
   const isKiller = KILLER_TYPES.includes(scheduling);
-  if (isKiller) entryType = 'singles'; // no fixed sides in a free-for-all game - see the KILLER_TYPES comment above
+  const isFreePlay = scheduling === FREE_PLAY;
+  if (isKiller || isFreePlay) entryType = 'singles'; // no fixed sides in a free-for-all/2-player game - see the KILLER_TYPES/FREE_PLAY comments above
 
   if (!name || !name.trim()) throw new ApiError(400, 'Division name is required');
   if (!['singles', 'teams', 'doubles'].includes(entryType)) {
@@ -891,9 +919,10 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
     throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
   }
   // raceTo (Match Format / Race To) doesn't apply to Killer Classic/Cards
-  // Killer - there's no per-match frame race, just lives - so it's skipped
-  // entirely for those and startingLives is validated instead.
-  if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+  // Killer - there's no per-match frame race, just lives - or to Free Play -
+  // there's no frame count target at all - so it's skipped entirely for
+  // those (and startingLives is validated instead, for Killer only).
+  if (!isKiller && !isFreePlay && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
     throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
   }
   if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
@@ -914,8 +943,9 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
     // division ever generates reads it from here (see makeSinglesFixture/
     // makeTeamFixture) - changing it after fixtures already exist has no
     // effect on fixtures already created, only ones generated after.
-    // null for Killer Classic/Cards Killer, which use startingLives instead.
-    raceTo: isKiller ? null : Number(raceTo),
+    // null for Killer Classic/Cards Killer (which use startingLives instead)
+    // and for Free Play (which has no frame count target at all).
+    raceTo: (isKiller || isFreePlay) ? null : Number(raceTo),
     // Killer Classic/Cards Killer only - lives each player starts the game
     // with (see server/src/services/killer.js). null for every other format.
     startingLives: isKiller ? Number(startingLives) : null,
@@ -1008,7 +1038,8 @@ app.post('/api/adhoc-games', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const league = getOrCreateAdHocLeague(db);
   const isKiller = KILLER_TYPES.includes(scheduling);
-  if (isKiller) entryType = 'singles'; // no fixed sides in a free-for-all game - see the KILLER_TYPES comment further up.
+  const isFreePlay = scheduling === FREE_PLAY;
+  if (isKiller || isFreePlay) entryType = 'singles'; // no fixed sides in a free-for-all/2-player game - see the KILLER_TYPES/FREE_PLAY comments further up.
 
   if (!name || !name.trim()) throw new ApiError(400, 'Game name is required');
   if (!['singles', 'teams', 'doubles'].includes(entryType)) {
@@ -1023,7 +1054,7 @@ app.post('/api/adhoc-games', requireAuth, asyncRoute((req, res) => {
   if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
     throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
   }
-  if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+  if (!isKiller && !isFreePlay && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
     throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
   }
   if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
@@ -1037,7 +1068,7 @@ app.post('/api/adhoc-games', requireAuth, asyncRoute((req, res) => {
     order: db.divisions.filter((d) => d.leagueId === league.id).length,
     entryType,
     scheduling,
-    raceTo: isKiller ? null : Number(raceTo),
+    raceTo: (isKiller || isFreePlay) ? null : Number(raceTo),
     startingLives: isKiller ? Number(startingLives) : null,
     killer: null,
     playerIds: [],
@@ -1300,7 +1331,8 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
   } = req.body || {};
   let { entryType = division.entryType } = req.body || {};
   const isKiller = KILLER_TYPES.includes(scheduling);
-  if (isKiller) entryType = 'singles'; // see the KILLER_TYPES comment above createDivision
+  const isFreePlay = scheduling === FREE_PLAY;
+  if (isKiller || isFreePlay) entryType = 'singles'; // see the KILLER_TYPES/FREE_PLAY comments above createDivision
 
   if (!['singles', 'teams', 'doubles'].includes(entryType)) {
     throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
@@ -1308,7 +1340,7 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
   if (!SCHEDULING_TYPES.includes(scheduling)) {
     throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
   }
-  if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+  if (!isKiller && !isFreePlay && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
     throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
   }
   if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
@@ -1332,7 +1364,7 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
 
   division.entryType = entryType;
   division.scheduling = scheduling;
-  division.raceTo = isKiller ? null : Number(raceTo);
+  division.raceTo = (isKiller || isFreePlay) ? null : Number(raceTo);
   division.startingLives = isKiller ? Number(startingLives) : null;
   division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
   division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
@@ -1342,7 +1374,7 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
     action: 'division.edit',
     targetType: 'division',
     targetId: division.id,
-    details: `Changed game type for "${division.name}" - entryType: ${entryType}, scheduling: ${scheduling}, ${isKiller ? `startingLives: ${startingLives}` : `raceTo: ${raceTo}`}`,
+    details: `Changed game type for "${division.name}" - entryType: ${entryType}, scheduling: ${scheduling}, ${isKiller ? `startingLives: ${startingLives}` : isFreePlay ? 'no frame count target' : `raceTo: ${raceTo}`}`,
   });
 
   writeDb(db);
@@ -5503,7 +5535,10 @@ app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
   if (![fixture.homePlayerId, fixture.awayPlayerId].includes(winnerPlayerId)) {
     throw new ApiError(400, 'winnerPlayerId must be one of the two players in this fixture');
   }
-  if (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo) {
+  // fixture.raceTo is null for Free Play (no frame count target) - skip this
+  // check entirely rather than let `0 >= null` (true in JS) block the very
+  // first frame.
+  if (fixture.raceTo != null && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo)) {
     throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
   }
 
@@ -5590,6 +5625,29 @@ app.post('/api/fixtures/:id/submit-result', requireAuth, asyncRoute((req, res) =
   }
   if (division.entryType === 'teams') throw new ApiError(400, 'This is a team fixture - submit each leg individually');
   if (fixture.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress match can be submitted for confirmation');
+
+  // Free Play has no race target - either player can finish the match
+  // themselves the moment the scores aren't level, and it completes right
+  // away rather than waiting on the other side to also confirm (see the
+  // FREE_PLAY comment above createDivision).
+  if (division.scheduling === FREE_PLAY) {
+    if (fixture.homeFrameScore === fixture.awayFrameScore) {
+      throw new ApiError(400, 'Scores are level - record another frame before finishing this Free Play match');
+    }
+    fixture.winnerPlayerId = fixture.homeFrameScore > fixture.awayFrameScore ? fixture.homePlayerId : fixture.awayPlayerId;
+    fixture.status = 'completed';
+    fixture.homeConfirmed = true;
+    fixture.awayConfirmed = true;
+    fixture.resultSubmittedAt = new Date().toISOString();
+    fixture.resultSubmittedBy = req.auth.user.id;
+    propagateWinner(db, division, fixture, fixture.winnerPlayerId);
+    const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+    propagateLoser(db, division, fixture, loserPlayerId);
+    checkGrandFinalReset(db, division, fixture);
+    writeDb(db);
+    return res.json(fixture);
+  }
+
   if (fixture.homeFrameScore < fixture.raceTo && fixture.awayFrameScore < fixture.raceTo) {
     throw new ApiError(400, `Neither side has reached the race target (${fixture.raceTo}) yet`);
   }

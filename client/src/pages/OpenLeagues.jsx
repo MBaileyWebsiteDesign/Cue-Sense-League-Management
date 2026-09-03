@@ -21,6 +21,7 @@ const SCHEDULING_LABELS = {
   round_robin_single: 'Round Robin - Single',
   killer_classic: 'Killer Classic',
   cards_killer: 'Cards Killer',
+  free_play: 'Free Play',
 };
 
 const KILLER_SCHEDULING_TYPES = ['killer_classic', 'cards_killer'];
