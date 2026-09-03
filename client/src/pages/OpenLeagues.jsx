@@ -13,8 +13,6 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 const SCHEDULING_LABELS = {
   knockout_single_elim: 'Knockout (single elim)',
   knockout_double_elim: 'Knockout (double elim)',
-  knockout_double_elim_ally: 'Ally Knockout (double elim)',
-  knockout_double_elim_test: 'Testing Double Elim',
   knockout_double_elim_pcdek: 'Pre Configured Double Elim Knockout',
   knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
   round_robin_double: 'Round Robin - Double',

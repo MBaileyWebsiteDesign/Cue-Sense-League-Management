@@ -94,14 +94,13 @@ const asyncRoute = (fn) => (req, res, next) => {
 // used in that array below without a temporal-dead-zone error.
 const FREE_PLAY = 'free_play';
 
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek', FREE_PLAY, ...KILLER_TYPES];
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek', FREE_PLAY, ...KILLER_TYPES];
 // Divisions using any double-elimination format share almost all downstream
 // logic (champion detection, knockout-only UI, public bracket view) - only
-// fixture *generation* (generateDoubleElimFixtures /
-// generateAllyDoubleElimFixtures / generateTestingDoubleElimFixtures /
-// generatePCDEKFixtures, see each below) and late-entrant rebuild (which
-// only 'knockout_double_elim' supports) differ.
-const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_ally', 'knockout_double_elim_test', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek'];
+// fixture *generation* (generateDoubleElimFixtures / generatePCDEKFixtures,
+// see each below) and late-entrant rebuild (which only 'knockout_double_elim'
+// supports) differ.
+const DOUBLE_ELIM_TYPES = ['knockout_double_elim', 'knockout_double_elim_pcdek', 'knockout_double_elim_adek'];
 
 // "Adaptive Double Elimination Knockout" (ADEK). The odd one out among the
 // double-elim formats: every other one builds its ENTIRE fixture graph at
@@ -874,16 +873,7 @@ app.get('/api/leagues/:id/payments', requireAnyAdmin, asyncRoute((req, res) => {
 //   (winners bracket + losers bracket + Grand Final, with a bracket-reset
 //   decider if the losers-bracket finalist wins the Grand Final - any
 //   entrant count of 4+, not just an exact power of 2, see
-//   services/bracket.js), or "knockout_double_elim_ally" ("Ally Knockout
-//   (Double elimination)" - a second, independently-maintained double-
-//   elimination option with its own generator function
-//   (generateAllyDoubleElimFixtures) and its own scheduling type, so it can
-//   diverge from knockout_double_elim later without either affecting the
-//   other; today it uses the identical technique, since extensive testing
-//   (claude/ally-knockout-2026-08-14.md) found no algorithm that measurably
-//   beats it for this format's constraints - minimum games, at most one bye
-//   per entrant ever, and minimizing (not fully eliminating - proven not
-//   always possible) rematches before the final), or
+//   services/bracket.js), or
 //   "knockout_double_elim_pcdek" ("Pre Configured Double Elimination
 //   Knockout" - see generatePCDEKFixtures below for what "pre configured"
 //   actually means here and why it does NOT guarantee zero rematches
@@ -3973,356 +3963,6 @@ function generateDoubleElimFixtures({ db, league, division, entrantIds }) {
   wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
 }
 
-// "Ally Knockout (Double elimination)" - a second, independent double-
-// elimination scheduling option (scheduling: 'knockout_double_elim_ally'),
-// separate from 'knockout_double_elim' above so the two can diverge in
-// future without either affecting the other. Its own function body (not a
-// call into generateDoubleElimFixtures) even though today the two are
-// logically identical - see the project doc this was verified against
-// (claude/ally-knockout-2026-08-14.md) for why: several genuinely different
-// routing techniques were tried and empirically tested (a naive reversed-
-// order tweak, rebuilding the bracket as a clean power-of-two tree, and a
-// mathematically rigorous bracket-lineage-aware router) against the same
-// 9,400-tournament methodology the original double-elim fixes used, and
-// none measurably beat what's already in generateDoubleElimFixtures -
-// three independent methods converged on the same finding the original
-// double-elim work already reached: for a fixed entrant count with the
-// minimum possible number of games, avoiding every rematch before the
-// final and capping everyone to at most one bye are already very close to
-// the achievable ceiling, not something a cleverer algorithm still has
-// available to it. So this reuses the identical, most battle-tested
-// technique (buildDoubleElimBracket for shape, the same
-// avoidRematchOnPlacement/avoidRepeatByeOnPlacement reactive fairness
-// helpers used by every knockout format) rather than inventing new,
-// less-proven logic purely for its own sake - but keeps its own dedicated
-// generator function and scheduling type so it has a genuinely independent
-// on/off switch and a stable place to diverge later if a real improvement
-// is ever found for one format and not the other.
-//
-// Known v1 limitation, deliberately not carried over: the late-entrant
-// bracket rebuild (POST /api/divisions/:id/late-entrants,
-// rebuildDoubleElimFromRound1) stays 'knockout_double_elim'-only for now -
-// see that route's own guard below. Reserved bye slots
-// (MAX_RESERVED_BYE_COUNT) are globally set to 0 already, so nothing is
-// lost there for either format.
-function generateAllyDoubleElimFixtures({ db, league, division, entrantIds }) {
-  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const reservedCount = reservedByeCountFor(entrantIds.length);
-  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
-
-  // ---- Winners bracket ----
-  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
-    pairs.map(() => {
-      const f = makeFixture({ league, division, round: roundIndex + 1 });
-      f.bracketRole = 'winners';
-      return f;
-    })
-  );
-  for (let round = 0; round < wbByRound.length - 1; round++) {
-    const thisRound = wbByRound[round];
-    const nextRound = wbByRound[round + 1];
-    thisRound.forEach((fixture, i) => {
-      const next = nextRound[Math.floor(i / 2)];
-      fixture.nextFixtureId = next.id;
-      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
-    });
-    if (thisRound.length % 2 === 1) {
-      nextRound[nextRound.length - 1].byeSlot = 'away';
-    }
-  }
-  winnersRounds[0].forEach(([a, b], i) => {
-    const fixture = wbByRound[0][i];
-    const isReserved = b === RESERVED_SLOT;
-    const awayValue = isReserved ? null : b;
-    if (b === null || isReserved) fixture.byeSlot = 'away';
-    if (isReserved) fixture.reserved = true;
-    if (division.entryType === 'teams') {
-      fixture.homeTeamId = a;
-      fixture.awayTeamId = awayValue;
-    } else {
-      fixture.homePlayerId = a;
-      fixture.awayPlayerId = awayValue;
-    }
-  });
-
-  // ---- Losers bracket ----
-  const lbByRound = losersRounds.map((round, roundIndex) =>
-    Array.from({ length: round.boxCount }, () => {
-      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
-      f.bracketRole = 'losers';
-      return f;
-    })
-  );
-  losersRounds.forEach((round, i) => {
-    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
-  });
-  for (let round = 0; round < lbByRound.length - 1; round++) {
-    const current = lbByRound[round];
-    const next = lbByRound[round + 1];
-    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
-    current.forEach((fixture, i) => {
-      if (nextIsMergeRound) {
-        fixture.nextFixtureId = next[i].id;
-        fixture.nextFixtureSlot = 'home';
-      } else {
-        const target = next[Math.floor(i / 2)];
-        fixture.nextFixtureId = target.id;
-        fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
-      }
-    });
-  }
-  losersRounds.forEach((lbRound, lbRoundIndex) => {
-    if (lbRound.feedsFromWinnersRound === null) return;
-    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
-    const lbDestFixtures = lbByRound[lbRoundIndex];
-    wbSourceFixtures.forEach((fixture, i) => {
-      let dest, slot;
-      if (lbRoundIndex === 0) {
-        dest = lbDestFixtures[Math.floor(i / 2)];
-        slot = i % 2 === 0 ? 'home' : 'away';
-      } else if (i < lbRound.crossMatches) {
-        dest = lbDestFixtures[i];
-        slot = 'away';
-      } else {
-        const j = i - lbRound.crossMatches;
-        dest = lbDestFixtures[lbRound.crossMatches + Math.floor(j / 2)];
-        slot = j % 2 === 0 ? 'home' : 'away';
-      }
-      fixture.loserNextFixtureId = dest.id;
-      fixture.loserNextFixtureSlot = slot;
-    });
-  });
-
-  // ---- Grand Final ----
-  const wbFinal = wbByRound[wbByRound.length - 1][0];
-  const lbFinal = lbByRound[lbByRound.length - 1][0];
-  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
-  grandFinal.bracketRole = 'grand_final';
-  wbFinal.nextFixtureId = grandFinal.id;
-  wbFinal.nextFixtureSlot = 'home';
-  lbFinal.nextFixtureId = grandFinal.id;
-  lbFinal.nextFixtureSlot = 'away';
-
-  const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
-  allFixtures.forEach((f) => db.fixtures.push(f));
-  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
-}
-
-// ---- "Testing Double Elimination" fixture generation ----
-//
-// A third double-elimination format (division.scheduling ===
-// 'knockout_double_elim_test'), independent of both generateDoubleElimFixtures
-// and generateAllyDoubleElimFixtures above, that exists specifically to fix a
-// real limitation in generateDoubleElimFixtures: that function's losers-
-// bracket wiring pairs winners-round losers, and losers-bracket survivors
-// against each other, in plain sequential/adjacent order (loser 0 vs loser
-// 1, box 0's winner vs box 1's winner, etc.). Sequential-adjacent pairing
-// has no relationship to the winners-bracket tree structure, so two players
-// can end up facing each other again in the losers bracket well before the
-// Losers Final/Grand Final, even though a "proper" double-elimination
-// bracket is specifically designed so that only bracket topology (not luck)
-// decides when rematches can happen.
-//
-// This function is otherwise IDENTICAL to generateDoubleElimFixtures - same
-// buildDoubleElimBracket() round/box counts, same winners-bracket
-// construction, same Grand Final wiring, same reserved-bye handling. The
-// only thing that changes is *which* losers-bracket box each loser/survivor
-// gets wired into, using standard bracket "mirroring": entrants who are
-// close together structurally (adjacent winners-bracket boxes, or adjacent
-// losers-bracket survivor boxes) are pushed to opposite ends of the next
-// round instead of paired with their neighbour, and freshly-dropped
-// winners-bracket losers are cross-matched against waiting losers-bracket
-// survivors in reverse order rather than same-index order. This is the same
-// "reversal/mirroring" technique standard seeded double-elimination
-// generators use to keep opposite bracket halves apart until the brackets
-// themselves force a merge.
-//
-// Note this does NOT pad the field to a power of two (deliberately, per
-// product decision) - buildDoubleElimBracket's existing odd-count/bye
-// handling is unchanged, so an irregular entrant count can still produce a
-// bye in a round after the first exactly as it does for the original
-// format. Without power-of-two padding there's no formal mathematical
-// guarantee of zero rematches before the final (that guarantee normally
-// relies on a fully seeded power-of-two draw) - this is a best-effort
-// application of standard mirroring topology on top of the existing
-// irregular-bracket shape, and meaningfully reduces (in most draws,
-// eliminates) early rematches compared to the sequential-adjacent wiring
-// above.
-//
-// Late-entrant mid-tournament bracket rebuild (see rebuildDoubleElimFromRound1
-// and addLateEntrant below) is NOT supported for this format - it remains
-// exclusive to 'knockout_double_elim'. That feature is unrelated to bracket
-// topology/rematch-avoidance and duplicating its ~300 lines of reroster/
-// rebuild logic was out of scope for this change.
-function generateTestingDoubleElimFixtures({ db, league, division, entrantIds }) {
-  const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
-  const reservedCount = reservedByeCountFor(entrantIds.length);
-  const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
-
-  // ---- Winners bracket ---- (identical to generateDoubleElimFixtures)
-  const wbByRound = winnersRounds.map((pairs, roundIndex) =>
-    pairs.map(() => {
-      const f = makeFixture({ league, division, round: roundIndex + 1 });
-      f.bracketRole = 'winners';
-      return f;
-    })
-  );
-  for (let round = 0; round < wbByRound.length - 1; round++) {
-    const thisRound = wbByRound[round];
-    const nextRound = wbByRound[round + 1];
-    thisRound.forEach((fixture, i) => {
-      const next = nextRound[Math.floor(i / 2)];
-      fixture.nextFixtureId = next.id;
-      fixture.nextFixtureSlot = i % 2 === 0 ? 'home' : 'away';
-    });
-    if (thisRound.length % 2 === 1) {
-      nextRound[nextRound.length - 1].byeSlot = 'away';
-    }
-  }
-  winnersRounds[0].forEach(([a, b], i) => {
-    const fixture = wbByRound[0][i];
-    const isReserved = b === RESERVED_SLOT;
-    const awayValue = isReserved ? null : b;
-    if (b === null || isReserved) fixture.byeSlot = 'away';
-    if (isReserved) fixture.reserved = true;
-    if (division.entryType === 'teams') {
-      fixture.homeTeamId = a;
-      fixture.awayTeamId = awayValue;
-    } else {
-      fixture.homePlayerId = a;
-      fixture.awayPlayerId = awayValue;
-    }
-  });
-
-  // ---- Losers bracket ----
-  const lbByRound = losersRounds.map((round, roundIndex) =>
-    Array.from({ length: round.boxCount }, () => {
-      const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
-      f.bracketRole = 'losers';
-      return f;
-    })
-  );
-  losersRounds.forEach((round, i) => {
-    if (round.hasBye) lbByRound[i][lbByRound[i].length - 1].byeSlot = 'away';
-  });
-  // Link each losers-bracket round's winner forward to the next LB round.
-  // MIRRORED vs generateDoubleElimFixtures: on a pure-consolidation round
-  // (existing survivors playing each other, no fresh winners-bracket
-  // losers arriving), pair box i's winner against box (count-1-i)'s winner
-  // - opposite ends of the round - instead of adjacent boxes i/i+1. Merge
-  // rounds (1:1 against a fresh loser, wired below) are unaffected here.
-  for (let round = 0; round < lbByRound.length - 1; round++) {
-    const current = lbByRound[round];
-    const next = lbByRound[round + 1];
-    const nextIsMergeRound = losersRounds[round + 1].feedsFromWinnersRound !== null;
-    if (nextIsMergeRound) {
-      current.forEach((fixture, i) => {
-        fixture.nextFixtureId = next[i].id;
-        fixture.nextFixtureSlot = 'home';
-      });
-    } else {
-      const n = current.length;
-      const pairCount = Math.floor(n / 2);
-      for (let p = 0; p < pairCount; p++) {
-        const home = current[p];
-        const away = current[n - 1 - p];
-        const target = next[p];
-        home.nextFixtureId = target.id;
-        home.nextFixtureSlot = 'home';
-        away.nextFixtureId = target.id;
-        away.nextFixtureSlot = 'away';
-      }
-      if (n % 2 === 1) {
-        // Structural bye box - the one leftover survivor advances alone.
-        const mid = current[pairCount];
-        const target = next[pairCount];
-        mid.nextFixtureId = target.id;
-        mid.nextFixtureSlot = 'home';
-      }
-    }
-  }
-  // Wire each winners round's losers into their losers-bracket destination.
-  // MIRRORED vs generateDoubleElimFixtures in all three sub-cases below.
-  losersRounds.forEach((lbRound, lbRoundIndex) => {
-    if (lbRound.feedsFromWinnersRound === null) return;
-    const wbSourceFixtures = wbByRound[lbRound.feedsFromWinnersRound].filter((f) => !f.byeSlot);
-    const lbDestFixtures = lbByRound[lbRoundIndex];
-    const n = wbSourceFixtures.length;
-
-    if (lbRoundIndex === 0) {
-      // Entry round - outside-in mirror pairing (0 vs last, 1 vs
-      // second-last, ...) instead of adjacent pairing (0 vs 1, 2 vs 3, ...),
-      // so winners-round losers who were structurally close in the
-      // original draw are pushed as far apart as possible in the losers
-      // bracket.
-      const pairCount = Math.floor(n / 2);
-      for (let p = 0; p < pairCount; p++) {
-        const home = wbSourceFixtures[p];
-        const away = wbSourceFixtures[n - 1 - p];
-        const dest = lbDestFixtures[p];
-        home.loserNextFixtureId = dest.id;
-        home.loserNextFixtureSlot = 'home';
-        away.loserNextFixtureId = dest.id;
-        away.loserNextFixtureSlot = 'away';
-      }
-      if (n % 2 === 1) {
-        const mid = wbSourceFixtures[pairCount];
-        const dest = lbDestFixtures[pairCount];
-        mid.loserNextFixtureId = dest.id;
-        mid.loserNextFixtureSlot = 'home';
-      }
-    } else {
-      // Cross-match portion - REVERSED vs generateDoubleElimFixtures: the
-      // i-th fresh loser fills the away slot of box (crossMatches-1-i)
-      // instead of box i, so a fresh loser is matched against the survivor
-      // structurally furthest from it rather than the one that happens to
-      // share its array index.
-      const crossN = lbRound.crossMatches;
-      for (let i = 0; i < crossN; i++) {
-        const fixture = wbSourceFixtures[i];
-        const dest = lbDestFixtures[crossN - 1 - i];
-        fixture.loserNextFixtureId = dest.id;
-        fixture.loserNextFixtureSlot = 'away';
-      }
-      // Leftover portion - not enough waiting survivors to pair against
-      // every new loser; the leftover new losers pair off among
-      // themselves. Mirrored the same way as the entry round above,
-      // instead of adjacent pairing.
-      const leftoverCount = n - crossN;
-      const leftoverPairCount = Math.floor(leftoverCount / 2);
-      for (let p = 0; p < leftoverPairCount; p++) {
-        const home = wbSourceFixtures[crossN + p];
-        const away = wbSourceFixtures[crossN + leftoverCount - 1 - p];
-        const dest = lbDestFixtures[crossN + p];
-        home.loserNextFixtureId = dest.id;
-        home.loserNextFixtureSlot = 'home';
-        away.loserNextFixtureId = dest.id;
-        away.loserNextFixtureSlot = 'away';
-      }
-      if (leftoverCount % 2 === 1) {
-        const mid = wbSourceFixtures[crossN + leftoverPairCount];
-        const dest = lbDestFixtures[crossN + leftoverPairCount];
-        mid.loserNextFixtureId = dest.id;
-        mid.loserNextFixtureSlot = 'home';
-      }
-    }
-  });
-
-  // ---- Grand Final ---- (identical to generateDoubleElimFixtures)
-  const wbFinal = wbByRound[wbByRound.length - 1][0];
-  const lbFinal = lbByRound[lbByRound.length - 1][0];
-  const grandFinal = makeFixture({ league, division, round: wbByRound.length + lbByRound.length + 1 });
-  grandFinal.bracketRole = 'grand_final';
-  wbFinal.nextFixtureId = grandFinal.id;
-  wbFinal.nextFixtureSlot = 'home';
-  lbFinal.nextFixtureId = grandFinal.id;
-  lbFinal.nextFixtureSlot = 'away';
-
-  const allFixtures = [...wbByRound.flat(), ...lbByRound.flat(), grandFinal];
-  allFixtures.forEach((f) => db.fixtures.push(f));
-  wbByRound[0].forEach((fixture) => resolveByeIfNeeded(db, division, fixture));
-}
-
 // ---- "Adaptive Double Elimination Knockout" (ADEK) ----
 // (division.scheduling === ADEK)
 //
@@ -4535,11 +4175,10 @@ function generateAdaptiveDoubleElimFixtures({ db, league, division, entrantIds }
 // derivation every double-elim format here already uses, exposed as its
 // own inspectable template. On top of that shape, this uses the single
 // most effective losers-bracket wiring technique already proven in this
-// codebase - the same outside-in "mirrored" topology as
-// generateTestingDoubleElimFixtures (mirrors structurally-close dropouts
-// to opposite ends of the next round instead of pairing neighbours) - plus
-// the full reactive rematch/bye-fairness safety net every double-elim
-// format here shares (avoidRematchOnPlacement's multi-hop chain search,
+// codebase - outside-in "mirrored" topology (mirrors structurally-close
+// dropouts to opposite ends of the next round instead of pairing
+// neighbours) - plus the full reactive rematch/bye-fairness safety net
+// every double-elim format here shares (avoidRematchOnPlacement's multi-hop chain search,
 // avoidRepeatByeOnPlacement), which applies automatically to any fixture
 // with bracketRole 'winners'/'losers' via propagateWinner/propagateLoser,
 // regardless of scheduling type - nothing PCDEK-specific needed there.
@@ -4551,17 +4190,18 @@ function generateAdaptiveDoubleElimFixtures({ db, league, division, entrantIds }
 // double-elim format in this codebase - cannot guarantee it in every
 // branch. Do not present this format to users as a hard guarantee.
 //
-// Identical to generateTestingDoubleElimFixtures in every other respect
+// Otherwise identical to generateDoubleElimFixtures in every other respect
 // (reserved-bye handling, Grand Final wiring, no power-of-two padding).
 // Late-entrant mid-tournament bracket rebuild is NOT supported for this
-// format either, for the same reason as Ally Knockout/Testing Double
-// Elimination - see the dedicated generator functions' own comments.
+// format - it remains exclusive to 'knockout_double_elim'. That feature is
+// unrelated to bracket topology/rematch-avoidance and duplicating its
+// ~300 lines of reroster/rebuild logic was out of scope for this change.
 function generatePCDEKFixtures({ db, league, division, entrantIds }) {
   const makeFixture = division.entryType === 'teams' ? makeTeamFixture : makeSinglesFixture;
   const reservedCount = reservedByeCountFor(entrantIds.length);
   const { winnersRounds, losersRounds } = buildDoubleElimBracket(entrantIds, { reservedCount });
 
-  // ---- Winners bracket ---- (identical to generateTestingDoubleElimFixtures)
+  // ---- Winners bracket ---- (identical to generateDoubleElimFixtures)
   const wbByRound = winnersRounds.map((pairs, roundIndex) =>
     pairs.map(() => {
       const f = makeFixture({ league, division, round: roundIndex + 1 });
@@ -4596,9 +4236,9 @@ function generatePCDEKFixtures({ db, league, division, entrantIds }) {
     }
   });
 
-  // ---- Losers bracket ---- (mirrored topology, identical to
-  // generateTestingDoubleElimFixtures - see that function's own comments
-  // for why outside-in mirroring beats sequential/adjacent pairing)
+  // ---- Losers bracket ---- (mirrored topology - see the comment above
+  // this function for why outside-in mirroring beats sequential/adjacent
+  // pairing)
   const lbByRound = losersRounds.map((round, roundIndex) =>
     Array.from({ length: round.boxCount }, () => {
       const f = makeFixture({ league, division, round: wbByRound.length + roundIndex + 1 });
@@ -4969,14 +4609,13 @@ app.post('/api/divisions/:id/late-entrants', requireAnyAdmin, asyncRoute((req, r
   assertLeagueAccess(req, league);
 
   if (division.scheduling !== 'knockout_double_elim') {
-    // Ally Knockout (knockout_double_elim_ally), Testing Double Elimination
-    // (knockout_double_elim_test) and Pre Configured Double Elimination
-    // Knockout (knockout_double_elim_pcdek) deliberately aren't supported
-    // here yet - the rebuild below (rebuildDoubleElimFromRound1) is written
-    // directly against this format's own bracket-shape assumptions;
-    // extending it to the others too is a real follow-up task, not
-    // something safe to silently alias.
-    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions (not yet supported for Ally Knockout, Testing Double Elimination, or Pre Configured Double Elimination Knockout)');
+    // Pre Configured Double Elimination Knockout (knockout_double_elim_pcdek)
+    // and Adaptive Double Elimination Knockout (ADEK) deliberately aren't
+    // supported here yet - the rebuild below (rebuildDoubleElimFromRound1)
+    // is written directly against this format's own bracket-shape
+    // assumptions; extending it to the others too is a real follow-up task,
+    // not something safe to silently alias.
+    throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for double-elimination knockout divisions');
   }
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Adding a late entrant and rebuilding the bracket is currently only available for singles divisions');
@@ -5262,22 +4901,6 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
       );
     }
     generateDoubleElimFixtures({ db, league, division, entrantIds });
-  } else if (division.scheduling === 'knockout_double_elim_ally') {
-    if (entrantIds.length < 4) {
-      throw new ApiError(
-        400,
-        `Ally Knockout needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
-      );
-    }
-    generateAllyDoubleElimFixtures({ db, league, division, entrantIds });
-  } else if (division.scheduling === 'knockout_double_elim_test') {
-    if (entrantIds.length < 4) {
-      throw new ApiError(
-        400,
-        `Double elimination needs at least 4 ${entrantLabel} - you have ${entrantIds.length}.`
-      );
-    }
-    generateTestingDoubleElimFixtures({ db, league, division, entrantIds });
   } else if (division.scheduling === 'knockout_double_elim_pcdek') {
     if (entrantIds.length < 4) {
       throw new ApiError(

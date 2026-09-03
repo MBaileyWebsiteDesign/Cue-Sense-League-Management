@@ -85,7 +85,7 @@ export default function PublicDivisionBracket() {
         // ADEK has no fixture-to-fixture wiring to draw - see
         // AdaptiveBracketChart's header comment.
         <AdaptiveBracketChart matches={data.matches} />
-      ) : data.scheduling === 'knockout_double_elim' || data.scheduling === 'knockout_double_elim_ally' || data.scheduling === 'knockout_double_elim_test' || data.scheduling === 'knockout_double_elim_pcdek' ? (
+      ) : data.scheduling === 'knockout_double_elim' || data.scheduling === 'knockout_double_elim_pcdek' ? (
         <DoubleElimBracketChart matches={data.matches} />
       ) : (
         <BracketChart matches={data.matches} totalRounds={data.totalRounds} />
