@@ -611,12 +611,13 @@ export default function LeagueDetail() {
   const [showForm, setShowForm] = useState(false);
 
   const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
+  const isFreePlay = scheduling === 'free_play';
 
   const onSchedulingChange = (value) => {
     setScheduling(value);
-    // No fixed sides in a free-for-all game - see the KILLER_TYPES comment
-    // in server/src/index.js.
-    if (value === 'killer_classic' || value === 'cards_killer') setEntryType('singles');
+    // No fixed sides in a free-for-all/2-player game - see the
+    // KILLER_TYPES/FREE_PLAY comments in server/src/index.js.
+    if (value === 'killer_classic' || value === 'cards_killer' || value === 'free_play') setEntryType('singles');
   };
 
   useSetBreadcrumbs(
@@ -637,8 +638,10 @@ export default function LeagueDetail() {
     setError('');
     // Killer Classic/Cards Killer have no per-match frame race - Match
     // format/Race to are skipped entirely and startingLives is sent instead.
+    // Free Play has no frame count target at all, so Match format/Race to
+    // are skipped there too and nothing replaces them.
     let raceTo;
-    if (!isKiller) {
+    if (!isKiller && !isFreePlay) {
       const numericFormatValue = Number(formatValue);
       if (formatMode === 'bestOf') {
         if (!Number.isInteger(numericFormatValue) || numericFormatValue < 1 || numericFormatValue % 2 === 0) {
@@ -711,9 +714,11 @@ export default function LeagueDetail() {
           </label>
           <label>
             Entry type
-            <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller}>
+            <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller || isFreePlay}>
               {isKiller ? (
                 <option value="singles">Singles (one player at a time, everyone in the game together)</option>
+              ) : isFreePlay ? (
+                <option value="singles">Singles (one player vs one player)</option>
               ) : (
                 <>
                   <option value="singles">Singles (one player vs one player)</option>
@@ -727,8 +732,13 @@ export default function LeagueDetail() {
                 Killer Classic/Cards Killer are free-for-all games with no fixed sides, so this is locked to Singles.
               </span>
             )}
+            {isFreePlay && (
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                Free Play is a 2-player game, so this is locked to Singles.
+              </span>
+            )}
           </label>
-          {entryType === 'teams' && !isKiller && (
+          {entryType === 'teams' && !isKiller && !isFreePlay && (
             <label>
               Legs per match
               <input
@@ -740,7 +750,7 @@ export default function LeagueDetail() {
               />
             </label>
           )}
-          {entryType === 'doubles' && !isKiller && (
+          {entryType === 'doubles' && !isKiller && !isFreePlay && (
             <label>
               Players per pairing
               <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
@@ -762,6 +772,7 @@ export default function LeagueDetail() {
               <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
               <option value="killer_classic">Killer Classic (Players play in order)</option>
               <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
+              <option value="free_play">Free Play (2 player free style, no frame count target)</option>
             </select>
           </label>
           {isKiller ? (
@@ -780,6 +791,11 @@ export default function LeagueDetail() {
                 so Match format/Race to don't apply.
               </span>
             </label>
+          ) : isFreePlay ? (
+            <p className="muted" style={{ fontSize: '0.8rem' }}>
+              Free Play has no frame count target, so Match format/Race to don't apply - frames are still recorded
+              one at a time, and either player can finish the match themselves whenever the scores aren't level.
+            </p>
           ) : (
             <>
               <label>
@@ -867,9 +883,11 @@ export default function LeagueDetail() {
                             ? 'Killer Classic'
                             : division.scheduling === 'cards_killer'
                               ? 'Cards Killer'
-                              : division.scheduling === 'round_robin_double'
-                                ? 'Round Robin - Double'
-                                : 'Round Robin - Single'}
+                              : division.scheduling === 'free_play'
+                                ? 'Free Play'
+                                : division.scheduling === 'round_robin_double'
+                                  ? 'Round Robin - Double'
+                                  : 'Round Robin - Single'}
               {' · '}
               {division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer'
                 ? (division.killer?.status === 'finished' ? 'game finished' : division.killer?.status === 'in_progress' ? 'game in progress' : 'not started')

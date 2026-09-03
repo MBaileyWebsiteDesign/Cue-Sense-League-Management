@@ -375,6 +375,9 @@ export default function PlayerPortal() {
       </div>
 
       <MyFixtures />
+      <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+        <Link className="btn btn-primary" to="/adhoc-game/new">+ Ad Hoc Game</Link>
+      </div>
       <MyLeaguesAndDivisions leagues={leagues} />
       <MySubmissions />
 

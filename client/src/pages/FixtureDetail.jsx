@@ -459,7 +459,14 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   // or disputed - only "Submit for Confirmation" / Confirm / Dispute /
   // Reopen apply from that point on, not more frames.
   const locked = complete || fixture.status === 'pending_confirmation' || fixture.status === 'disputed';
-  const raceTargetReached = fixture.status === 'in_progress' && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo);
+  // fixture.raceTo is null for Free Play (no frame count target) - there's
+  // no target to "reach", so that match instead becomes finishable the
+  // moment it's in progress and the scores aren't level (see
+  // freePlayReadyToFinish below).
+  const isFreePlay = fixture.raceTo == null;
+  const raceTargetReached = !isFreePlay && fixture.status === 'in_progress' && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo);
+  const freePlayInProgress = isFreePlay && fixture.status === 'in_progress';
+  const freePlayReadyToFinish = freePlayInProgress && fixture.homeFrameScore !== fixture.awayFrameScore;
   const homeEntrant = isDoubles ? fixture.homePairing : fixture.homePlayer;
   const awayEntrant = isDoubles ? fixture.awayPairing : fixture.awayPlayer;
   const amHomeEntrant = isDoubles
@@ -558,6 +565,24 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
             Submit for Confirmation
           </button>
+        </p>
+      )}
+
+      {freePlayReadyToFinish && (
+        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+          {fixture.homeFrameScore > fixture.awayFrameScore ? homeEntrant.name : awayEntrant.name} is ahead
+          ({fixture.homeFrameScore}-{fixture.awayFrameScore}). Free Play has no frame count target - finish the
+          match whenever you're ready, no need to wait for the other side to confirm.{' '}
+          <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
+            Finish Match
+          </button>
+        </p>
+      )}
+
+      {freePlayInProgress && !freePlayReadyToFinish && (
+        <p className="muted">
+          Scores are level ({fixture.homeFrameScore}-{fixture.awayFrameScore}) - play another frame before
+          finishing this Free Play match.
         </p>
       )}
 
@@ -794,7 +819,7 @@ export default function FixtureDetail() {
   return (
     <div>
       <p><Link to={`/divisions/${fixture.divisionId}`}>&larr; Back to division</Link></p>
-      <h1>{roundLabel(fixture)}{isTeams ? ` · Best of ${fixture.legs.length} legs` : ` · Race to ${fixture.raceTo}`}</h1>
+      <h1>{roundLabel(fixture)}{isTeams ? ` · Best of ${fixture.legs.length} legs` : fixture.raceTo == null ? ' · Free Play' : ` · Race to ${fixture.raceTo}`}</h1>
       {isAdminSession && <StreamOverlayLink fixtureId={fixture.id} />}
       {error && <p className="error">{error}</p>}
 

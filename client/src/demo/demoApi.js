@@ -41,7 +41,14 @@ function reservedByeCountFor(entrantCount) {
 // moment "Generate Fixtures" is clicked. Killer Classic/Cards Killer ARE
 // fully ported (see logic/killer.js and the killer start/shot/undo/reset
 // methods below), so they're included.
-const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', ...KILLER_TYPES];
+// Free Play ('free_play') - a 2-player free-style singles game with no
+// race-to-frames target. Unlike Killer, it needs no dedicated logic module:
+// it reuses the plain round-robin fixture engine (falls into the default,
+// non-knockout branch below, same as round_robin_single) and frames are
+// still recorded one at a time - see the FREE_PLAY comment in
+// server/src/index.js for the full rationale, mirrored here.
+const FREE_PLAY = 'free_play';
+const SCHEDULING_TYPES = ['round_robin_single', 'round_robin_double', 'knockout_single_elim', 'knockout_double_elim', 'knockout_double_elim_ally', FREE_PLAY, ...KILLER_TYPES];
 const DB_KEY = 'poolLeagueDemoDb';
 const CURRENT_USER_KEY = 'poolLeagueDemoCurrentUserId';
 
@@ -2148,10 +2155,14 @@ export const demoApi = {
   // manage, same as the real server enforces.
   getLeagues: op(() => {
     const user = currentUser();
-    if (user && user.isLeagueManager && !user.isAdmin) {
-      return db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id));
-    }
-    return db.leagues;
+    let leagues = (user && user.isLeagueManager && !user.isAdmin)
+      ? db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id))
+      : db.leagues;
+    // The shared, hidden "Ad Hoc Games" league (see createAdHocGame below) is
+    // filtered out of the general listing the same way the real server does -
+    // see server/src/index.js's GET /api/leagues.
+    if (!user || !user.isAdmin) leagues = leagues.filter((l) => !l.isAdHocPool);
+    return leagues;
   }),
 
   createLeague: op((data) => {
@@ -2323,7 +2334,8 @@ export const demoApi = {
     if (!league) throw new ApiError(404, 'League not found');
     const scheduling = data.scheduling || league.format.scheduling || 'round_robin_single';
     const isKiller = KILLER_TYPES.includes(scheduling);
-    if (isKiller) entryType = 'singles';
+    const isFreePlay = scheduling === FREE_PLAY;
+    if (isKiller || isFreePlay) entryType = 'singles';
     if (!name || !name.trim()) throw new ApiError(400, 'Division name is required');
     if (!['singles', 'teams', 'doubles'].includes(entryType)) {
       throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
@@ -2335,7 +2347,7 @@ export const demoApi = {
     if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
       throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
     }
-    if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+    if (!isKiller && !isFreePlay && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
       throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
     }
     if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
@@ -2343,7 +2355,7 @@ export const demoApi = {
     }
     const division = {
       id: uuid(), leagueId: league.id, name: name.trim(), order, entryType, scheduling,
-      raceTo: isKiller ? null : Number(raceTo),
+      raceTo: (isKiller || isFreePlay) ? null : Number(raceTo),
       startingLives: isKiller ? Number(startingLives) : null,
       killer: null,
       playerIds: [], teamIds: [], pairingIds: [],
@@ -2358,6 +2370,66 @@ export const demoApi = {
       completedAt: null,
       completedBy: null,
       isOpen: !!data.isOpen,
+    };
+    db.divisions.push(division);
+    return division;
+  }),
+
+  // Mirrors server/src/index.js's getOrCreateAdHocLeague + POST
+  // /api/adhoc-games: finds (or lazily creates) the single hidden system
+  // league every player-initiated Ad Hoc Game's division lives under, then
+  // creates the division under it. See client/src/pages/AdHocGame.jsx.
+  createAdHocGame: op((data) => {
+    let league = db.leagues.find((l) => l.isAdHocPool);
+    if (!league) {
+      league = {
+        id: uuid(), name: 'Ad Hoc Games', sport: 'English 8-Ball Pool',
+        format: { scheduling: 'round_robin_single' },
+        startDate: null, endDate: null, createdAt: new Date().toISOString(),
+        tables: [], payment: normalizePaymentConfig(undefined),
+        managerUserIds: [], isOpenForRegistration: false, isAdHocPool: true,
+      };
+      db.leagues.push(league);
+    }
+    const { name, legsPerMatch = 5, pairingSize = 2, raceTo = 6, startingLives = 3 } = data;
+    let { entryType = 'singles', scheduling = 'round_robin_single' } = data;
+    const isKiller = KILLER_TYPES.includes(scheduling);
+    const isFreePlay = scheduling === FREE_PLAY;
+    if (isKiller || isFreePlay) entryType = 'singles';
+    if (!name || !name.trim()) throw new ApiError(400, 'Game name is required');
+    if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+      throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+    }
+    if (!SCHEDULING_TYPES.includes(scheduling)) throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
+    if (entryType === 'teams' && (!Number.isInteger(Number(legsPerMatch)) || Number(legsPerMatch) < 1)) {
+      throw new ApiError(400, 'legsPerMatch must be a positive whole number');
+    }
+    if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
+      throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
+    }
+    if (!isKiller && !isFreePlay && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+      throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+    }
+    if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+      throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
+    }
+    const division = {
+      id: uuid(), leagueId: league.id, name: name.trim(),
+      order: db.divisions.filter((d) => d.leagueId === league.id).length,
+      entryType, scheduling,
+      raceTo: (isKiller || isFreePlay) ? null : Number(raceTo),
+      startingLives: isKiller ? Number(startingLives) : null,
+      killer: null,
+      playerIds: [], teamIds: [], pairingIds: [],
+      legsPerMatch: entryType === 'teams' ? Number(legsPerMatch) : null,
+      pairingSize: entryType === 'doubles' ? Number(pairingSize) : null,
+      gapDays: null, fixturesGenerated: false,
+      visibleRounds: [],
+      status: 'active',
+      completedAt: null,
+      completedBy: null,
+      isOpen: false,
+      createdByUserId: currentUser()?.id || null,
     };
     db.divisions.push(division);
     return division;
@@ -2380,12 +2452,13 @@ export const demoApi = {
     } = data || {};
     let { entryType = division.entryType } = data || {};
     const isKiller = KILLER_TYPES.includes(scheduling);
-    if (isKiller) entryType = 'singles';
+    const isFreePlay = scheduling === FREE_PLAY;
+    if (isKiller || isFreePlay) entryType = 'singles';
     if (!['singles', 'teams', 'doubles'].includes(entryType)) {
       throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
     }
     if (!SCHEDULING_TYPES.includes(scheduling)) throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
-    if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+    if (!isKiller && !isFreePlay && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
       throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
     }
     if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
@@ -2407,7 +2480,7 @@ export const demoApi = {
     }
     division.entryType = entryType;
     division.scheduling = scheduling;
-    division.raceTo = isKiller ? null : Number(raceTo);
+    division.raceTo = (isKiller || isFreePlay) ? null : Number(raceTo);
     division.startingLives = isKiller ? Number(startingLives) : null;
     division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
     division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
@@ -3472,7 +3545,9 @@ export const demoApi = {
     if (![fixture.homePlayerId, fixture.awayPlayerId].includes(winnerPlayerId)) {
       throw new ApiError(400, 'winnerPlayerId must be one of the two players in this fixture');
     }
-    if (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo) {
+    // fixture.raceTo is null for Free Play (no frame count target) - skip
+    // this check entirely, same as the server route.
+    if (fixture.raceTo != null && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo)) {
       throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
     }
     fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId });
@@ -3520,6 +3595,27 @@ export const demoApi = {
     }
     if (division.entryType === 'teams') throw new ApiError(400, 'This is a team fixture - submit each leg individually');
     if (fixture.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress match can be submitted for confirmation');
+
+    // Free Play has no race target - either player can finish the match
+    // themselves the moment the scores aren't level, and it completes right
+    // away rather than waiting on the other side to also confirm.
+    if (division.scheduling === FREE_PLAY) {
+      if (fixture.homeFrameScore === fixture.awayFrameScore) {
+        throw new ApiError(400, 'Scores are level - record another frame before finishing this Free Play match');
+      }
+      fixture.winnerPlayerId = fixture.homeFrameScore > fixture.awayFrameScore ? fixture.homePlayerId : fixture.awayPlayerId;
+      fixture.status = 'completed';
+      fixture.homeConfirmed = true;
+      fixture.awayConfirmed = true;
+      fixture.resultSubmittedAt = new Date().toISOString();
+      fixture.resultSubmittedBy = currentUser()?.id || null;
+      propagateWinner(division, fixture, fixture.winnerPlayerId);
+      const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+      propagateLoser(division, fixture, loserPlayerId);
+      checkGrandFinalReset(division, fixture);
+      return fixture;
+    }
+
     if (fixture.homeFrameScore < fixture.raceTo && fixture.awayFrameScore < fixture.raceTo) {
       throw new ApiError(400, `Neither side has reached the race target (${fixture.raceTo}) yet`);
     }
