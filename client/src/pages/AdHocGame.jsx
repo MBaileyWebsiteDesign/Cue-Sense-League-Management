@@ -141,8 +141,6 @@ function GameSetupForm({ onCreated }) {
           <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
           <option value="knockout_single_elim">Knockout (single elimination)</option>
           <option value="knockout_double_elim">Knockout (double elimination)</option>
-          <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
-          <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
           <option value="killer_classic">Killer Classic (Players play in order)</option>
           <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
           <option value="free_play">Free Play (2 player free style, no frame count target)</option>
