@@ -48,6 +48,7 @@ const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
 const Help = lazy(() => import('./pages/Help.jsx'));
 const Guides = lazy(() => import('./pages/Guides.jsx'));
+const AdHocGame = lazy(() => import('./pages/AdHocGame.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
 // combination of admin/captain/plain-player flags it has) can browse. There
@@ -239,6 +240,7 @@ function AppShell() {
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
+            <Route path="/adhoc-game/new" element={<RequireLogin><AdHocGame /></RequireLogin>} />
             <Route path="/open-leagues" element={<RequireLogin><OpenLeagues /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />

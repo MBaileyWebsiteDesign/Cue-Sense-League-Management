@@ -172,6 +172,11 @@ const networkApi = {
 
   createDivision: (leagueId, data) =>
     request(`/leagues/${leagueId}/divisions`, { method: 'POST', body: JSON.stringify(data) }),
+  // Player-initiated one-off game (client/src/pages/AdHocGame.jsx) - same
+  // shape as createDivision's data, but with no leagueId: the server creates
+  // it under the shared, hidden "Ad Hoc Games" league. See
+  // server/src/index.js's POST /api/adhoc-games.
+  createAdHocGame: (data) => request('/adhoc-games', { method: 'POST', body: JSON.stringify(data) }),
   getDivision: (id) => request(`/divisions/${id}`),
   // NQT: open divisions browse + join requests.
   getOpenDivisions: () => request('/open-divisions'),
