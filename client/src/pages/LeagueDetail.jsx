@@ -766,7 +766,6 @@ export default function LeagueDetail() {
               <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
               <option value="knockout_single_elim">Knockout (single elimination)</option>
               <option value="knockout_double_elim">Knockout (double elimination)</option>
-              <option value="knockout_double_elim_ally">Ally Knockout (double elimination)</option>
               <option value="knockout_double_elim_test">Testing Double Elimination (mirrored losers-bracket routing)</option>
               <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
               <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
