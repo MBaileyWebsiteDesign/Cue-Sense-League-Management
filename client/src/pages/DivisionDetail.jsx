@@ -12,9 +12,9 @@ function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_double_elim') return 'Generate Fixtures (double-elimination knockout)';
   if (division.scheduling === 'knockout_double_elim_pcdek') return 'Generate Fixtures (Pre Configured Double Elimination Knockout)';
   if (division.scheduling === 'knockout_double_elim_adek') return 'Generate Fixtures (Adaptive Double Elimination Knockout - round 1 only)';
-  if (division.scheduling === 'round_robin_double') return 'Generate Fixtures (Round Robin - Double, home and away)';
+  if (division.scheduling === 'round_robin_double') return 'Generate Fixtures (Standard League - Double Leg, home and away)';
   if (division.scheduling === 'free_play') return 'Generate Fixtures (Free Play, no frame count target)';
-  return 'Generate Fixtures (Round Robin - Single, play each other once)';
+  return 'Generate Fixtures (Standard League - Single Leg, play each other once)';
 }
 
 // How many entrants are currently registered, read off whichever roster
@@ -213,8 +213,8 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
       <label>
         Format
         <select value={scheduling} onChange={(e) => onSchedulingChange(e.target.value)}>
-          <option value="round_robin_single">Round Robin - Single (everyone plays each other once)</option>
-          <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
+          <option value="round_robin_single">Standard League - Single Leg (Everyone plays each other once)</option>
+          <option value="round_robin_double">Standard League - Double Leg (Everyone plays each other twice, home and away)</option>
           <option value="knockout_single_elim">Knockout (single elimination)</option>
           <option value="knockout_double_elim">Knockout (double elimination)</option>
           <option value="killer_classic">Killer Classic (Players play in order)</option>

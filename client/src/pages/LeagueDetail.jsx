@@ -762,8 +762,8 @@ export default function LeagueDetail() {
           <label>
             Format
             <select value={scheduling} onChange={(e) => onSchedulingChange(e.target.value)}>
-              <option value="round_robin_single">Round Robin - Single (everyone plays each other once)</option>
-              <option value="round_robin_double">Round Robin - Double (everyone plays each other twice, home and away)</option>
+              <option value="round_robin_single">Standard League - Single Leg (Everyone plays each other once)</option>
+              <option value="round_robin_double">Standard League - Double Leg (Everyone plays each other twice, home and away)</option>
               <option value="knockout_single_elim">Knockout (single elimination)</option>
               <option value="knockout_double_elim">Knockout (double elimination)</option>
               <option value="killer_classic">Killer Classic (Players play in order)</option>
@@ -878,8 +878,8 @@ export default function LeagueDetail() {
                           : division.scheduling === 'free_play'
                             ? 'Free Play'
                             : division.scheduling === 'round_robin_double'
-                              ? 'Round Robin - Double'
-                              : 'Round Robin - Single'}
+                              ? 'Standard League - Double Leg'
+                              : 'Standard League - Single Leg'}
               {' · '}
               {division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer'
                 ? (division.killer?.status === 'finished' ? 'game finished' : division.killer?.status === 'in_progress' ? 'game in progress' : 'not started')
