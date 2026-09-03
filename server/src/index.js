@@ -516,9 +516,18 @@ app.get('/api/leagues', requireAuth, asyncRoute((req, res) => {
   // already filtered client-side. Every other account type (admin, player,
   // captain, unflagged) still sees every league, same as before - this is
   // a public-ish directory for everyone except a scoped League Manager.
-  const leagues = (user.isLeagueManager && !user.isAdmin)
+  let leagues = (user.isLeagueManager && !user.isAdmin)
     ? db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id))
     : db.leagues;
+  // The single system "Ad Hoc Games" league (see POST /api/adhoc-games,
+  // further down) isn't a real league anyone browses to - it only ever
+  // surfaces via "My Leagues & Divisions" on a participant's own account, or
+  // a direct link to one of its divisions. Filtered out of this general
+  // listing for everyone except an Overall Admin (who can still find it here
+  // to keep an eye on/clean up ad hoc games) - this is the one place that
+  // listing goes through, so every client picker built on GET /api/leagues
+  // (home page, League Manager assignment, etc.) is covered automatically.
+  if (!user.isAdmin) leagues = leagues.filter((l) => !l.isAdHocPool);
   res.json(leagues);
 }));
 
@@ -941,6 +950,111 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
     // POST /api/divisions/:id/join-requests and the /api/join-requests/:id
     // approve/reject routes further down.
     isOpen: !!req.body.isOpen,
+  };
+  db.divisions.push(division);
+  writeDb(db);
+  res.status(201).json(division);
+}));
+
+// Finds (or lazily creates, on first use) the single system-owned league
+// every player-initiated Ad Hoc Game's division lives under - see POST
+// /api/adhoc-games just below. Reusing one shared hidden league rather than
+// minting a brand new League record per ad hoc game means each one gets the
+// full Division/fixture engine (standings, roll of honour, the division
+// detail page) for free, without a `db.leagues` row per one-off game and
+// without ever showing up in the normal league list (see GET /api/leagues'
+// isAdHocPool filter above). Doesn't call writeDb itself - like the rest of
+// this file's helpers, the caller persists once at the end of its own
+// request handling.
+function getOrCreateAdHocLeague(db) {
+  const existing = db.leagues.find((l) => l.isAdHocPool);
+  if (existing) return existing;
+  const league = {
+    id: uuid(),
+    name: 'Ad Hoc Games',
+    sport: 'English 8-Ball Pool',
+    format: { scheduling: 'round_robin_single' },
+    startDate: null,
+    endDate: null,
+    createdAt: new Date().toISOString(),
+    tables: [],
+    // No entry fee for a casual one-off game - see normalizePaymentConfig.
+    payment: normalizePaymentConfig(undefined),
+    managerUserIds: [],
+    isOpenForRegistration: false,
+    // Marks this as the one system-owned league ad hoc games live under -
+    // see GET /api/leagues and the comment above.
+    isAdHocPool: true,
+  };
+  db.leagues.push(league);
+  return league;
+}
+
+// Player-initiated one-off game (see PlayerPortal.jsx's "+ Ad Hoc Game"
+// button and client/src/pages/AdHocGame.jsx's two-step wizard): lets ANY
+// logged-in player spin up a division without League Manager/Admin access,
+// by creating one under the shared hidden "Ad Hoc Games" league instead of
+// a league they'd need manage access to. Deliberately requireAuth only -
+// this is the one place a division gets created without requireAnyAdmin.
+//
+// The validation below intentionally mirrors POST
+// /api/leagues/:leagueId/divisions above line-for-line rather than sharing
+// a helper, so a future change to the admin-facing route's behaviour can't
+// silently change this one (or vice versa) - the two are allowed to diverge
+// on purpose (e.g. if ad hoc games ever need their own limits).
+app.post('/api/adhoc-games', requireAuth, asyncRoute((req, res) => {
+  const { name, legsPerMatch = 5, pairingSize = 2, raceTo = 6, startingLives = 3 } = req.body;
+  let { entryType = 'singles', scheduling = 'round_robin_single' } = req.body;
+  const db = readDb();
+  const league = getOrCreateAdHocLeague(db);
+  const isKiller = KILLER_TYPES.includes(scheduling);
+  if (isKiller) entryType = 'singles'; // no fixed sides in a free-for-all game - see the KILLER_TYPES comment further up.
+
+  if (!name || !name.trim()) throw new ApiError(400, 'Game name is required');
+  if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+    throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+  }
+  if (!SCHEDULING_TYPES.includes(scheduling)) {
+    throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
+  }
+  if (entryType === 'teams' && (!Number.isInteger(Number(legsPerMatch)) || Number(legsPerMatch) < 1)) {
+    throw new ApiError(400, 'legsPerMatch must be a positive whole number');
+  }
+  if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
+    throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
+  }
+  if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+    throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+  }
+  if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+    throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
+  }
+
+  const division = {
+    id: uuid(),
+    leagueId: league.id,
+    name: name.trim(),
+    order: db.divisions.filter((d) => d.leagueId === league.id).length,
+    entryType,
+    scheduling,
+    raceTo: isKiller ? null : Number(raceTo),
+    startingLives: isKiller ? Number(startingLives) : null,
+    killer: null,
+    playerIds: [],
+    teamIds: [],
+    pairingIds: [],
+    legsPerMatch: entryType === 'teams' ? Number(legsPerMatch) : null,
+    pairingSize: entryType === 'doubles' ? Number(pairingSize) : null,
+    gapDays: null,
+    fixturesGenerated: false,
+    visibleRounds: [],
+    status: 'active',
+    completedAt: null,
+    completedBy: null,
+    isOpen: false,
+    // Who spun this one-off game up - not shown anywhere yet, but keeps the
+    // door open for a future "my ad hoc games" filter with no schema change.
+    createdByUserId: req.auth.userId,
   };
   db.divisions.push(division);
   writeDb(db);

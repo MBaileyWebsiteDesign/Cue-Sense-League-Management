@@ -2148,10 +2148,14 @@ export const demoApi = {
   // manage, same as the real server enforces.
   getLeagues: op(() => {
     const user = currentUser();
-    if (user && user.isLeagueManager && !user.isAdmin) {
-      return db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id));
-    }
-    return db.leagues;
+    let leagues = (user && user.isLeagueManager && !user.isAdmin)
+      ? db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id))
+      : db.leagues;
+    // The shared, hidden "Ad Hoc Games" league (see createAdHocGame below) is
+    // filtered out of the general listing the same way the real server does -
+    // see server/src/index.js's GET /api/leagues.
+    if (!user || !user.isAdmin) leagues = leagues.filter((l) => !l.isAdHocPool);
+    return leagues;
   }),
 
   createLeague: op((data) => {
@@ -2358,6 +2362,65 @@ export const demoApi = {
       completedAt: null,
       completedBy: null,
       isOpen: !!data.isOpen,
+    };
+    db.divisions.push(division);
+    return division;
+  }),
+
+  // Mirrors server/src/index.js's getOrCreateAdHocLeague + POST
+  // /api/adhoc-games: finds (or lazily creates) the single hidden system
+  // league every player-initiated Ad Hoc Game's division lives under, then
+  // creates the division under it. See client/src/pages/AdHocGame.jsx.
+  createAdHocGame: op((data) => {
+    let league = db.leagues.find((l) => l.isAdHocPool);
+    if (!league) {
+      league = {
+        id: uuid(), name: 'Ad Hoc Games', sport: 'English 8-Ball Pool',
+        format: { scheduling: 'round_robin_single' },
+        startDate: null, endDate: null, createdAt: new Date().toISOString(),
+        tables: [], payment: normalizePaymentConfig(undefined),
+        managerUserIds: [], isOpenForRegistration: false, isAdHocPool: true,
+      };
+      db.leagues.push(league);
+    }
+    const { name, legsPerMatch = 5, pairingSize = 2, raceTo = 6, startingLives = 3 } = data;
+    let { entryType = 'singles', scheduling = 'round_robin_single' } = data;
+    const isKiller = KILLER_TYPES.includes(scheduling);
+    if (isKiller) entryType = 'singles';
+    if (!name || !name.trim()) throw new ApiError(400, 'Game name is required');
+    if (!['singles', 'teams', 'doubles'].includes(entryType)) {
+      throw new ApiError(400, 'entryType must be "singles", "teams" or "doubles"');
+    }
+    if (!SCHEDULING_TYPES.includes(scheduling)) throw new ApiError(400, `scheduling must be one of: ${SCHEDULING_TYPES.join(', ')}`);
+    if (entryType === 'teams' && (!Number.isInteger(Number(legsPerMatch)) || Number(legsPerMatch) < 1)) {
+      throw new ApiError(400, 'legsPerMatch must be a positive whole number');
+    }
+    if (entryType === 'doubles' && ![2, 3].includes(Number(pairingSize))) {
+      throw new ApiError(400, 'pairingSize must be 2 (doubles) or 3 (triples)');
+    }
+    if (!isKiller && (!Number.isInteger(Number(raceTo)) || Number(raceTo) < 1)) {
+      throw new ApiError(400, 'raceTo must be a whole number of 1 or more');
+    }
+    if (isKiller && (!Number.isInteger(Number(startingLives)) || Number(startingLives) < 1)) {
+      throw new ApiError(400, 'startingLives must be a whole number of 1 or more');
+    }
+    const division = {
+      id: uuid(), leagueId: league.id, name: name.trim(),
+      order: db.divisions.filter((d) => d.leagueId === league.id).length,
+      entryType, scheduling,
+      raceTo: isKiller ? null : Number(raceTo),
+      startingLives: isKiller ? Number(startingLives) : null,
+      killer: null,
+      playerIds: [], teamIds: [], pairingIds: [],
+      legsPerMatch: entryType === 'teams' ? Number(legsPerMatch) : null,
+      pairingSize: entryType === 'doubles' ? Number(pairingSize) : null,
+      gapDays: null, fixturesGenerated: false,
+      visibleRounds: [],
+      status: 'active',
+      completedAt: null,
+      completedBy: null,
+      isOpen: false,
+      createdByUserId: currentUser()?.id || null,
     };
     db.divisions.push(division);
     return division;
