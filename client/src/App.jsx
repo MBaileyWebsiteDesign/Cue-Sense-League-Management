@@ -152,9 +152,11 @@ function HeaderNav() {
             Captain Portal
           </Link>
         )}
-        <Link to="/open-leagues" className="header-link" onClick={closeMenu}>
-          Open Leagues
-        </Link>
+        {(isAdmin || isCaptain || isLeagueManager) && (
+          <Link to="/open-leagues" className="header-link" onClick={closeMenu}>
+            Open Leagues
+          </Link>
+        )}
         <Link to="/account" className="header-link" onClick={closeMenu}>
           Player Portal
         </Link>
