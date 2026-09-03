@@ -408,11 +408,17 @@ function StartKillerGameButton({ division, disabled, title, onChange, setError }
 }
 
 // The live "blackboard" for a Killer Classic/Cards Killer division once the
-// game has started - lives per player, whose turn it is, and (for a manager)
-// the shot controls. Read-only for anyone else, so a player or spectator can
-// follow along on the division page while a manager referees from their own
-// device. See server/src/services/killer.js for exactly what each action
-// means; this component just calls the matching route and reloads.
+// game has started - lives per player, whose turn it is, and the shot
+// controls. Shown to anyone who can see this page (viewing the division
+// already requires being signed in - see GET /api/divisions/:id) rather than
+// gated to admins/League Managers, matching the killer/start, killer/shot,
+// killer/undo and killer/reset routes on the server (all requireAuth only -
+// see their comments in server/src/index.js) - a standard player running
+// their own Ad Hoc Killer game needs to be the one referee-ing shots from
+// their own device, the same way any signed-in player can already record
+// frames for a normal fixture. See server/src/services/killer.js for exactly
+// what each action means; this component just calls the matching route and
+// reloads.
 // Lives-at-a-glance colour: red on the last life, yellow with two left,
 // green once a player is comfortably ahead on lives (3+).
 function killerLifeColor(lives) {
@@ -422,7 +428,7 @@ function killerLifeColor(lives) {
   return '#16a34a';
 }
 
-function KillerBoard({ division, canManage, onChange, setError }) {
+function KillerBoard({ division, onChange, setError }) {
   const killer = division.killer;
   const [busy, setBusy] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -529,7 +535,7 @@ function KillerBoard({ division, canManage, onChange, setError }) {
         </tbody>
       </table>
 
-      {canManage && !isFinished && (
+      {!isFinished && (
         <div style={{ marginTop: 12 }}>
           <p style={{ margin: '0 0 8px' }}>
             <strong>{nameOf(killer.currentPlayerId)}</strong>{' '}
@@ -559,20 +565,18 @@ function KillerBoard({ division, canManage, onChange, setError }) {
         </div>
       )}
 
-      {canManage && (
-        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" disabled={busy || !killer.history || killer.history.length === 0} onClick={onUndo}>Undo last shot</button>
-          {!confirmingReset ? (
-            <button className="btn" disabled={busy} onClick={() => setConfirmingReset(true)}>Reset game</button>
-          ) : (
-            <>
-              <span className="muted" style={{ alignSelf: 'center' }}>Reset the whole game and unlock the roster?</span>
-              <button className="btn btn-danger" disabled={busy} onClick={onReset}>Yes, reset</button>
-              <button className="btn" disabled={busy} onClick={() => setConfirmingReset(false)}>Cancel</button>
-            </>
-          )}
-        </div>
-      )}
+      <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn" disabled={busy || !killer.history || killer.history.length === 0} onClick={onUndo}>Undo last shot</button>
+        {!confirmingReset ? (
+          <button className="btn" disabled={busy} onClick={() => setConfirmingReset(true)}>Reset game</button>
+        ) : (
+          <>
+            <span className="muted" style={{ alignSelf: 'center' }}>Reset the whole game and unlock the roster?</span>
+            <button className="btn btn-danger" disabled={busy} onClick={onReset}>Yes, reset</button>
+            <button className="btn" disabled={busy} onClick={() => setConfirmingReset(false)}>Cancel</button>
+          </>
+        )}
+      </div>
 
       <details style={{ marginTop: 12 }}>
         <summary>Event log</summary>
@@ -1727,7 +1731,7 @@ export default function DivisionDetail() {
       )}
 
       {isKiller && division.killer && (
-        <KillerBoard division={division} canManage={canManage} onChange={load} setError={setError} />
+        <KillerBoard division={division} onChange={load} setError={setError} />
       )}
 
       {!isKiller && (
