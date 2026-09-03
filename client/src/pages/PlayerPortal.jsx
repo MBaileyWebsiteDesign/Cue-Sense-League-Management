@@ -365,19 +365,18 @@ export default function PlayerPortal() {
       <div className="page-header">
         <div>
           <h1>My Account</h1>
-          <p className="muted">
-            {badges.length > 0 ? `Player account · ${badges.join(' & ')}` : 'Player account'}
-            {user.playerId && (
-              <> · <Link to={`/players/${user.playerId}`}>View my stats &amp; match history</Link></>
-            )}
-          </p>
+          {badges.length > 0 && <p className="muted">{badges.join(' & ')}</p>}
         </div>
       </div>
 
-      <MyFixtures />
-      <div style={{ textAlign: 'center', margin: '1rem 0' }}>
-        <Link className="btn btn-primary" to="/adhoc-game/new">+ Ad Hoc Game</Link>
+      <div className="inline-form" style={{ justifyContent: 'center', margin: '1rem 0' }}>
+        <Link className="btn btn-primary" to="/adhoc-game/new">Ad Hoc Game</Link>
+        {user.playerId && (
+          <Link className="btn" to={`/players/${user.playerId}`}>View my stats &amp; match history</Link>
+        )}
       </div>
+
+      <MyFixtures />
       <MyLeaguesAndDivisions leagues={leagues} />
       <MySubmissions />
 
