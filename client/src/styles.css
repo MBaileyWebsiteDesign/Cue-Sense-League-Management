@@ -394,16 +394,17 @@ h2 { margin-top: 0; }
 /* My Account page: the "View my stats", "Ad Hoc Game", "Leagues I can Join"
    quick-action row only - scoped to .account-quick-actions so no other
    yellow .btn-primary button on the site (forms, dispute, confirm, etc.)
-   is affected. Sized at 3x the normal .btn dimensions per Matt's request. */
+   is affected. Sized at 2x the normal .btn dimensions per Matt's request
+   (originally 3x, reduced by 1/3 on 2026-09-04). */
 .account-quick-actions {
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 16px;
 }
 
 .account-quick-actions .btn {
-  padding: 24px 48px;
-  border-radius: 18px;
-  font-size: 2.7rem;
+  padding: 16px 32px;
+  border-radius: 12px;
+  font-size: 1.8rem;
 }
 
 .btn-danger {
