@@ -211,11 +211,16 @@ function GameSetupForm({ onCreated }) {
 }
 
 // Simple flat player search/add - singles entry type only. Trimmed-down
-// version of DivisionDetail.jsx's SinglesRoster: no walk-in quick add, late
-// entrant handling, or manual seeding, none of which apply before a first
-// ad hoc game roster even has two names in it.
+// version of DivisionDetail.jsx's SinglesRoster: includes walk-in quick add
+// (a player building their own ad hoc roster needs a way to add someone
+// without a CueSense account), but no late entrant/reserved slot handling
+// or manual seeding - fixtures aren't generated until "Start Game", so none
+// of that applies before a first ad hoc game roster even has two names in it.
 function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
   const [playerId, setPlayerId] = useState('');
+  const [quickFirstName, setQuickFirstName] = useState('');
+  const [quickLastName, setQuickLastName] = useState('');
+  const [quickAdding, setQuickAdding] = useState(false);
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
 
@@ -229,6 +234,23 @@ function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
       onChange();
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const onQuickAdd = async (e) => {
+    e.preventDefault();
+    if (!quickFirstName.trim()) return;
+    setError('');
+    setQuickAdding(true);
+    try {
+      await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null);
+      setQuickFirstName('');
+      setQuickLastName('');
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setQuickAdding(false);
     }
   };
 
@@ -257,8 +279,35 @@ function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
         <button className="btn btn-primary" type="submit" disabled={!playerId}>Add Player</button>
       </form>
       <p className="muted" style={{ marginTop: -4, marginBottom: 12, fontSize: '0.8rem' }}>
-        Only people with a registered player account can be added - see "My Account" to register.
+        Only people with a registered player account can be added this way - see "My Account" to register.
       </p>
+
+      <h4 style={{ marginBottom: 4 }}>Add a walk-in</h4>
+      <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
+        For someone who's never used CueSense before - just a name, no account needed to add them to the game.
+      </p>
+      <form className="inline-form" onSubmit={onQuickAdd}>
+        <input
+          type="text"
+          placeholder="First name *"
+          aria-label="First name (required)"
+          value={quickFirstName}
+          onChange={(e) => setQuickFirstName(e.target.value)}
+          required
+        />
+        <input
+          type="text"
+          placeholder="Last name (optional)"
+          aria-label="Last name (optional)"
+          value={quickLastName}
+          onChange={(e) => setQuickLastName(e.target.value)}
+        />
+        <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
+          {quickAdding ? 'Adding…' : 'Add Walk-in'}
+        </button>
+      </form>
+      <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
+
       <ul className="player-list">
         {division.players.map((p) => (
           <li key={p.id}>

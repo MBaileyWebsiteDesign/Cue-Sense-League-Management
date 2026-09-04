@@ -2833,7 +2833,7 @@ function claimReservedFixtureSlot(division, fixture, playerId) {
 // being turned away. Every other case is unchanged: once fixtures have
 // been generated, no more players can be added via any route. Team and
 // doubles divisions aren't supported here yet - only singles.
-app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req, res) => {
+app.post('/api/divisions/:id/quick-add-player', requireAuth, asyncRoute((req, res) => {
   const { firstName, lastName } = req.body || {};
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
 
@@ -2859,7 +2859,6 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
     }
   }
   const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
 
   const tempPassword = generateTempPassword();
   const syntheticEmail = `walkin-${uuid()}@no-login.cuesense`;
@@ -2897,7 +2896,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAnyAdmin, asyncRoute((req
   }
 
   recordAudit(db, {
-    actor: req.adminSession.label,
+    actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
     action: reservedFixture ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
     targetType: 'division',
     targetId: division.id,
