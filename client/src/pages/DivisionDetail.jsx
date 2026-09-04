@@ -213,15 +213,15 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
       <label>
         Format
         <select value={scheduling} onChange={(e) => onSchedulingChange(e.target.value)}>
-          <option value="round_robin_single">Standard League - Single Leg (Everyone plays each other once)</option>
-          <option value="round_robin_double">Standard League - Double Leg (Everyone plays each other twice, home and away)</option>
-          <option value="knockout_single_elim">Knockout (single elimination)</option>
-          <option value="knockout_double_elim">Knockout (double elimination)</option>
-          <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
-          <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
+          <option value="free_play">Free Play (2 player free style, no frame count target)</option>
           <option value="killer_classic">Killer Classic (Players play in order)</option>
           <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
-          <option value="free_play">Free Play (2 player free style, no frame count target)</option>
+          <option value="knockout_single_elim">Knockout (single elimination)</option>
+          <option value="knockout_double_elim">Knockout (double elimination)</option>
+          <option value="round_robin_single">Standard League - Single Leg (Everyone plays each other once)</option>
+          <option value="round_robin_double">Standard League - Double Leg (Everyone plays each other twice, home and away)</option>
+          <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
+          <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
         </select>
       </label>
       {isKiller ? (
