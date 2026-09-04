@@ -369,7 +369,7 @@ export default function PlayerPortal() {
         </div>
       </div>
 
-      <div className="inline-form" style={{ justifyContent: 'center', margin: '1rem 0' }}>
+      <div className="inline-form account-quick-actions" style={{ justifyContent: 'center', margin: '1rem 0' }}>
         {user.playerId && (
           <Link className="btn btn-primary" to={`/players/${user.playerId}`}>View my stats &amp; match history</Link>
         )}
