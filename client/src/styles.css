@@ -391,6 +391,21 @@ h2 { margin-top: 0; }
 
 .btn-primary:hover:not(:disabled) { background: var(--cta-dark); }
 
+/* My Account page: the "View my stats", "Ad Hoc Game", "Leagues I can Join"
+   quick-action row only - scoped to .account-quick-actions so no other
+   yellow .btn-primary button on the site (forms, dispute, confirm, etc.)
+   is affected. Sized at 3x the normal .btn dimensions per Matt's request. */
+.account-quick-actions {
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.account-quick-actions .btn {
+  padding: 24px 48px;
+  border-radius: 18px;
+  font-size: 2.7rem;
+}
+
 .btn-danger {
   background: #fee2e2;
   border-color: #b91c1c;
