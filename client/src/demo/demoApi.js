@@ -2730,6 +2730,9 @@ export const demoApi = {
       throw new ApiError(400, `This is a ${division.entryType} division - add players to a ${division.entryType === 'teams' ? 'team' : 'pairing'} instead`);
     }
     if (division.fixturesGenerated) throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
+    if (division.scheduling === FREE_PLAY && division.playerIds.length >= 2) {
+      throw new ApiError(400, 'Free Play is a 2-player match - remove a player before adding a different one');
+    }
     const player = registeredPlayers().find((p) => p.id === playerId);
     if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
     assertPaymentCleared(division, player.id);
@@ -2752,6 +2755,9 @@ export const demoApi = {
     if (!division) throw new ApiError(404, 'Division not found');
     if (division.entryType !== 'singles') {
       throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
+    }
+    if (division.scheduling === FREE_PLAY && division.playerIds.length >= 2) {
+      throw new ApiError(400, 'Free Play is a 2-player match - remove a player before adding a different one');
     }
     const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim';
     let reservedFixture = null;
@@ -2989,6 +2995,9 @@ export const demoApi = {
         : division.playerIds;
     const entrantLabel = division.entryType === 'teams' ? 'teams' : division.entryType === 'doubles' ? 'pairings' : 'players';
     if (entrantIds.length < 2) throw new ApiError(400, `A division needs at least 2 ${entrantLabel} before fixtures can be generated`);
+    if (division.scheduling === FREE_PLAY && entrantIds.length !== 2) {
+      throw new ApiError(400, `Free Play is a 2-player match - this division has ${entrantIds.length}.`);
+    }
     if (division.entryType === 'doubles') {
       const incomplete = db.pairings.filter(
         (p) => division.pairingIds.includes(p.id) && p.playerIds.length !== division.pairingSize

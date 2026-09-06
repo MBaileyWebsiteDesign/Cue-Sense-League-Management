@@ -225,6 +225,10 @@ function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
   const [quickAdding, setQuickAdding] = useState(false);
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
+  // Free Play is a 2-player match - both add paths below hide once the 2nd
+  // is in, matching DivisionDetail.jsx's SinglesRoster and the server-side
+  // cap on POST /divisions/:id/players and /quick-add-player.
+  const freePlayFull = division.scheduling === FREE_PLAY_SCHEDULING && division.players.length >= 2;
 
   const onAdd = async (e) => {
     e.preventDefault();
@@ -269,46 +273,54 @@ function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
   return (
     <section className="card">
       <h3 style={{ marginTop: 0 }}>Players</h3>
-      <form className="inline-form" onSubmit={onAdd}>
-        <select value={playerId} onChange={(e) => setPlayerId(e.target.value)} required>
-          <option value="" disabled>
-            {available.length === 0 ? 'No registered players available' : 'Select a registered player…'}
-          </option>
-          {available.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-        <button className="btn btn-primary" type="submit" disabled={!playerId}>Add Player</button>
-      </form>
-      <p className="muted" style={{ marginTop: -4, marginBottom: 12, fontSize: '0.8rem' }}>
-        Only people with a registered player account can be added this way - see "My Account" to register.
-      </p>
+      {freePlayFull ? (
+        <p className="muted" style={{ marginTop: 0, marginBottom: 12, fontSize: '0.8rem' }}>
+          Free Play is a 2-player match - remove a player below to swap who's in it.
+        </p>
+      ) : (
+        <>
+          <form className="inline-form" onSubmit={onAdd}>
+            <select value={playerId} onChange={(e) => setPlayerId(e.target.value)} required>
+              <option value="" disabled>
+                {available.length === 0 ? 'No registered players available' : 'Select a registered player…'}
+              </option>
+              {available.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <button className="btn btn-primary" type="submit" disabled={!playerId}>Add Player</button>
+          </form>
+          <p className="muted" style={{ marginTop: -4, marginBottom: 12, fontSize: '0.8rem' }}>
+            Only people with a registered player account can be added this way - see "My Account" to register.
+          </p>
 
-      <h4 style={{ marginBottom: 4 }}>Add a walk-in</h4>
-      <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
-        For someone who's never used CueSense before - just a name, no account needed to add them to the game.
-      </p>
-      <form className="inline-form" onSubmit={onQuickAdd}>
-        <input
-          type="text"
-          placeholder="First name *"
-          aria-label="First name (required)"
-          value={quickFirstName}
-          onChange={(e) => setQuickFirstName(e.target.value)}
-          required
-        />
-        <input
-          type="text"
-          placeholder="Last name (optional)"
-          aria-label="Last name (optional)"
-          value={quickLastName}
-          onChange={(e) => setQuickLastName(e.target.value)}
-        />
-        <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
-          {quickAdding ? 'Adding…' : 'Add Walk-in'}
-        </button>
-      </form>
-      <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
+          <h4 style={{ marginBottom: 4 }}>Add a walk-in</h4>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
+            For someone who's never used CueSense before - just a name, no account needed to add them to the game.
+          </p>
+          <form className="inline-form" onSubmit={onQuickAdd}>
+            <input
+              type="text"
+              placeholder="First name *"
+              aria-label="First name (required)"
+              value={quickFirstName}
+              onChange={(e) => setQuickFirstName(e.target.value)}
+              required
+            />
+            <input
+              type="text"
+              placeholder="Last name (optional)"
+              aria-label="Last name (optional)"
+              value={quickLastName}
+              onChange={(e) => setQuickLastName(e.target.value)}
+            />
+            <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
+              {quickAdding ? 'Adding…' : 'Add Walk-in'}
+            </button>
+          </form>
+          <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
+        </>
+      )}
 
       <ul className="player-list">
         {division.players.map((p) => (
