@@ -845,11 +845,12 @@ export default function LeagueDetail() {
         <Link className="btn btn-primary" to={`/arena/${league.id}`}>View Arena display &rarr;</Link>
         <Link className="btn btn-primary" to={`/public/leagues/${league.id}/table`}>View public League Table &rarr;</Link>
         <Link className="btn btn-primary" to={`/public/leagues/${league.id}/fixtures`}>View public League Fixtures &rarr;</Link>
+        <Link className="btn btn-primary" to={`/public/leagues/${league.id}/interests`}>View public League Interests &rarr;</Link>
       </p>
       {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
-          The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
-          &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
+          The three links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
+          &lt;iframe&gt; on another site) - copy any URL from your browser's address bar once you're on
           the page.
         </p>
       )}

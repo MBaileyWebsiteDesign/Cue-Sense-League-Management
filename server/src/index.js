@@ -5987,6 +5987,49 @@ app.get('/api/public/leagues/:id/fixtures', asyncRoute((req, res) => {
   });
 }));
 
+// ---------- Public: League Interests (embeddable, read-only) ----------
+// A public, unauthenticated view of who has registered interest in a
+// league - name + whether their entry fee is paid, nothing else (no
+// player ids, no admin actions). Same reasoning as the League
+// Table/Fixtures endpoints above (no login available to the visitor), but
+// scoped to League Interests rather than standings/fixtures. Includes both
+// 'pending' and 'assigned' registrations (anyone who registered and hasn't
+// been declined) - unlike the admin-only GET /api/leagues/:id/league-
+// interests above, which is pending-only because it's a to-do list for
+// bulk-assign. `paid` is a simple boolean (confirmed or waived both count
+// as paid) rather than exposing the internal unpaid/confirmed/waived
+// wording; it's only meaningful when `paymentRequired` is true.
+app.get('/api/public/leagues/:id/interests', asyncRoute((req, res) => {
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+
+  const paymentRequired = !!(league.payment && league.payment.required);
+  const interests = db.leagueInterests
+    .filter((r) => r.leagueId === league.id && r.status !== 'declined')
+    .map((r) => {
+      const player = db.players.find((p) => p.id === r.playerId);
+      let paid = null;
+      if (paymentRequired) {
+        const paymentRecord = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === r.playerId);
+        paid = !!paymentRecord && (paymentRecord.status === 'confirmed' || paymentRecord.status === 'waived');
+      }
+      return {
+        playerName: player?.name || 'Unknown player',
+        paid,
+      };
+    })
+    .sort((a, b) => a.playerName.localeCompare(b.playerName));
+
+  res.json({
+    leagueId: league.id,
+    leagueName: league.name,
+    generatedAt: new Date().toISOString(),
+    paymentRequired,
+    interests,
+  });
+}));
+
 // ---------- Public: Division Table & Division Fixtures (embeddable pages) ----------
 // Same reasoning/pattern as the League Table/Fixtures endpoints above, but
 // scoped to a single division rather than every division in a league - for

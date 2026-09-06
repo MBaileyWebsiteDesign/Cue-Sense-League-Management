@@ -41,6 +41,7 @@ const StreamOverlay = lazy(() => import('./pages/StreamOverlay.jsx'));
 const Arena = lazy(() => import('./pages/Arena.jsx'));
 const PublicLeagueTable = lazy(() => import('./pages/PublicLeagueTable.jsx'));
 const PublicLeagueFixtures = lazy(() => import('./pages/PublicLeagueFixtures.jsx'));
+const PublicLeagueInterests = lazy(() => import('./pages/PublicLeagueInterests.jsx'));
 const PublicDivisionBracket = lazy(() => import('./pages/PublicDivisionBracket.jsx'));
 const PublicDivisionTable = lazy(() => import('./pages/PublicDivisionTable.jsx'));
 const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures.jsx'));
@@ -332,6 +333,19 @@ export default function App() {
         element={
           <Suspense fallback={null}>
             <PublicLeagueFixtures />
+          </Suspense>
+        }
+      />
+      {/* Standalone, unauthenticated route for the embeddable "League
+          Interests" page - who has registered interest in a league and
+          whether they've paid, read-only (no decline/assign controls). Same
+          reasoning as the League Table/Fixtures routes above. See
+          LeagueDetail.jsx for where this link is surfaced to admins. */}
+      <Route
+        path="/public/leagues/:leagueId/interests"
+        element={
+          <Suspense fallback={null}>
+            <PublicLeagueInterests />
           </Suspense>
         }
       />
