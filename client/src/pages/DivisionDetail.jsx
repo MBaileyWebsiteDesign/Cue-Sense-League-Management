@@ -604,6 +604,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   // (or a knockout with none reserved) never has any.
   const isKnockout = division.scheduling === 'knockout_single_elim' || division.scheduling === 'knockout_double_elim' || division.scheduling === 'knockout_double_elim_pcdek' || division.scheduling === 'knockout_double_elim_adek';
   const isKiller = division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer';
+  const isFreePlay = division.scheduling === 'free_play';
   const openReservedSlots = isKnockout ? (division.fixtures || []).filter((f) => f.reserved) : [];
   const canQuickAddLateEntrant = division.fixturesGenerated && openReservedSlots.length > 0;
   // Pre-tournament late entry (see POST /api/divisions/:id/late-entrants) -
@@ -853,6 +854,8 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           Killer game started - the roster is locked. The board below shows lives, whose turn it is, and the shot
           controls.
         </p>
+      ) : isFreePlay ? (
+        <p className="muted">Free Play match ready - the roster is locked.</p>
       ) : (
         <>
           <p className="muted">
