@@ -94,7 +94,13 @@ export default function PublicLeagueInterests() {
       )}
 
       <p className="public-footer">
-        <a href="https://app.cuesense.co.uk/register" target="_blank" rel="noopener noreferrer">
+        <a
+          className="btn btn-primary"
+          href="https://app.cuesense.co.uk/register"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: 'none', display: 'inline-block' }}
+        >
           Register
         </a>
       </p>
