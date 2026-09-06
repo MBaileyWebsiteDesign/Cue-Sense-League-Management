@@ -186,8 +186,10 @@ function DisputeControl({ onDispute }) {
 // you. Both players have to independently confirm before a result counts
 // (see homeConfirmed/awayConfirmed in server/src/index.js's "Result
 // confirmation" section) - the player-facing counterpart to the admin's
-// Game Adjustments "Games disputed" list. Shown below My Fixtures; renders
-// nothing at all once there's nothing pending, to keep the page uncluttered.
+// Game Adjustments "Games disputed" list. Shown at the very top of the
+// page, above the quick actions, so a pending confirmation is the first
+// thing a player sees; renders nothing at all once there's nothing
+// pending, to keep the page uncluttered.
 function MySubmissions() {
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -369,6 +371,8 @@ export default function PlayerPortal() {
         </div>
       </div>
 
+      <MySubmissions />
+
       <div className="inline-form account-quick-actions" style={{ justifyContent: 'center', margin: '1rem 0' }}>
         {user.playerId && (
           <Link className="btn btn-primary" to={`/players/${user.playerId}`}>View my stats &amp; match history</Link>
@@ -379,7 +383,6 @@ export default function PlayerPortal() {
 
       <MyFixtures />
       <MyLeaguesAndDivisions leagues={leagues} />
-      <MySubmissions />
 
       <ProfileForm player={user} onSaved={updateUser} />
       <ChangePasswordForm />
