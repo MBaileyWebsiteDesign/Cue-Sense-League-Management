@@ -3293,6 +3293,38 @@ export const demoApi = {
     };
   }),
 
+  // Public League Interests (embeddable, read-only) - mirrors
+  // server/src/index.js's GET /api/public/leagues/:id/interests. Includes
+  // pending + assigned (not declined) registrations, name + simple paid
+  // boolean only - see that route for the full reasoning.
+  getPublicLeagueInterests: op((leagueId) => {
+    const league = db.leagues.find((l) => l.id === leagueId);
+    if (!league) throw new ApiError(404, 'League not found');
+    const paymentRequired = !!(league.payment && league.payment.required);
+    const interests = db.leagueInterests
+      .filter((r) => r.leagueId === league.id && r.status !== 'declined')
+      .map((r) => {
+        const player = db.players.find((p) => p.id === r.playerId);
+        let paid = null;
+        if (paymentRequired) {
+          const paymentRecord = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === r.playerId);
+          paid = !!paymentRecord && (paymentRecord.status === 'confirmed' || paymentRecord.status === 'waived');
+        }
+        return {
+          playerName: player?.name || 'Unknown player',
+          paid,
+        };
+      })
+      .sort((a, b) => a.playerName.localeCompare(b.playerName));
+    return {
+      leagueId: league.id,
+      leagueName: league.name,
+      generatedAt: new Date().toISOString(),
+      paymentRequired,
+      interests,
+    };
+  }),
+
   // Public Division Table / Division Fixtures (embeddable pages) - mirrors
   // server/src/index.js's GET /api/public/divisions/:id/table and
   // GET /api/public/divisions/:id/fixtures.

@@ -275,6 +275,7 @@ const networkApi = {
   // reasoning as overlay/arena above.
   getPublicLeagueTable: (leagueId) => request(`/public/leagues/${leagueId}/table`),
   getPublicLeagueFixtures: (leagueId) => request(`/public/leagues/${leagueId}/fixtures`),
+  getPublicLeagueInterests: (leagueId) => request(`/public/leagues/${leagueId}/interests`),
   getPublicDivisionBracket: (divisionId) => request(`/public/divisions/${divisionId}/bracket`),
   getPublicDivisionTable: (divisionId) => request(`/public/divisions/${divisionId}/table`),
   getPublicDivisionFixtures: (divisionId) => request(`/public/divisions/${divisionId}/fixtures`),
