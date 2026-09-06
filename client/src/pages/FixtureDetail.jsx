@@ -770,6 +770,12 @@ export default function FixtureDetail() {
   // before it's loaded, since canManageLeague short-circuits on isAdmin) -
   // a League Manager only passes once `league` has loaded and lists them.
   const isAdminSession = useIsAdminSession(league);
+  const { isCaptain } = useAuth();
+  // Plain players (not Admin/League Manager for this league, not Captain)
+  // don't have a division-management reason to land on the division page -
+  // their equivalent "back" destination is the fixtures list on their own
+  // account portal (PlayerPortal.jsx's "My Fixtures" panel, at /account).
+  const isPlayerSession = !isAdminSession && !isCaptain;
 
   const load = () => api.getFixture(fixtureId).then(setFixture).catch((e) => setError(e.message));
 
@@ -818,7 +824,13 @@ export default function FixtureDetail() {
 
   return (
     <div>
-      <p><Link to={`/divisions/${fixture.divisionId}`}>&larr; Back to division</Link></p>
+      <p>
+        {isPlayerSession ? (
+          <Link to="/account">&larr; Back to fixtures</Link>
+        ) : (
+          <Link to={`/divisions/${fixture.divisionId}`}>&larr; Back to division</Link>
+        )}
+      </p>
       <h1>{roundLabel(fixture)}{isTeams ? ` · Best of ${fixture.legs.length} legs` : fixture.raceTo == null ? ' · Free Play' : ` · Race to ${fixture.raceTo}`}</h1>
       {isAdminSession && <StreamOverlayLink fixtureId={fixture.id} />}
       {error && <p className="error">{error}</p>}
