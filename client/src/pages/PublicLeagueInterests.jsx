@@ -94,6 +94,12 @@ export default function PublicLeagueInterests() {
       )}
 
       <p className="public-footer">
+        <a href="https://app.cuesense.co.uk/register" target="_blank" rel="noopener noreferrer">
+          Register
+        </a>
+      </p>
+
+      <p className="public-footer">
         Powered By Cue Sense,{' '}
         <a href="https://www.cuesense.co.uk" target="_blank" rel="noopener noreferrer">
           www.CueSense.co.uk
