@@ -591,10 +591,20 @@ function SelectPlayers({ justCreated, onStarted }) {
     try {
       if (isKiller) {
         await api.startKiller(division.id);
+        onStarted(`/divisions/${division.id}`);
       } else {
-        await api.generateFixtures(division.id, { visibleByDefault: true });
+        const updated = await api.generateFixtures(division.id, { visibleByDefault: true });
+        // Free Play always generates exactly one fixture (see FREE_PLAY in
+        // server/src/index.js and the 2-player roster cap this wizard's
+        // SinglesPicker enforces) - send the player straight into it rather
+        // than the division overview, since there's nothing else on that
+        // page for a 2-player one-off match to show them.
+        if (division.scheduling === FREE_PLAY_SCHEDULING && updated.fixtures?.length === 1) {
+          onStarted(`/fixtures/${updated.fixtures[0].id}`);
+        } else {
+          onStarted(`/divisions/${division.id}`);
+        }
       }
-      onStarted(division.id);
     } catch (err) {
       setError(err.message);
       setStarting(false);
@@ -633,10 +643,13 @@ function SelectPlayers({ justCreated, onStarted }) {
 // A player-initiated, one-off game - see PlayerPortal.jsx's "+ Ad Hoc Game"
 // button. Two steps: set the game up (same fields as a League Manager's
 // "+ New Division" form, see GameSetupForm), then add players and start
-// (see SelectPlayers). "Start Game" lands on the resulting division's own
-// page (/divisions/:id) - from there on, it behaves exactly like any other
-// division (results, standings, disputes, the lot), just without a real
-// league season around it.
+// (see SelectPlayers). "Start Game" normally lands on the resulting
+// division's own page (/divisions/:id) - from there on, it behaves exactly
+// like any other division (results, standings, disputes, the lot), just
+// without a real league season around it. Free Play is the one exception:
+// SelectPlayers' onStart sends it straight to /fixtures/:id instead, since
+// a Free Play "division" is just the one 2-player match and there's nothing
+// else on the division overview worth stopping at first.
 export default function AdHocGame() {
   const navigate = useNavigate();
   const [createdDivision, setCreatedDivision] = useState(null);
@@ -657,7 +670,7 @@ export default function AdHocGame() {
       {!createdDivision ? (
         <GameSetupForm onCreated={setCreatedDivision} />
       ) : (
-        <SelectPlayers justCreated={createdDivision} onStarted={(id) => navigate(`/divisions/${id}`)} />
+        <SelectPlayers justCreated={createdDivision} onStarted={(path) => navigate(path)} />
       )}
     </div>
   );
