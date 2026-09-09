@@ -620,6 +620,14 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
     division.scheduling === 'knockout_double_elim' &&
     division.fixturesGenerated &&
     division.status === 'active';
+  // Free Play is a 2-player match, not a normal singles roster (see the
+  // FREE_PLAY comment in server/src/index.js) - once 2 players are in, both
+  // add paths below hide themselves rather than letting a 3rd in and
+  // silently turning "Generate Fixtures" into a full round robin. The
+  // server enforces this too (POST /divisions/:id/players and
+  // /quick-add-player both 400 past 2 for free_play) - this is just the UI
+  // reflecting that same limit instead of showing a control that would 400.
+  const freePlayFull = isFreePlay && division.players.length >= 2;
 
   const onAddPlayer = async (e) => {
     e.preventDefault();
@@ -728,7 +736,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   return (
     <section className="card">
       <h2>Players</h2>
-      {!division.fixturesGenerated && (
+      {!division.fixturesGenerated && !freePlayFull && (
         <form className="inline-form" onSubmit={onAddPlayer}>
           <select value={playerId} onChange={(e) => setPlayerId(e.target.value)} required>
             <option value="" disabled>
@@ -741,11 +749,18 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           <button className="btn btn-primary" type="submit" disabled={!playerId}>Add Player</button>
         </form>
       )}
-      <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
-        Only people with a registered player account can be added this way - see "My Account" to register.
-      </p>
+      {!division.fixturesGenerated && !freePlayFull && (
+        <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
+          Only people with a registered player account can be added this way - see "My Account" to register.
+        </p>
+      )}
+      {freePlayFull && !division.fixturesGenerated && (
+        <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
+          Free Play is a 2-player match - remove a player below to swap who's in it.
+        </p>
+      )}
 
-      {isAdmin && (!division.fixturesGenerated || canQuickAddLateEntrant) && (
+      {isAdmin && !freePlayFull && (!division.fixturesGenerated || canQuickAddLateEntrant) && (
         <>
           <h3 style={{ marginBottom: 4 }}>Quick add (walk-in)</h3>
           <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>

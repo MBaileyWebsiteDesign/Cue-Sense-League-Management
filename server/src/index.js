@@ -2405,6 +2405,9 @@ app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
   if (division.fixturesGenerated) {
     throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
   }
+  if (division.scheduling === FREE_PLAY && division.playerIds.length >= 2) {
+    throw new ApiError(400, 'Free Play is a 2-player match - remove a player before adding a different one');
+  }
 
   const player = registeredPlayers(db).find((p) => p.id === playerId);
   if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
@@ -2842,6 +2845,9 @@ app.post('/api/divisions/:id/quick-add-player', requireAuth, asyncRoute((req, re
   if (!division) throw new ApiError(404, 'Division not found');
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
+  }
+  if (division.scheduling === FREE_PLAY && division.playerIds.length >= 2) {
+    throw new ApiError(400, 'Free Play is a 2-player match - remove a player before adding a different one');
   }
   const isKnockout = division.scheduling === 'knockout_single_elim' || DOUBLE_ELIM_TYPES.includes(division.scheduling);
   let reservedFixture = null;
@@ -4876,6 +4882,9 @@ app.post('/api/divisions/:id/generate-fixtures', asyncRoute((req, res) => {
   const entrantLabel = division.entryType === 'teams' ? 'teams' : division.entryType === 'doubles' ? 'pairings' : 'players';
   if (entrantIds.length < 2) {
     throw new ApiError(400, `A division needs at least 2 ${entrantLabel} before fixtures can be generated`);
+  }
+  if (division.scheduling === FREE_PLAY && entrantIds.length !== 2) {
+    throw new ApiError(400, `Free Play is a 2-player match - this division has ${entrantIds.length}.`);
   }
   if (division.entryType === 'doubles') {
     const incomplete = db.pairings.filter(
