@@ -657,6 +657,14 @@ h2 { margin-top: 0; }
 
   .inline-form { flex-wrap: wrap; }
 
+/* Centres a specific inline-form group without affecting the many other
+   left-aligned .inline-form usages across the app (search bars, filter
+   rows, admin forms, etc.) - used for the Free Play "Home" / "New Game"
+   buttons shown under the completed match banner (FixtureDetail.jsx). */
+.inline-form-center {
+  justify-content: center;
+}
+
   /* Responsive table without touching any page's markup: making the
      <table> itself a block-level scroll container keeps its internal
      thead/tbody/tr/td layout intact (they stay table-* display values)
