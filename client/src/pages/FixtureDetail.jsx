@@ -242,7 +242,7 @@ function StreamOverlayLink({ fixtureId }) {
 
   return (
     <p className="muted" style={{ fontSize: '0.85rem' }}>
-      Stream overlay (OBS Browser Source): <code>{url}</code>{' '}
+      Stream overlay (OBS Browser Source): <code style={{ wordBreak: 'break-all' }}>{url}</code>{' '}
       <button className="btn" type="button" onClick={onCopy}>
         {copied ? 'Copied!' : 'Copy link'}
       </button>
@@ -612,6 +612,17 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           Match complete: {homeEntrant.name} {fixture.homeFrameScore} - {fixture.awayFrameScore} {awayEntrant.name}
           {fixture.closedEarly && ' - closed early, not played out'}
         </p>
+      )}
+
+      {/* Free Play has no division/league to browse back to afterwards (it's
+          just the one 2-player match - see AdHocGame.jsx), so once it's
+          complete, point the player straight at the two places they'd
+          actually go next instead of leaving them on a finished scoreboard. */}
+      {complete && isFreePlay && (
+        <div className="inline-form">
+          <Link className="btn btn-primary" to="/account">Home</Link>
+          <Link className="btn btn-primary" to="/adhoc-game/new">New Game</Link>
+        </div>
       )}
 
       <section className="card">
