@@ -242,7 +242,7 @@ function StreamOverlayLink({ fixtureId }) {
 
   return (
     <p className="muted" style={{ fontSize: '0.85rem' }}>
-      Stream overlay (OBS Browser Source): <code>{url}</code>{' '}
+      Stream overlay (OBS Browser Source): <code style={{ wordBreak: 'break-all' }}>{url}</code>{' '}
       <button className="btn" type="button" onClick={onCopy}>
         {copied ? 'Copied!' : 'Copy link'}
       </button>
