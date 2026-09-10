@@ -619,7 +619,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           complete, point the player straight at the two places they'd
           actually go next instead of leaving them on a finished scoreboard. */}
       {complete && isFreePlay && (
-        <div className="inline-form">
+        <div className="inline-form inline-form-center">
           <Link className="btn btn-primary" to="/account">Home</Link>
           <Link className="btn btn-primary" to="/adhoc-game/new">New Game</Link>
         </div>
