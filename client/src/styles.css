@@ -686,20 +686,15 @@ h3 { font-size: 1.05rem; font-weight: 700; }
    rule (padding, font-size) or a targeted fix for a layout that doesn't
    hold up at phone width (the header nav, wide tables, the fixture
    scoreboard) - nothing here changes desktop/tablet rendering. */
-@media (max-width: 640px) {
-  .app-header {
-    padding: 14px 16px;
-    gap: 10px;
-    position: relative;
-  }
-
-  .brand { gap: 10px; }
-  .brand-logo { height: 40px; width: 40px; }
-  .brand-name { font-size: 1.2rem; }
-  .brand-tagline { font-size: 0.7rem; }
-
-  .header-right { gap: 12px; }
-  .help-icon-link svg { width: 22px; height: 22px; }
+/* Nav-switch breakpoint, separate from the general phone-layout breakpoint
+   below (640px) - confirmed live that the header nav's plain-text links
+   (Admin Portal, Captain Portal, Player Portal, Log out) start wrapping
+   each label onto two lines well above 640px (Matt confirmed 1183px still
+   showed the wrap; a rounder, slightly safer 1200px is used here as the
+   cutover point). Padding/table/card behaviour below is unaffected by this
+   - those still switch at 640px since they look fine at in-between widths. */
+@media (max-width: 1200px) {
+  .app-header { position: relative; }
 
   .hamburger-btn {
     display: flex;
@@ -742,6 +737,21 @@ h3 { font-size: 1.05rem; font-weight: 700; }
   }
 
   .header-accounts .header-admin { margin: 0; }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding: 14px 16px;
+    gap: 10px;
+  }
+
+  .brand { gap: 10px; }
+  .brand-logo { height: 40px; width: 40px; }
+  .brand-name { font-size: 1.2rem; }
+  .brand-tagline { font-size: 0.7rem; }
+
+  .header-right { gap: 12px; }
+  .help-icon-link svg { width: 22px; height: 22px; }
 
   .breadcrumb-bar { padding: 8px 16px; font-size: 0.8rem; }
 
