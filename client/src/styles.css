@@ -665,6 +665,19 @@ h2 { margin-top: 0; }
   justify-content: center;
 }
 
+/* Centres the "Round N · Free Play" (etc.) heading on the fixture detail
+   page on mobile, to match the already-centered scoreboard below it. */
+.fixture-heading {
+  text-align: center;
+}
+
+/* Centres the Live Match Controls card (title, timer/shot-clock labels
+   and values) on mobile - the inline-form-center class above handles
+   centering the button rows themselves. */
+.card-center {
+  text-align: center;
+}
+
   /* Responsive table without touching any page's markup: making the
      <table> itself a block-level scroll container keeps its internal
      thead/tbody/tr/td layout intact (they stay table-* display values)
