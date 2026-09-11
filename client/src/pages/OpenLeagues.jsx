@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 // A league marked "Open For Registration" doesn't have a roster of its
@@ -63,8 +64,10 @@ export default function OpenLeagues() {
   const [leagues, setLeagues] = useState(null);
   const [error, setError] = useState('');
   const [requesting, setRequesting] = useState(null);
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
 
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Open Leagues' }]);
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Open Leagues' }]);
 
   const load = () => api.getOpenLeagues().then(setLeagues).catch((e) => setError(e.message));
 
