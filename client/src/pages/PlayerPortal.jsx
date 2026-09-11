@@ -350,9 +350,13 @@ function MyLeaguesAndDivisions({ leagues }) {
 // sit alongside this rather than replacing it, since every account is a
 // player account first.
 export default function PlayerPortal() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, isAdmin, isCaptain, isLeagueManager } = useAuth();
   const [leagues, setLeagues] = useState([]);
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'My Account' }]);
+  // A plain player's Home crumb points at their own portal rather than the
+  // general leagues list - harmless here since it's the same page, but
+  // keeps the crumb consistent with every other page they visit.
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'My Account' }]);
 
   useEffect(() => {
     api.getMyLeagueMembership().then(setLeagues).catch(() => setLeagues([]));
