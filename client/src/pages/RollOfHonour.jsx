@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const SCHEDULING_LABEL = {
@@ -23,8 +24,10 @@ export default function RollOfHonour() {
   const [entries, setEntries] = useState([]);
   const [error, setError] = useState('');
   const [leagueFilter, setLeagueFilter] = useState('');
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
 
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Roll of Honour' }]);
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Roll of Honour' }]);
 
   useEffect(() => {
     api.getRollOfHonour().then(setEntries).catch((e) => setError(e.message));
