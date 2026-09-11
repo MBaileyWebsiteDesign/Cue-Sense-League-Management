@@ -72,7 +72,8 @@ function AddDivisionPanel({ tour, onChange, setError }) {
 
 export default function TourDetail() {
   const { tourId } = useParams();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
   const navigate = useNavigate();
   const [tour, setTour] = useState(null);
   const [error, setError] = useState('');
@@ -86,8 +87,8 @@ export default function TourDetail() {
 
   useSetBreadcrumbs(
     tour
-      ? [{ label: 'Home', to: '/' }, { label: 'Tours', to: '/tours' }, { label: tour.name }]
-      : [{ label: 'Home', to: '/' }, { label: 'Tours', to: '/tours' }, { label: 'Loading…' }]
+      ? [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Tours', to: '/tours' }, { label: tour.name }]
+      : [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Tours', to: '/tours' }, { label: 'Loading…' }]
   );
 
   if (!tour) return <p>Loading…</p>;
