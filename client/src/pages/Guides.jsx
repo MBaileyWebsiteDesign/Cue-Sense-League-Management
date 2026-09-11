@@ -289,7 +289,9 @@ export function GuidesBody() {
 // and breadcrumbs - reached via the "Guides" card on every portal
 // (Player/Captain/League Manager/Admin).
 export default function Guides() {
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Guides' }]);
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Guides' }]);
 
   return (
     <div>
