@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useIsAdminSession } from '../useAdminSession.js';
 
@@ -168,6 +169,8 @@ export default function PlayerProfile() {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
   const isAdmin = useIsAdminSession();
+  const { isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
 
   useEffect(() => {
     api.getPlayerProfile(playerId).then(setProfile).catch((e) => setError(e.message));
@@ -175,8 +178,8 @@ export default function PlayerProfile() {
 
   useSetBreadcrumbs(
     profile
-      ? [{ label: 'Home', to: '/' }, { label: profile.name }]
-      : [{ label: 'Home', to: '/' }, { label: 'Loading…' }]
+      ? [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: profile.name }]
+      : [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Loading…' }]
   );
 
   if (error) return <p className="error">{error}</p>;
