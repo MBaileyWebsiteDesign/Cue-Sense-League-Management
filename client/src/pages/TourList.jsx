@@ -7,13 +7,14 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 const ENTRY_TYPE_LABEL = { singles: 'Singles', teams: 'Teams', doubles: 'Doubles/Triples' };
 
 export default function TourList() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
   const [tours, setTours] = useState([]);
   const [error, setError] = useState('');
   const [form, setForm] = useState({ name: '', entryType: 'singles' });
   const [showForm, setShowForm] = useState(false);
 
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Tours' }]);
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Tours' }]);
 
   const load = () => api.getTours().then(setTours).catch((e) => setError(e.message));
 
