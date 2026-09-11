@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { IssuesBugsFeaturesBody } from './IssuesBugsFeatures.jsx';
 
@@ -10,7 +11,9 @@ import { IssuesBugsFeaturesBody } from './IssuesBugsFeatures.jsx';
 // Requires login (see the /help route in App.jsx) because that embedded
 // content does.
 export default function Help() {
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Help' }]);
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Help' }]);
 
   return (
     <div>
