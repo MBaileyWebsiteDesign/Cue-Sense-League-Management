@@ -18,6 +18,7 @@ export default function AdminPortal() {
         specific match are on that match's own page, or search for one directly below.
       </p>
 
+      <h2 className="section-label">Season Setup</h2>
       <div className="card-grid">
         <Link to="/admin/seasons/new" className="card card-link">
           <h2>+ New Season</h2>
@@ -43,7 +44,10 @@ export default function AdminPortal() {
             status, suspend or reactivate accounts, and force-reset passwords.
           </p>
         </Link>
+      </div>
 
+      <h2 className="section-label">Day-to-day</h2>
+      <div className="card-grid">
         <Link to="/admin/game-adjustments" className="card card-link">
           <h2>Game Adjustments</h2>
           <p className="muted">
@@ -59,7 +63,10 @@ export default function AdminPortal() {
             only admins see the whole season's fixtures until you release them.
           </p>
         </Link>
+      </div>
 
+      <h2 className="section-label">Records &amp; Tools</h2>
+      <div className="card-grid">
         <Link to="/admin/audit-log" className="card card-link">
           <h2>Audit Log</h2>
           <p className="muted">

@@ -39,7 +39,7 @@ export default function Login() {
   };
 
   return (
-    <div style={{ maxWidth: 360, margin: '40px auto' }}>
+    <div className="login-page">
       <h1>Log In</h1>
       <p className="muted">
         Sign in to browse leagues, divisions, fixtures and player profiles. No account
