@@ -1,1 +1,861 @@
-PLACEHOLDER
+import { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { api } from '../api.js';
+import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import { useIsAdminSession } from '../useAdminSession.js';
+import { useAuth } from '../AuthContext.jsx';
+
+// Shared "submitted, awaiting confirmation / disputed" banner + action
+// buttons for a result that's reached the submit -> confirm handshake (see
+// server/src/index.js's "Result confirmation" section for the full design).
+// BOTH the home and away entrant have to independently confirm before a
+// result finalizes - `isHomeEntrant`/`isAwayEntrant` say which side (if any)
+// the viewer is, and `homeConfirmed`/`awayConfirmed` say where each side
+// currently stands.
+function ResultConfirmationPanel({
+  status, isAdmin, isHomeEntrant, isAwayEntrant, homeConfirmed, awayConfirmed,
+  onConfirm, onDispute, onReopen, homeLabel, awayLabel, disputeReason,
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [disputing, setDisputing] = useState(false);
+  const [reason, setReason] = useState('');
+
+  const run = async (fn) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Disputing always requires a short explanation - it's the context an
+  // admin has to work from when resolving it in Game Adjustments, so the
+  // form won't submit without one.
+  const submitDispute = async () => {
+    if (!reason.trim()) {
+      setError('Please explain why you’re disputing this result.');
+      return;
+    }
+    await run(() => onDispute(reason.trim()));
+    setDisputing(false);
+    setReason('');
+  };
+
+  if (status === 'pending_confirmation') {
+    const canAct = isAdmin || isHomeEntrant || isAwayEntrant;
+    const myConfirmed = !isAdmin && ((isHomeEntrant && homeConfirmed) || (isAwayEntrant && awayConfirmed));
+    return (
+      <section className="card">
+        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+          Result submitted - both players need to confirm the score before it counts.{' '}
+          {homeLabel} confirmed: <strong>{homeConfirmed ? 'Yes' : 'Not yet'}</strong> · {awayLabel} confirmed: <strong>{awayConfirmed ? 'Yes' : 'Not yet'}</strong>
+        </p>
+        {error && <p className="error">{error}</p>}
+        {canAct ? (
+          myConfirmed ? (
+            <p className="muted">You’ve confirmed this result - waiting on the other player to confirm too.</p>
+          ) : disputing ? (
+            <div className="inline-form" style={{ flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Why are you disputing this result?"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                style={{ flex: '1 1 240px' }}
+                autoFocus
+              />
+              <button className="btn btn-primary" disabled={busy} onClick={submitDispute}>Submit Dispute</button>
+              <button className="btn" disabled={busy} onClick={() => { setDisputing(false); setReason(''); setError(''); }}>Cancel</button>
+            </div>
+          ) : (
+            <div className="inline-form">
+              <button className="btn btn-primary" disabled={busy} onClick={() => run(onConfirm)}>Confirm Result</button>
+              <button className="btn" disabled={busy} onClick={() => setDisputing(true)}>Dispute Result</button>
+            </div>
+          )
+        ) : (
+          <p className="muted">Waiting on {homeLabel} and {awayLabel} to both confirm this result.</p>
+        )}
+        {isAdmin && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            <button className="btn" disabled={busy} onClick={() => run(onReopen)}>Reopen for scoring</button>
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  if (status === 'disputed') {
+    return (
+      <section className="card">
+        <p className="banner" style={{ background: '#fee2e2', color: '#991b1b' }}>
+          This result is disputed - an admin needs to resolve it, either by overriding the
+          score directly or reopening it for further scoring. See <Link to="/admin/game-adjustments">Game Adjustments</Link>.
+        </p>
+        {disputeReason && (
+          <p className="muted"><strong>Reason given:</strong> {disputeReason}</p>
+        )}
+        {error && <p className="error">{error}</p>}
+        {isAdmin && (
+          <button className="btn" disabled={busy} onClick={() => run(onReopen)}>Reopen for scoring</button>
+        )}
+      </section>
+    );
+  }
+
+  return null;
+}
+
+// "Non-contactable / No Show" button - lets a player report their opponent
+// as unreachable, claiming a 0-0-frames game win pending admin authorisation
+// (see POST .../no-show / .../no-show/authorize in server/src/index.js).
+// Only shown to an actual entrant of the fixture/leg, and only while it's
+// still open for scoring (not already submitted, completed, or disputed).
+function NoShowClaimButton({ onClaim }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await onClaim();
+      setOpen(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {error && <p className="error">{error}</p>}
+      {open ? (
+        <div className="inline-form" style={{ flexWrap: 'wrap' }}>
+          <span className="muted" style={{ flex: '1 1 320px' }}>
+            This reports your opponent as non-contactable / a no-show, claiming a 0-0 walkover win for
+            you - an admin has to authorise it before it counts.
+          </span>
+          <button className="btn btn-primary" disabled={busy} onClick={submit}>
+            {busy ? 'Reporting…' : 'Confirm report'}
+          </button>
+          <button className="btn" disabled={busy} onClick={() => { setOpen(false); setError(''); }}>Cancel</button>
+        </div>
+      ) : (
+        <button className="btn" onClick={() => setOpen(true)}>Non-contactable / No Show</button>
+      )}
+    </div>
+  );
+}
+
+function AdminOverridePanel({ fixture, isTeams, isDoubles, onChange }) {
+  const homeName = isTeams ? fixture.homeTeam?.name : isDoubles ? fixture.homePairing?.name : fixture.homePlayer?.name;
+  const awayName = isTeams ? fixture.awayTeam?.name : isDoubles ? fixture.awayPairing?.name : fixture.awayPlayer?.name;
+  const [homeScore, setHomeScore] = useState(String(isTeams ? fixture.homeLegsWon ?? 0 : fixture.homeFrameScore ?? 0));
+  const [awayScore, setAwayScore] = useState(String(isTeams ? fixture.awayLegsWon ?? 0 : fixture.awayFrameScore ?? 0));
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  if (!fixture.bothEntrantsKnown) return null;
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setSubmitting(true);
+    try {
+      await api.overrideFixture(fixture.id, Number(homeScore), Number(awayScore));
+      setSuccess('Result overridden.');
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Admin: Override Result</h2>
+        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="muted">
+            Directly sets the final score, bypassing frame-by-frame play. Use to correct mistakes.
+            {fixture.adminOverride && (
+              <> Last overridden by <strong>{fixture.adminOverride.by}</strong> at {new Date(fixture.adminOverride.at).toLocaleString()}.</>
+            )}
+          </p>
+          <form className="inline-form" onSubmit={onSubmit}>
+            <label>
+              {homeName || 'Home'}
+              <input type="number" min="0" value={homeScore} onChange={(e) => setHomeScore(e.target.value)} required />
+            </label>
+            <label>
+              {awayName || 'Away'}
+              <input type="number" min="0" value={awayScore} onChange={(e) => setAwayScore(e.target.value)} required />
+            </label>
+            <button className="btn btn-primary" type="submit" disabled={submitting}>
+              {submitting ? 'Saving…' : 'Override Score'}
+            </button>
+          </form>
+          {error && <p className="error">{error}</p>}
+          {success && <p className="banner banner-success">{success}</p>}
+        </>
+      )}
+    </section>
+  );
+}
+
+// Shows the OBS Browser Source URL for this fixture's stream overlay
+// (StreamOverlay.jsx / GET /api/overlay/fixtures/:id - see that page for the
+// design notes) with a one-click copy button, so an admin can grab the link
+// without hand-editing a URL. Admin-only since it's a broadcast-setup tool,
+// not something a spectator needs.
+function StreamOverlayLink({ fixtureId }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/overlay/${fixtureId}`;
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be blocked (insecure context, permissions) -
+      // the URL is still selectable/copyable by hand in that case.
+    }
+  };
+
+  return (
+    <p className="muted" style={{ fontSize: '0.85rem' }}>
+      Stream overlay (OBS Browser Source): <code style={{ wordBreak: 'break-all' }}>{url}</code>{' '}
+      <button className="btn" type="button" onClick={onCopy}>
+        {copied ? 'Copied!' : 'Copy link'}
+      </button>
+    </p>
+  );
+}
+
+function LegNominationForm({ fixture, leg, onChange, setError }) {
+  const [homePlayerId, setHomePlayerId] = useState('');
+  const [awayPlayerId, setAwayPlayerId] = useState('');
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.nominateLeg(fixture.id, leg.legNumber, homePlayerId, awayPlayerId);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <form className="inline-form" onSubmit={onSubmit}>
+      <select value={homePlayerId} onChange={(e) => setHomePlayerId(e.target.value)} required>
+        <option value="" disabled>{fixture.homeTeam.name} player…</option>
+        {fixture.homeTeam.players.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      <span className="muted">vs</span>
+      <select value={awayPlayerId} onChange={(e) => setAwayPlayerId(e.target.value)} required>
+        <option value="" disabled>{fixture.awayTeam.name} player…</option>
+        {fixture.awayTeam.players.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      <button className="btn btn-primary" type="submit">Nominate</button>
+    </form>
+  );
+}
+
+function LegRow({ fixture, leg, onChange, setError }) {
+  const { user, isAdmin } = useAuth();
+  const complete = leg.status === 'completed';
+  const locked = complete || leg.status === 'pending_confirmation' || leg.status === 'disputed';
+  const raceTargetReached = leg.status === 'in_progress' && (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo);
+  const isHomeNominee = !!user?.playerId && user.playerId === leg.homePlayerId;
+  const isAwayNominee = !!user?.playerId && user.playerId === leg.awayPlayerId;
+  const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status);
+
+  const onRecord = async (winnerPlayerId) => {
+    setError('');
+    try {
+      await api.recordLegFrame(fixture.id, leg.legNumber, winnerPlayerId);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const onUndo = async () => {
+    setError('');
+    try {
+      await api.undoLastLegFrame(fixture.id, leg.legNumber);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const onSubmitResult = async () => {
+    setError('');
+    try {
+      await api.submitLegResult(fixture.id, leg.legNumber);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="page-header">
+        <h3 style={{ margin: 0 }}>Leg {leg.legNumber}</h3>
+        <span className={`status status-${leg.status === 'pending' ? 'scheduled' : leg.status}`}>
+          {leg.status === 'pending' ? 'not nominated' : leg.status.replace('_', ' ')}
+        </span>
+      </div>
+
+      {leg.status === 'pending' ? (
+        <LegNominationForm fixture={fixture} leg={leg} onChange={onChange} setError={setError} />
+      ) : (
+        <>
+          <div className="scoreboard">
+            <div className="scoreboard-player">
+              <h2><Link to={`/players/${leg.homePlayerId}`}>{leg.homePlayer.name}</Link></h2>
+              <div className="score">{leg.homeFrameScore}</div>
+              <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.homePlayerId)}>
+                Frame won
+              </button>
+            </div>
+            <div className="scoreboard-vs">vs</div>
+            <div className="scoreboard-player">
+              <h2><Link to={`/players/${leg.awayPlayerId}`}>{leg.awayPlayer.name}</Link></h2>
+              <div className="score">{leg.awayFrameScore}</div>
+              <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.awayPlayerId)}>
+                Frame won
+              </button>
+            </div>
+          </div>
+          <div className="page-header">
+            <span className="muted">Race to {leg.raceTo}</span>
+            <button className="btn" disabled={leg.frames.length === 0 || locked} onClick={onUndo}>
+              Undo last frame
+            </button>
+          </div>
+
+          {raceTargetReached && (
+            <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+              Race to {leg.raceTo} reached ({leg.homeFrameScore}-{leg.awayFrameScore}).{' '}
+              <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
+                Submit for Confirmation
+              </button>
+            </p>
+          )}
+
+          {canReportNoShow && (
+            <NoShowClaimButton
+              onClaim={async () => { await api.claimNoShow(fixture.id, leg.legNumber); onChange(); }}
+            />
+          )}
+
+          <ResultConfirmationPanel
+            status={leg.status}
+            isAdmin={isAdmin}
+            isHomeEntrant={isHomeNominee}
+            isAwayEntrant={isAwayNominee}
+            homeConfirmed={!!leg.homeConfirmed}
+            awayConfirmed={!!leg.awayConfirmed}
+            homeLabel={leg.homePlayer.name}
+            awayLabel={leg.awayPlayer.name}
+            disputeReason={leg.disputeReason}
+            onConfirm={async () => { await api.confirmLegResult(fixture.id, leg.legNumber); onChange(); }}
+            onDispute={async (reason) => { await api.disputeLegResult(fixture.id, leg.legNumber, reason); onChange(); }}
+            onReopen={async () => { await api.adminReopenLeg(fixture.id, leg.legNumber); onChange(); }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function TeamFixtureView({ fixture, onChange, setError }) {
+  const complete = fixture.status === 'completed';
+  const drawn = complete && fixture.winnerTeamId === null;
+
+  if (!fixture.bothEntrantsKnown) {
+    return (
+      <section className="card scoreboard">
+        <div className="scoreboard-player">
+          <h2>{fixture.homeTeam ? fixture.homeTeam.name : 'TBD'}</h2>
+        </div>
+        <div className="scoreboard-vs">vs</div>
+        <div className="scoreboard-player">
+          <h2>{fixture.awayTeam ? fixture.awayTeam.name : 'TBD'}</h2>
+        </div>
+        <p className="muted" style={{ width: '100%', textAlign: 'center' }}>
+          Waiting on the result of an earlier round before this match can be played.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div>
+      <section className="card scoreboard">
+        <div className="scoreboard-player">
+          <h2>{fixture.homeTeam.name}</h2>
+          <div className="score">{fixture.homeLegsWon}</div>
+        </div>
+        <div className="scoreboard-vs">legs</div>
+        <div className="scoreboard-player">
+          <h2>{fixture.awayTeam.name}</h2>
+          <div className="score">{fixture.awayLegsWon}</div>
+        </div>
+      </section>
+
+      {complete && (
+        <p className="banner banner-success">
+          {drawn
+            ? `Team match drawn ${fixture.homeLegsWon}-${fixture.awayLegsWon}`
+            : `Match complete: ${fixture.winnerTeamId === fixture.homeTeamId ? fixture.homeTeam.name : fixture.awayTeam.name} win ${Math.max(fixture.homeLegsWon, fixture.awayLegsWon)}-${Math.min(fixture.homeLegsWon, fixture.awayLegsWon)}`}
+          {fixture.closedEarly && ' - closed early, not played out'}
+        </p>
+      )}
+
+      {fixture.legs.map((leg) => (
+        <LegRow key={leg.legNumber} fixture={fixture} leg={leg} onChange={onChange} setError={setError} />
+      ))}
+    </div>
+  );
+}
+
+// Handles both singles fixtures (fixture.homePlayer/awayPlayer, a single
+// registered player) and doubles/triples fixtures (fixture.homePairing/
+// awayPairing, a named 2-3 player group) - the two are structurally
+// identical (one continuous frame race, no legs), differing only in what
+// the "entrant" is and whether it links to a player profile page.
+function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
+  const { user, isAdmin } = useAuth();
+  const complete = fixture.status === 'completed';
+  // Scoring is locked once a result has been submitted (pending_confirmation)
+  // or disputed - only "Submit for Confirmation" / Confirm / Dispute /
+  // Reopen apply from that point on, not more frames.
+  const locked = complete || fixture.status === 'pending_confirmation' || fixture.status === 'disputed';
+  // fixture.raceTo is null for Free Play (no frame count target) - there's
+  // no target to "reach", so that match instead becomes finishable the
+  // moment it's in progress and the scores aren't level (see
+  // freePlayReadyToFinish below).
+  const isFreePlay = fixture.raceTo == null;
+  const raceTargetReached = !isFreePlay && fixture.status === 'in_progress' && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo);
+  const freePlayInProgress = isFreePlay && fixture.status === 'in_progress';
+  const freePlayReadyToFinish = freePlayInProgress && fixture.homeFrameScore !== fixture.awayFrameScore;
+  const homeEntrant = isDoubles ? fixture.homePairing : fixture.homePlayer;
+  const awayEntrant = isDoubles ? fixture.awayPairing : fixture.awayPlayer;
+  const amHomeEntrant = isDoubles
+    ? !!(user?.playerId && homeEntrant?.players?.some((p) => p.id === user.playerId))
+    : user?.playerId === fixture.homePlayerId;
+  const amAwayEntrant = isDoubles
+    ? !!(user?.playerId && awayEntrant?.players?.some((p) => p.id === user.playerId))
+    : user?.playerId === fixture.awayPlayerId;
+  const canReportNoShow = (amHomeEntrant || amAwayEntrant) && ['scheduled', 'in_progress'].includes(fixture.status);
+
+  const EntrantName = ({ entrant, id }) => {
+    if (!entrant) return 'TBD';
+    if (isDoubles) {
+      return (
+        <>
+          {entrant.name}
+          <div className="muted" style={{ fontSize: '0.75rem', fontWeight: 400, marginTop: 2 }}>
+            {entrant.players.map((p) => p.name).join(' & ')}
+          </div>
+        </>
+      );
+    }
+    return <Link to={`/players/${id}`}>{entrant.name}</Link>;
+  };
+
+  if (!fixture.bothEntrantsKnown) {
+    return (
+      <section className="card scoreboard">
+        <div className="scoreboard-player">
+          <h2><EntrantName entrant={homeEntrant} id={fixture.homePlayerId} /></h2>
+        </div>
+        <div className="scoreboard-vs">vs</div>
+        <div className="scoreboard-player">
+          <h2><EntrantName entrant={awayEntrant} id={fixture.awayPlayerId} /></h2>
+        </div>
+        <p className="muted" style={{ width: '100%', textAlign: 'center' }}>
+          Waiting on the result of an earlier round before this match can be played.
+        </p>
+      </section>
+    );
+  }
+
+  const onRecord = async (winnerId) => {
+    setError('');
+    try {
+      await api.recordFrame(fixture.id, winnerId);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const onUndo = async () => {
+    setError('');
+    try {
+      await api.undoLastFrame(fixture.id);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const onSubmitResult = async () => {
+    setError('');
+    try {
+      await api.submitResult(fixture.id);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div>
+      <section className="card scoreboard">
+        <div className="scoreboard-player">
+          <h2><EntrantName entrant={homeEntrant} id={fixture.homePlayerId} /></h2>
+          <div className="score">{fixture.homeFrameScore}</div>
+          <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.homePlayerId)}>
+            Frame won by {homeEntrant.name}
+          </button>
+        </div>
+        <div className="scoreboard-vs">vs</div>
+        <div className="scoreboard-player">
+          <h2><EntrantName entrant={awayEntrant} id={fixture.awayPlayerId} /></h2>
+          <div className="score">{fixture.awayFrameScore}</div>
+          <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.awayPlayerId)}>
+            Frame won by {awayEntrant.name}
+          </button>
+        </div>
+      </section>
+
+      {raceTargetReached && (
+        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+          Race to {fixture.raceTo} reached ({fixture.homeFrameScore}-{fixture.awayFrameScore}).{' '}
+          <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
+            Submit for Confirmation
+          </button>
+        </p>
+      )}
+
+      {freePlayReadyToFinish && (
+        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
+          {fixture.homeFrameScore > fixture.awayFrameScore ? homeEntrant.name : awayEntrant.name} is ahead
+          ({fixture.homeFrameScore}-{fixture.awayFrameScore}). Free Play has no frame count target - finish the
+          match whenever you're ready, no need to wait for the other side to confirm.{' '}
+          <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
+            Finish Match
+          </button>
+        </p>
+      )}
+
+      {freePlayInProgress && !freePlayReadyToFinish && (
+        <p className="muted">
+          Scores are level ({fixture.homeFrameScore}-{fixture.awayFrameScore}) - play another frame before
+          finishing this Free Play match.
+        </p>
+      )}
+
+      {canReportNoShow && (
+        <NoShowClaimButton
+          onClaim={async () => { await api.claimNoShow(fixture.id); onChange(); }}
+        />
+      )}
+
+      <ResultConfirmationPanel
+        status={fixture.status}
+        isAdmin={isAdmin}
+        isHomeEntrant={amHomeEntrant}
+        isAwayEntrant={amAwayEntrant}
+        homeConfirmed={!!fixture.homeConfirmed}
+        awayConfirmed={!!fixture.awayConfirmed}
+        homeLabel={homeEntrant.name}
+        awayLabel={awayEntrant.name}
+        disputeReason={fixture.disputeReason}
+        onConfirm={async () => { await api.confirmResult(fixture.id); onChange(); }}
+        onDispute={async (reason) => { await api.disputeResult(fixture.id, reason); onChange(); }}
+        onReopen={async () => { await api.adminReopenFixture(fixture.id); onChange(); }}
+      />
+
+      {complete && (
+        <p className="banner banner-success">
+          Match complete: {homeEntrant.name} {fixture.homeFrameScore} - {fixture.awayFrameScore} {awayEntrant.name}
+          {fixture.closedEarly && ' - closed early, not played out'}
+        </p>
+      )}
+
+      {/* Free Play has no division/league to browse back to afterwards (it's
+          just the one 2-player match - see AdHocGame.jsx), so once it's
+          complete, point the player straight at the two places they'd
+          actually go next instead of leaving them on a finished scoreboard. */}
+      {complete && isFreePlay && (
+        <div className="inline-form inline-form-center">
+          <Link className="btn btn-primary" to="/account">Home</Link>
+          <Link className="btn btn-primary" to="/adhoc-game/new">New Game</Link>
+        </div>
+      )}
+
+      <section className="card">
+        <div className="page-header">
+          <h2>Frame history</h2>
+          <button className="btn" disabled={fixture.frames.length === 0 || locked} onClick={onUndo}>
+            Undo last frame
+          </button>
+        </div>
+        <ol className="frame-history">
+          {fixture.frames.map((f) => (
+            <li key={f.frameNumber}>
+              Frame {f.frameNumber}: {f.winnerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
+            </li>
+          ))}
+          {fixture.frames.length === 0 && <li className="muted">No frames recorded yet.</li>}
+        </ol>
+      </section>
+    </div>
+  );
+}
+
+// Live match timer (elapsed running clock) and shot clock (per-shot
+// countdown) - see server/src/index.js's /timer/* and /shot-clock/* routes.
+// Open to any logged-in account, same as frame scoring, since whoever's
+// refereeing the table is often not one of the two players. Ticks its own
+// display every second locally (rather than polling the server) using the
+// startedAt timestamp the server already returns, so the display stays
+// smooth between the occasional onChange() refresh.
+function LiveMatchControls({ fixture, onChange, setError }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!fixture.timer.running && !fixture.shotClock.running) return undefined;
+    const tick = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(tick);
+  }, [fixture.timer.running, fixture.shotClock.running]);
+
+  const run = async (fn) => {
+    setError('');
+    try {
+      await fn();
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const timerElapsed = fixture.timer.elapsedSeconds
+    + (fixture.timer.running && fixture.timer.startedAt ? (now - new Date(fixture.timer.startedAt).getTime()) / 1000 : 0);
+  const formatClock = (totalSeconds) => {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+
+  const shotRemaining = fixture.shotClock.running && fixture.shotClock.startedAt
+    ? fixture.shotClock.durationSeconds - (now - new Date(fixture.shotClock.startedAt).getTime()) / 1000
+    : fixture.shotClock.durationSeconds;
+
+  return (
+    <section className="card card-center">
+      <h2>Live Match Controls</h2>
+      <div className="inline-form inline-form-center" style={{ alignItems: 'center' }}>
+        <div>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Match Timer</div>
+          <div style={{ fontSize: '1.8rem', fontVariantNumeric: 'tabular-nums' }}>{formatClock(timerElapsed)}</div>
+        </div>
+        {fixture.timer.running ? (
+          <button className="btn" onClick={() => run(() => api.pauseTimer(fixture.id))}>Pause</button>
+        ) : (
+          <button className="btn btn-primary" onClick={() => run(() => api.startTimer(fixture.id))}>Start</button>
+        )}
+        <button className="btn" onClick={() => run(() => api.resetTimer(fixture.id))}>Reset</button>
+      </div>
+      <div className="inline-form inline-form-center" style={{ alignItems: 'center', marginTop: 16 }}>
+        <div>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Shot Clock</div>
+          <div
+            style={{
+              fontSize: '1.8rem',
+              fontVariantNumeric: 'tabular-nums',
+              color: fixture.shotClock.running && shotRemaining <= 10 ? '#dc2626' : undefined,
+            }}
+          >
+            {formatClock(shotRemaining)}
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={() => run(() => api.startShotClock(fixture.id, fixture.shotClock.durationSeconds))}>
+          {fixture.shotClock.running ? 'Restart' : `Start (${fixture.shotClock.durationSeconds}s)`}
+        </button>
+        <button className="btn" onClick={() => run(() => api.stopShotClock(fixture.id))}>Stop</button>
+      </div>
+    </section>
+  );
+}
+
+// Admin-only: assign this fixture to a table plus a date/time - see
+// server/src/index.js's POST /api/fixtures/:id/schedule (rejects a
+// double-booking on the same table at the same date+time).
+function ScheduleFixturePanel({ fixture, onChange, setError }) {
+  const [tables, setTables] = useState([]);
+  const [tableId, setTableId] = useState(fixture.tableId || '');
+  const [scheduledDate, setScheduledDate] = useState(fixture.scheduledDate || '');
+  const [scheduledTime, setScheduledTime] = useState(fixture.scheduledTime || '');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    api.getLeague(fixture.leagueId).then((league) => setTables(league.tables)).catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixture.leagueId]);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      await api.scheduleFixture(fixture.id, {
+        tableId: tableId || null,
+        scheduledDate: scheduledDate || null,
+        scheduledTime: scheduledTime || null,
+      });
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2>Schedule</h2>
+      <form className="inline-form" onSubmit={onSubmit}>
+        <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
+          <option value="">No table assigned</option>
+          {tables.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
+        <input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
+        <button className="btn btn-primary" type="submit" disabled={submitting}>
+          {submitting ? 'Saving…' : 'Save'}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+export default function FixtureDetail() {
+  const { fixtureId } = useParams();
+  const [fixture, setFixture] = useState(null);
+  const [league, setLeague] = useState(null);
+  const [error, setError] = useState('');
+  // League-scoped: an Overall Admin passes regardless of `league` (even
+  // before it's loaded, since canManageLeague short-circuits on isAdmin) -
+  // a League Manager only passes once `league` has loaded and lists them.
+  const isAdminSession = useIsAdminSession(league);
+  const { isCaptain } = useAuth();
+  // Plain players (not Admin/League Manager for this league, not Captain)
+  // don't have a division-management reason to land on the division page -
+  // their equivalent "back" destination is the fixtures list on their own
+  // account portal (PlayerPortal.jsx's "My Fixtures" panel, at /account).
+  const isPlayerSession = !isAdminSession && !isCaptain;
+
+  const load = () => api.getFixture(fixtureId).then(setFixture).catch((e) => setError(e.message));
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixtureId]);
+
+  useEffect(() => {
+    if (!fixture) return;
+    api.getLeague(fixture.leagueId).then(setLeague).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixture?.leagueId]);
+
+  // Double-elimination fixtures carry a bracketRole that's more useful to
+  // show than the raw (globally-offset) round number - e.g. a losers-bracket
+  // fixture's `round` might read "6" in an 8-player bracket, which is
+  // confusing without context.
+  const BRACKET_ROLE_LABEL = {
+    winners: 'Winners Bracket',
+    losers: 'Losers Bracket',
+    grand_final: 'Grand Final',
+    grand_final_reset: 'Grand Final — Bracket Reset',
+  };
+  const roundLabel = (f) =>
+    f.bracketRole && f.bracketRole !== 'single' ? BRACKET_ROLE_LABEL[f.bracketRole] || `Round ${f.round}` : `Round ${f.round}`;
+
+  useSetBreadcrumbs(
+    fixture
+      ? [{ label: 'Home', to: '/' }, { label: fixture.divisionName || 'Division', to: `/divisions/${fixture.divisionId}` }, { label: roundLabel(fixture) }]
+      : [{ label: 'Home', to: '/' }, { label: 'Loading…' }]
+  );
+
+  if (!fixture) return <p>Loading…</p>;
+
+  // NB: can't detect team fixtures via `homeTeamId` - it's `null` for TBD
+  // knockout slots even on team fixtures. `legs` is always present on team
+  // fixture responses (even before both sides are known), never on singles.
+  const isTeams = Array.isArray(fixture.legs);
+  // Doubles/triples fixtures reuse the singles shape (no `legs`), but the
+  // API keys them `homePairing`/`awayPairing` instead of `homePlayer`/
+  // `awayPlayer` since the entrant is a named 2-3 player group, not one
+  // registered player - that key is always present (even `null`) on a
+  // doubles/triples division's fixtures, never on a singles one.
+  const isDoubles = !isTeams && 'homePairing' in fixture;
+
+  return (
+    <div>
+      <p>
+        {isPlayerSession ? (
+          <Link to="/account">&larr; Back to fixtures</Link>
+        ) : (
+          <Link to={`/divisions/${fixture.divisionId}`}>&larr; Back to division</Link>
+        )}
+      </p>
+      <h1 className="fixture-heading">{roundLabel(fixture)}{isTeams ? ` · Best of ${fixture.legs.length} legs` : fixture.raceTo == null ? ' · Free Play' : ` · Race to ${fixture.raceTo}`}</h1>
+      {isAdminSession && <StreamOverlayLink fixtureId={fixture.id} />}
+      {error && <p className="error">{error}</p>}
+
+      {isAdminSession && <ScheduleFixturePanel fixture={fixture} onChange={load} setError={setError} />}
+      {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} onChange={load} setError={setError} />}
+
+      {isTeams ? (
+        <TeamFixtureView fixture={fixture} onChange={load} setError={setError} />
+      ) : (
+        <SinglesFixtureView fixture={fixture} isDoubles={isDoubles} onChange={load} setError={setError} />
+      )}
+
+      {isAdminSession && <AdminOverridePanel fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} />}
+    </div>
+  );
+}
