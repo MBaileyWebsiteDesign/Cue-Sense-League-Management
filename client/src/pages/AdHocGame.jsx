@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 const KILLER_SCHEDULING = ['killer_classic', 'cards_killer'];
@@ -651,7 +652,12 @@ function SelectPlayers({ justCreated, onStarted }) {
 export default function AdHocGame() {
   const navigate = useNavigate();
   const [createdDivision, setCreatedDivision] = useState(null);
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'My Account', to: '/account' }, { label: 'Ad Hoc Game' }]);
+  // Players landing on this page have no leagues section to browse back to
+  // (it's just a one-off 2-player Free Play game), so their Home crumb goes
+  // straight to their own portal instead of the general leagues list.
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'My Account', to: '/account' }, { label: 'Ad Hoc Game' }]);
 
   return (
     <div>
