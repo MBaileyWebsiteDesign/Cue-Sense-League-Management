@@ -1541,7 +1541,10 @@ const KNOCKOUT_BRACKET_POLL_MS = 15000;
 
 export default function DivisionDetail() {
   const { divisionId } = useParams();
-  const { isAdmin, canManageLeague } = useAuth();
+  const { isAdmin, isCaptain, isLeagueManager, canManageLeague } = useAuth();
+  // Players have no reason to browse the general leagues list from here -
+  // send their Home crumb straight to their own portal instead.
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
   const [division, setDivision] = useState(null);
   const [registeredPlayers, setRegisteredPlayers] = useState([]);
   const [error, setError] = useState('');
@@ -1597,11 +1600,11 @@ export default function DivisionDetail() {
   useSetBreadcrumbs(
     division
       ? [
-          { label: 'Home', to: '/' },
+          { label: 'Home', to: isPlayerSession ? '/account' : '/' },
           { label: division.leagueName || 'League', to: `/leagues/${division.leagueId}` },
           { label: division.name },
         ]
-      : [{ label: 'Home', to: '/' }, { label: 'Loading…' }]
+      : [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Loading…' }]
   );
 
   if (!division) return <p>Loading…</p>;
