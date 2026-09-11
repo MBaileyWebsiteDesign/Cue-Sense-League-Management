@@ -301,6 +301,36 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 
 .section-label:first-of-type { margin-top: 0; }
 
+/* Division page tab bar (Overview / Standings / Fixtures) - plain
+   underline-style tabs, no new icon/asset dependencies. */
+.division-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+
+.division-tab {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  padding: 10px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  margin-bottom: -2px;
+}
+
+.division-tab:hover { color: var(--ink); }
+
+.division-tab-active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
 .form label, .inline-form input {
   display: block;
   margin-bottom: 12px;

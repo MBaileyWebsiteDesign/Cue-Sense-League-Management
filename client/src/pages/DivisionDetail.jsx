@@ -1557,6 +1557,11 @@ export default function DivisionDetail() {
   const [registeredPlayers, setRegisteredPlayers] = useState([]);
   const [error, setError] = useState('');
   const mountedRef = useRef(true);
+  // Splits the page into Overview / Standings / Fixtures tabs instead of one
+  // long scroll - a Killer division has nothing to put in Standings or
+  // Fixtures (see isKiller below), so it skips the tab bar entirely and just
+  // shows Overview content flat.
+  const [activeTab, setActiveTab] = useState('overview');
 
   const load = () => api.getDivision(divisionId).then(setDivision).catch((e) => setError(e.message));
 
@@ -1727,6 +1732,44 @@ export default function DivisionDetail() {
         </p>
       )}
 
+      {/* Killer has nothing to show in Standings/Fixtures (see isKiller
+          guards throughout this file) so it skips the tab bar and just
+          renders Overview content flat, same as before this tabbed layout
+          existed. */}
+      {!isKiller && (
+        <div className="division-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'overview'}
+            className={`division-tab${activeTab === 'overview' ? ' division-tab-active' : ''}`}
+            onClick={() => setActiveTab('overview')}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'standings'}
+            className={`division-tab${activeTab === 'standings' ? ' division-tab-active' : ''}`}
+            onClick={() => setActiveTab('standings')}
+          >
+            Standings
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'fixtures'}
+            className={`division-tab${activeTab === 'fixtures' ? ' division-tab-active' : ''}`}
+            onClick={() => setActiveTab('fixtures')}
+          >
+            {isSingleElimKnockout || isAdaptiveKnockout || isDoubleElim ? 'Bracket & Fixtures' : 'Fixtures'}
+          </button>
+        </div>
+      )}
+
+      {(isKiller || activeTab === 'overview') && (
+      <>
       {canManage && (
         <ManageDivisionPanel
           division={division}
@@ -1755,8 +1798,11 @@ export default function DivisionDetail() {
       {isKiller && division.killer && (
         <KillerBoard division={division} onChange={load} setError={setError} />
       )}
+      </>
+      )}
 
-      {!isKiller && (
+      {!isKiller && activeTab === 'standings' && (
+      <>
       <section className="card">
         <h2>Standings</h2>
         <table className="standings-table">
@@ -1815,22 +1861,23 @@ export default function DivisionDetail() {
             : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · Pts = Points'}
         </p>
       </section>
-      )}
 
-      {!isKiller && (
       <p style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <Link className="btn btn-primary" to={`/public/divisions/${division.id}/table`}>View public Division Table &rarr;</Link>
         <Link className="btn btn-primary" to={`/public/divisions/${division.id}/fixtures`}>View public Division Fixtures &rarr;</Link>
       </p>
-      )}
-      {!isKiller && canManage && (
+      {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
           The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
           &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
           the page.
         </p>
       )}
+      </>
+      )}
 
+      {!isKiller && activeTab === 'fixtures' && (
+      <>
       {isSingleElimKnockout && division.fixturesGenerated && division.fixtures.length > 0 && (
         <section className="card">
           <h2>Bracket</h2>
@@ -1909,7 +1956,6 @@ export default function DivisionDetail() {
         </section>
       )}
 
-      {!isKiller && (
       <section className="card">
         <div className="page-header">
           <h2>Fixtures</h2>
@@ -1948,6 +1994,7 @@ export default function DivisionDetail() {
               </div>
             ))}
       </section>
+      </>
       )}
     </div>
   );
