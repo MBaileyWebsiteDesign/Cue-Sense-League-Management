@@ -239,7 +239,9 @@ export function IssuesBugsFeaturesBody() {
 // The standalone /issues-bugs-features page: same body as above, plus the
 // page heading and breadcrumbs.
 export default function IssuesBugsFeatures() {
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Issues / Bugs / Features' }]);
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Issues / Bugs / Features' }]);
 
   return (
     <div>
