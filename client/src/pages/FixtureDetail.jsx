@@ -683,9 +683,9 @@ function LiveMatchControls({ fixture, onChange, setError }) {
     : fixture.shotClock.durationSeconds;
 
   return (
-    <section className="card">
+    <section className="card card-center">
       <h2>Live Match Controls</h2>
-      <div className="inline-form" style={{ alignItems: 'center' }}>
+      <div className="inline-form inline-form-center" style={{ alignItems: 'center' }}>
         <div>
           <div className="muted" style={{ fontSize: '0.75rem' }}>Match Timer</div>
           <div style={{ fontSize: '1.8rem', fontVariantNumeric: 'tabular-nums' }}>{formatClock(timerElapsed)}</div>
@@ -697,7 +697,7 @@ function LiveMatchControls({ fixture, onChange, setError }) {
         )}
         <button className="btn" onClick={() => run(() => api.resetTimer(fixture.id))}>Reset</button>
       </div>
-      <div className="inline-form" style={{ alignItems: 'center', marginTop: 16 }}>
+      <div className="inline-form inline-form-center" style={{ alignItems: 'center', marginTop: 16 }}>
         <div>
           <div className="muted" style={{ fontSize: '0.75rem' }}>Shot Clock</div>
           <div
@@ -842,7 +842,7 @@ export default function FixtureDetail() {
           <Link to={`/divisions/${fixture.divisionId}`}>&larr; Back to division</Link>
         )}
       </p>
-      <h1>{roundLabel(fixture)}{isTeams ? ` · Best of ${fixture.legs.length} legs` : fixture.raceTo == null ? ' · Free Play' : ` · Race to ${fixture.raceTo}`}</h1>
+      <h1 className="fixture-heading">{roundLabel(fixture)}{isTeams ? ` · Best of ${fixture.legs.length} legs` : fixture.raceTo == null ? ' · Free Play' : ` · Race to ${fixture.raceTo}`}</h1>
       {isAdminSession && <StreamOverlayLink fixtureId={fixture.id} />}
       {error && <p className="error">{error}</p>}
 
