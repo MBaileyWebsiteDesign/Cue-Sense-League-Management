@@ -816,8 +816,8 @@ export default function FixtureDetail() {
 
   useSetBreadcrumbs(
     fixture
-      ? [{ label: 'Home', to: '/' }, { label: fixture.divisionName || 'Division', to: `/divisions/${fixture.divisionId}` }, { label: roundLabel(fixture) }]
-      : [{ label: 'Home', to: '/' }, { label: 'Loading…' }]
+      ? [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: fixture.divisionName || 'Division', to: `/divisions/${fixture.divisionId}` }, { label: roundLabel(fixture) }]
+      : [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Loading…' }]
   );
 
   if (!fixture) return <p>Loading…</p>;
