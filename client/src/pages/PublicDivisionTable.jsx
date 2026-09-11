@@ -67,14 +67,15 @@ export default function PublicDivisionTable() {
       {data.status === 'completed' && <span className="public-complete-pill">Complete</span>}
 
       {data.standings.length === 0 ? (
-        <p className="public-empty-state">No entrants registered yet.</p>
+        <p className="public-empty-state">No entrants registered yet - check back once the roster is set.</p>
       ) : (
+        <>
         <table className="public-table">
           {isTeams ? (
             <>
               <thead>
                 <tr>
-                  <th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>LF</th><th>LA</th><th>+/-</th><th>Pts</th>
+                  <th title="Position">#</th><th>Team</th><th title="Played">P</th><th title="Won">W</th><th title="Drawn">D</th><th title="Lost">L</th><th title="Legs For">LF</th><th title="Legs Against">LA</th><th title="Leg Difference">+/-</th><th title="Points">Pts</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,7 +99,7 @@ export default function PublicDivisionTable() {
             <>
               <thead>
                 <tr>
-                  <th>#</th><th>{data.entryType === 'doubles' ? 'Pairing' : 'Player'}</th><th>P</th><th>W</th><th>L</th><th>F</th><th>A</th><th>+/-</th><th>Pts</th>
+                  <th title="Position">#</th><th>{data.entryType === 'doubles' ? 'Pairing' : 'Player'}</th><th title="Played">P</th><th title="Won">W</th><th title="Lost">L</th><th title="Frames For">F</th><th title="Frames Against">A</th><th title="Frame Difference">+/-</th><th title="Points">Pts</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,6 +120,12 @@ export default function PublicDivisionTable() {
             </>
           )}
         </table>
+        <p className="public-standings-legend">
+          {isTeams
+            ? 'P = Played · W = Won · D = Drawn · L = Lost · LF = Legs For · LA = Legs Against · +/- = Leg Difference · Pts = Points'
+            : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · Pts = Points'}
+        </p>
+        </>
       )}
 
       <p className="public-footer">

@@ -41,7 +41,17 @@
 
 .public-empty-state {
   color: var(--muted, #6b7280);
-  padding: 20px 0;
+  padding: 24px 16px;
+  text-align: center;
+  border: 1px dashed var(--border, #e2e5e9);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.public-standings-legend {
+  font-size: 0.7rem;
+  color: var(--muted, #6b7280);
+  margin: 6px 0 0;
 }
 
 .public-division-block {

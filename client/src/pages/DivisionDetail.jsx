@@ -899,6 +899,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
 // someone else through the roster list above does the same thing more
 // directly.
 function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setError }) {
+  const [open, setOpen] = useState(false);
   const [outgoingId, setOutgoingId] = useState('');
   const [incomingId, setIncomingId] = useState('');
   const [reason, setReason] = useState('substitution');
@@ -930,7 +931,14 @@ function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setErr
 
   return (
     <section className="card">
-      <h2>Substitute a Player</h2>
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Substitute a Player</h2>
+        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open && (
+      <>
       <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
         If a player drops out, swap them for a replacement here. Either way, only the outgoing
         player's remaining, not-yet-started fixtures move to the replacement - completed matches
@@ -998,6 +1006,8 @@ function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setErr
             ))}
           </ul>
         </>
+      )}
+      </>
       )}
     </section>
   );
@@ -1754,7 +1764,7 @@ export default function DivisionDetail() {
             <>
               <thead>
                 <tr>
-                  <th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>LF</th><th>LA</th><th>+/-</th><th>Pts</th>
+                  <th title="Position">#</th><th>Team</th><th title="Played">P</th><th title="Won">W</th><th title="Drawn">D</th><th title="Lost">L</th><th title="Legs For">LF</th><th title="Legs Against">LA</th><th title="Leg Difference">+/-</th><th title="Points">Pts</th>
                 </tr>
               </thead>
               <tbody>
@@ -1778,7 +1788,7 @@ export default function DivisionDetail() {
             <>
               <thead>
                 <tr>
-                  <th>#</th><th>{isDoubles ? 'Pairing' : 'Player'}</th><th>P</th><th>W</th><th>L</th><th>F</th><th>A</th><th>+/-</th><th>Pts</th>
+                  <th title="Position">#</th><th>{isDoubles ? 'Pairing' : 'Player'}</th><th title="Played">P</th><th title="Won">W</th><th title="Lost">L</th><th title="Frames For">F</th><th title="Frames Against">A</th><th title="Frame Difference">+/-</th><th title="Points">Pts</th>
                 </tr>
               </thead>
               <tbody>
@@ -1799,6 +1809,11 @@ export default function DivisionDetail() {
             </>
           )}
         </table>
+        <p className="standings-legend">
+          {isTeams
+            ? 'P = Played · W = Won · D = Drawn · L = Lost · LF = Legs For · LA = Legs Against · +/- = Leg Difference · Pts = Points'
+            : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · Pts = Points'}
+        </p>
       </section>
       )}
 

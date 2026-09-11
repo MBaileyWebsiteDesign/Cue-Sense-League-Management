@@ -128,7 +128,7 @@ function HeaderNav() {
     <>
       <button
         type="button"
-        className="hamburger-btn"
+        className={`hamburger-btn${menuOpen ? ' hamburger-btn-open' : ''}`}
         aria-label={menuOpen ? 'Close menu' : 'Open menu'}
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((open) => !open)}
@@ -137,6 +137,7 @@ function HeaderNav() {
         <span />
         <span />
       </button>
+      {menuOpen && <div className="header-accounts-backdrop" onClick={closeMenu} />}
       <span className={`header-accounts${menuOpen ? ' header-accounts-open' : ''}`}>
         {isAdmin && (
           <Link to="/admin" className="header-link" onClick={closeMenu}>
