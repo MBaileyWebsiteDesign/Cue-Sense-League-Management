@@ -128,7 +128,7 @@ function HeaderNav() {
     <>
       <button
         type="button"
-        className={`hamburger-btn${menuOpen ? ' hamburger-btn-open' : ''}`}
+        className="hamburger-btn"
         aria-label={menuOpen ? 'Close menu' : 'Open menu'}
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((open) => !open)}
@@ -137,7 +137,6 @@ function HeaderNav() {
         <span />
         <span />
       </button>
-      {menuOpen && <div className="header-accounts-backdrop" onClick={closeMenu} />}
       <span className={`header-accounts${menuOpen ? ' header-accounts-open' : ''}`}>
         {isAdmin && (
           <Link to="/admin" className="header-link" onClick={closeMenu}>
@@ -239,7 +238,14 @@ function AppShell() {
       <main className="app-main">
         <Suspense fallback={<p className="muted">Loading…</p>}>
           <Routes>
-            <Route path="/" element={<RequireLogin><LeagueList /></RequireLogin>} />
+            {/* Home ("/") is the Player Portal - matches the unified landing
+                already used for the post-login redirect (see Login.jsx) and
+                the header logo link. The leagues browse page that used to
+                live here moved to /leagues; see AdminPortal.jsx's "Leagues &
+                Seasons" card and LeagueDetail.jsx's "All leagues" link for
+                the two places that used to point at "/" for that purpose. */}
+            <Route path="/" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
+            <Route path="/leagues" element={<RequireLogin><LeagueList /></RequireLogin>} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
