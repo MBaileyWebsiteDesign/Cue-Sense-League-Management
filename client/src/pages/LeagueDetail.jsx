@@ -365,7 +365,7 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
     setError('');
     try {
       await api.deleteLeague(league.id);
-      navigate('/');
+      navigate('/leagues');
     } catch (err) {
       setError(err.message);
       setDeleting(false);
@@ -590,10 +590,7 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
 }
 
 export default function LeagueDetail() {
-  const { isAdmin, isCaptain, isLeagueManager, canManageLeague } = useAuth();
-  // Players have no reason to browse the general leagues list from here -
-  // send their Home crumb straight to their own portal instead.
-  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  const { isAdmin, canManageLeague } = useAuth();
   const { leagueId } = useParams();
   const [league, setLeague] = useState(null);
   const [error, setError] = useState('');
@@ -625,8 +622,8 @@ export default function LeagueDetail() {
 
   useSetBreadcrumbs(
     league
-      ? [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: league.name }]
-      : [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Loading…' }]
+      ? [{ label: 'Home', to: '/' }, { label: league.name }]
+      : [{ label: 'Home', to: '/' }, { label: 'Loading…' }]
   );
 
   const load = () => api.getLeague(leagueId).then(setLeague).catch((e) => setError(e.message));
@@ -694,7 +691,7 @@ export default function LeagueDetail() {
 
   return (
     <div>
-      <p><Link to="/">&larr; All leagues</Link></p>
+      <p><Link to="/leagues">&larr; All leagues</Link></p>
       <div className="page-header">
         <div>
           <h1>{league.name}</h1>
