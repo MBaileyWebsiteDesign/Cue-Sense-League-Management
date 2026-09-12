@@ -331,6 +331,8 @@ h3 { font-size: 1.05rem; font-weight: 700; }
   border-bottom-color: var(--primary);
 }
 
+.tab-label-short { display: none; }
+
 .form label, .inline-form input {
   display: block;
   margin-bottom: 12px;
@@ -812,6 +814,9 @@ h3 { font-size: 1.05rem; font-weight: 700; }
     flex-wrap: wrap;
     row-gap: 4px;
   }
+
+  .tab-label-full { display: none; }
+  .tab-label-short { display: inline; }
 }
 
 /* ---- Knockout bracket chart (BracketChart.jsx) ---- */

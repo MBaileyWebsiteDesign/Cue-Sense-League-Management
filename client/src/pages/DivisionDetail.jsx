@@ -1763,7 +1763,15 @@ export default function DivisionDetail() {
             className={`division-tab${activeTab === 'fixtures' ? ' division-tab-active' : ''}`}
             onClick={() => setActiveTab('fixtures')}
           >
-            {isSingleElimKnockout || isAdaptiveKnockout || isDoubleElim ? 'Bracket & Fixtures' : 'Fixtures'}
+            {/* Two labels, one hidden by CSS depending on width - "Bracket & Fixtures"
+                was getting cut off against the other two tabs at true phone widths,
+                so narrow screens get the shorter "Bracket" instead. */}
+            <span className="tab-label-full">
+              {isSingleElimKnockout || isAdaptiveKnockout || isDoubleElim ? 'Bracket & Fixtures' : 'Fixtures'}
+            </span>
+            <span className="tab-label-short">
+              {isSingleElimKnockout || isAdaptiveKnockout || isDoubleElim ? 'Bracket' : 'Fixtures'}
+            </span>
           </button>
         </div>
       )}
