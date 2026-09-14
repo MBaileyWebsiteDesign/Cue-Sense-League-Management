@@ -135,7 +135,7 @@ function NoShowClaimButton({ onClaim }) {
   };
 
   return (
-    <div style={{ marginTop: 8 }}>
+    <div style={{ marginTop: 8, marginBottom: 16, textAlign: 'center' }}>
       {error && <p className="error">{error}</p>}
       {open ? (
         <div className="inline-form" style={{ flexWrap: 'wrap' }}>
@@ -149,7 +149,7 @@ function NoShowClaimButton({ onClaim }) {
           <button className="btn" disabled={busy} onClick={() => { setOpen(false); setError(''); }}>Cancel</button>
         </div>
       ) : (
-        <button className="btn" onClick={() => setOpen(true)}>Non-contactable / No Show</button>
+        <button className="btn btn-danger" onClick={() => setOpen(true)}>Non-contactable / No Show</button>
       )}
     </div>
   );
