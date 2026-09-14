@@ -583,6 +583,11 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 .fixture-list a { color: var(--ink); text-decoration: none; }
 .fixture-list a:hover { text-decoration: underline; }
 
+/* My Account "My Fixtures": league / division / round / opponent each on
+   their own line, for both Upcoming and Recent results. */
+.fixture-info { display: flex; flex-direction: column; gap: 2px; }
+.fixture-line { display: block; }
+
 .status {
   font-size: 0.75rem;
   text-transform: uppercase;
