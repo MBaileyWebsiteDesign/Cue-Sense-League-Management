@@ -366,7 +366,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
               Race to {leg.raceTo} reached ({leg.homeFrameScore}-{leg.awayFrameScore}).
               <br />
               <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginTop: 8 }}>
-                Submit for Confirmation
+                Submit
               </button>
             </p>
           )}
@@ -565,7 +565,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           Race to {fixture.raceTo} reached ({fixture.homeFrameScore}-{fixture.awayFrameScore}).
           <br />
           <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginTop: 8 }}>
-            Submit for Confirmation
+            Submit
           </button>
         </p>
       )}
