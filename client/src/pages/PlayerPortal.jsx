@@ -278,10 +278,17 @@ function MyFixtures() {
           <ul className="fixture-list">
             {upcoming.map((f) => (
               <li key={f.id}>
-                <Link to={`/fixtures/${f.id}`}>
-                  {f.leagueName} · {f.divisionName} · Round {f.round} vs {f.opponentName}
+                <Link to={`/fixtures/${f.id}`} className="fixture-info">
+                  <span className="fixture-line">{f.leagueName}</span>
+                  <span className="fixture-line">{f.divisionName}</span>
+                  <span className="fixture-line">Round {f.round}</span>
+                  <span className="fixture-line">vs {f.opponentName}</span>
                 </Link>
-                <span className="muted">{f.scheduledDate || 'date TBC'}</span>
+                {f.scheduledDate ? (
+                  <span className="muted">{f.scheduledDate}</span>
+                ) : (
+                  <Link to={`/fixtures/${f.id}`} className="btn btn-primary">Click to play</Link>
+                )}
               </li>
             ))}
           </ul>
@@ -294,8 +301,11 @@ function MyFixtures() {
           <ul className="fixture-list">
             {recent.map((f) => (
               <li key={f.id}>
-                <Link to={`/fixtures/${f.id}`}>
-                  {f.leagueName} · {f.divisionName} · Round {f.round} vs {f.opponentName}
+                <Link to={`/fixtures/${f.id}`} className="fixture-info">
+                  <span className="fixture-line">{f.leagueName}</span>
+                  <span className="fixture-line">{f.divisionName}</span>
+                  <span className="fixture-line">Round {f.round}</span>
+                  <span className="fixture-line">vs {f.opponentName}</span>
                 </Link>
                 <span className="status status-completed">completed</span>
               </li>
