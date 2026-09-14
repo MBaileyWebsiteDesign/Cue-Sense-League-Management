@@ -103,16 +103,6 @@ function GameSetupForm({ onCreated }) {
             </>
           )}
         </select>
-        {isKiller && (
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            Killer Classic/Cards Killer are free-for-all games with no fixed sides, so this is locked to Singles.
-          </span>
-        )}
-        {isFreePlay && (
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            Free Play is a 2-player game, so this is locked to Singles.
-          </span>
-        )}
       </label>
       {entryType === 'teams' && !isKiller && !isFreePlay && (
         <label>
