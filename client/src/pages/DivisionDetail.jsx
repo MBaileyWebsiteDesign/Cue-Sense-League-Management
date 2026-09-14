@@ -1703,7 +1703,13 @@ export default function DivisionDetail() {
 
   return (
     <div>
-      <p><Link to={`/leagues/${division.leagueId}`}>&larr; Back to league</Link></p>
+      <p>
+        {isPlayerSession ? (
+          <Link to="/account">&larr; Back to portal</Link>
+        ) : (
+          <Link to={`/leagues/${division.leagueId}`}>&larr; Back to league</Link>
+        )}
+      </p>
       <h1>{division.name}</h1>
       <p className="muted">
         {isTeams
