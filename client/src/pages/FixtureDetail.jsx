@@ -292,7 +292,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
   const raceTargetReached = leg.status === 'in_progress' && (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo);
   const isHomeNominee = !!user?.playerId && user.playerId === leg.homePlayerId;
   const isAwayNominee = !!user?.playerId && user.playerId === leg.awayPlayerId;
-  const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status);
+  const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status) && leg.frames.length === 0;
 
   const onRecord = async (winnerPlayerId) => {
     setError('');
@@ -476,7 +476,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   const amAwayEntrant = isDoubles
     ? !!(user?.playerId && awayEntrant?.players?.some((p) => p.id === user.playerId))
     : user?.playerId === fixture.awayPlayerId;
-  const canReportNoShow = (amHomeEntrant || amAwayEntrant) && ['scheduled', 'in_progress'].includes(fixture.status);
+  const canReportNoShow = (amHomeEntrant || amAwayEntrant) && ['scheduled', 'in_progress'].includes(fixture.status) && fixture.frames.length === 0;
 
   const EntrantName = ({ entrant, id }) => {
     if (!entrant) return 'TBD';
