@@ -9,6 +9,23 @@ export function buildPlayerProfile(db, playerId) {
   const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0 };
   const headToHeadMap = new Map();
   const results = [];
+  // Table record: how this player fares on each physical table they've
+  // played frames on (optional `table`/`venue` tag set from the Live Match
+  // Controls card, see POST /fixtures/:id/table-info) - purely informational,
+  // like BND/RND above, so a player can see which table they tend to win on.
+  const tableRecordMap = new Map();
+  function recordTableFrame(table, venue, won) {
+    if (!table) return;
+    const key = table.trim().toLowerCase();
+    if (!key) return;
+    if (!tableRecordMap.has(key)) {
+      tableRecordMap.set(key, { table: table.trim(), venue: venue ? venue.trim() : null, wins: 0, losses: 0 });
+    }
+    const rec = tableRecordMap.get(key);
+    if (won) rec.wins += 1;
+    else rec.losses += 1;
+    if (!rec.venue && venue) rec.venue = venue.trim();
+  }
 
   // `outcome` is 'win', 'loss', or 'void' - void is a fixture/leg an admin
   // force-completed 0-0 with no winner by closing its division/league early
@@ -82,6 +99,10 @@ export function buildPlayerProfile(db, playerId) {
       if (frame.method === 'bnd') career.bnd += 1;
       else if (frame.method === 'rnd') career.rnd += 1;
     }
+    for (const frame of fixture.frames || []) {
+      if (!frame.table) continue;
+      recordTableFrame(frame.table, frame.venue, frame.winnerPlayerId === playerId);
+    }
   }
 
   const teamFixtures = db.fixtures.filter(
@@ -113,6 +134,10 @@ export function buildPlayerProfile(db, playerId) {
         if (frame.method === 'bnd') career.bnd += 1;
         else if (frame.method === 'rnd') career.rnd += 1;
       }
+      for (const frame of leg.frames || []) {
+        if (!frame.table) continue;
+        recordTableFrame(frame.table, frame.venue, frame.winnerPlayerId === playerId);
+      }
     }
   }
 
@@ -124,6 +149,9 @@ export function buildPlayerProfile(db, playerId) {
   results.sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || '') || (b.round ?? 0) - (a.round ?? 0));
 
   const headToHead = [...headToHeadMap.values()].sort((a, b) => b.played - a.played);
+  const tableRecord = [...tableRecordMap.values()]
+    .map((r) => ({ ...r, played: r.wins + r.losses, winPct: r.wins + r.losses > 0 ? Math.round((r.wins / (r.wins + r.losses)) * 100) : 0 }))
+    .sort((a, b) => b.played - a.played || b.winPct - a.winPct);
 
   // Form guide: last 5 completed results, most recent first, as a simple
   // 'W'/'L' sequence - results is already sorted most-recent-first above.
@@ -180,6 +208,7 @@ export function buildPlayerProfile(db, playerId) {
     divisions,
     career: { ...career, frameDifference: career.framesFor - career.framesAgainst },
     headToHead,
+    tableRecord,
     results,
     formGuide,
     trophies,
