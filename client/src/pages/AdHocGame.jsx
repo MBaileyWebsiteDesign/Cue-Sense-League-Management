@@ -18,7 +18,7 @@ function GameSetupForm({ onCreated }) {
   const [entryType, setEntryType] = useState('singles');
   const [legsPerMatch, setLegsPerMatch] = useState(5);
   const [pairingSize, setPairingSize] = useState(2);
-  const [scheduling, setScheduling] = useState('round_robin_single');
+  const [scheduling, setScheduling] = useState(FREE_PLAY_SCHEDULING);
   // Match length - see LeagueDetail.jsx's identical raceTo/bestOf comment
   // for why two input modes are offered; only the resulting raceTo is sent.
   const [formatMode, setFormatMode] = useState('raceTo');
@@ -555,6 +555,7 @@ function SelectPlayers({ justCreated, onStarted }) {
   const [registeredPlayers, setRegisteredPlayers] = useState([]);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
+  const { user } = useAuth();
 
   const reload = () => api.getDivision(justCreated.id).then(setDivision).catch((e) => setError(e.message));
 
@@ -563,6 +564,26 @@ function SelectPlayers({ justCreated, onStarted }) {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Free Play is just the creator vs one opponent - pre-add the creator
+  // themselves the moment the (still-empty) roster loads, so all that's
+  // left for them to do is add the other player. Only ever fires while the
+  // roster is empty, so it can't run twice: once the add succeeds and
+  // `division` reloads, `division.players.length` is 1 and this condition
+  // no longer holds. Skipped entirely if the logged-in account has no
+  // player profile of its own (e.g. an admin with no player record).
+  useEffect(() => {
+    if (
+      division &&
+      division.scheduling === FREE_PLAY_SCHEDULING &&
+      division.entryType === 'singles' &&
+      division.players.length === 0 &&
+      user?.playerId
+    ) {
+      api.addPlayer(division.id, user.playerId).then(reload).catch((e) => setError(e.message));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [division]);
 
   if (!division) return <p>Loading…</p>;
 
