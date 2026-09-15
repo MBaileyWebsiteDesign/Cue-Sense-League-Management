@@ -489,6 +489,17 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 
 .btn-danger:hover:not(:disabled) { background: #fecaca; }
 
+/* BND/RND frame-award buttons (FixtureDetail.jsx) - a distinct bright
+   yellow, separate from the gold --cta used by .btn-primary, so they read
+   as their own thing next to "Frame won by". */
+.btn-yellow {
+  background: #eab308;
+  border-color: #ca8a04;
+  color: #1a1a1a;
+}
+
+.btn-yellow:hover:not(:disabled) { background: #ca8a04; color: #fff; }
+
 .btn-killer-safe {
   background: #16a34a;
   border-color: #16a34a;

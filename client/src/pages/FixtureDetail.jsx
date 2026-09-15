@@ -346,7 +346,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
               </button>
               <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
                 <button
-                  className="btn"
+                  className="btn btn-yellow"
                   disabled={locked}
                   title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
                   onClick={() => onRecord(leg.homePlayerId, 'bnd')}
@@ -354,7 +354,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
                   BND
                 </button>
                 <button
-                  className="btn"
+                  className="btn btn-yellow"
                   disabled={locked}
                   title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
                   onClick={() => onRecord(leg.homePlayerId, 'rnd')}
@@ -372,7 +372,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
               </button>
               <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
                 <button
-                  className="btn"
+                  className="btn btn-yellow"
                   disabled={locked}
                   title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
                   onClick={() => onRecord(leg.awayPlayerId, 'bnd')}
@@ -380,7 +380,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
                   BND
                 </button>
                 <button
-                  className="btn"
+                  className="btn btn-yellow"
                   disabled={locked}
                   title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
                   onClick={() => onRecord(leg.awayPlayerId, 'rnd')}
@@ -586,7 +586,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           </button>
           <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
             <button
-              className="btn"
+              className="btn btn-yellow"
               disabled={locked}
               title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
               onClick={() => onRecord(fixture.homePlayerId, 'bnd')}
@@ -594,7 +594,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
               BND
             </button>
             <button
-              className="btn"
+              className="btn btn-yellow"
               disabled={locked}
               title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
               onClick={() => onRecord(fixture.homePlayerId, 'rnd')}
@@ -612,7 +612,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           </button>
           <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
             <button
-              className="btn"
+              className="btn btn-yellow"
               disabled={locked}
               title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
               onClick={() => onRecord(fixture.awayPlayerId, 'bnd')}
@@ -620,7 +620,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
               BND
             </button>
             <button
-              className="btn"
+              className="btn btn-yellow"
               disabled={locked}
               title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
               onClick={() => onRecord(fixture.awayPlayerId, 'rnd')}
