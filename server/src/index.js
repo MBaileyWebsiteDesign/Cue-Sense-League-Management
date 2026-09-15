@@ -1580,12 +1580,28 @@ app.post('/api/leagues/:id/set-open', requireAnyAdmin, asyncRoute((req, res) => 
 // this division and everything scoped to it (fixtures, teams/pairings,
 // roll-of-honour entries, and its slot in any tour's divisionIds), leaving
 // the rest of the league untouched.
-app.delete('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
+app.delete('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
   const league = db.leagues.find((l) => l.id === division.leagueId);
-  assertLeagueAccess(req, league);
+  // A standard player may delete an Ad Hoc Game (any format - Free Play,
+  // Killer, Knockout, Standard League, Teams, Doubles) they created
+  // themselves, with no Admin/League Manager access needed - see
+  // createdByUserId on POST /api/adhoc-games. Deliberately keyed on being
+  // the creator, not on isCaptain/isLeagueManager, so a League Manager or
+  // Captain who didn't create this particular game gets no special access
+  // to it (the Ad Hoc league has no managers anyway, so a League Manager
+  // could never pass assertLeagueAccess for it regardless). Every other
+  // division still requires the normal Admin/League-Manager check below.
+  const isOwnAdHocGame = !!(
+    league?.isAdHocPool &&
+    division.createdByUserId &&
+    division.createdByUserId === req.auth.userId
+  );
+  if (!isOwnAdHocGame) {
+    assertLeagueAccess(req, league);
+  }
 
   const fixturesRemoved = db.fixtures.filter((f) => f.divisionId === division.id).length;
   db.fixtures = db.fixtures.filter((f) => f.divisionId !== division.id);
@@ -1598,7 +1614,7 @@ app.delete('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
   db.divisions = db.divisions.filter((d) => d.id !== division.id);
 
   recordAudit(db, {
-    actor: req.adminSession.label,
+    actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
     action: 'division.delete',
     targetType: 'division',
     targetId: division.id,

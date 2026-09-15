@@ -1449,6 +1449,58 @@ function SeedFromGroupsPanel({ division, onChange, setError }) {
   );
 }
 
+// Player-facing: an Ad Hoc Game's own creator can delete the one-off game
+// they spun up themselves - see DELETE /api/divisions/:id's isOwnAdHocGame
+// check in server/src/index.js. Deliberately much smaller than
+// ManageDivisionPanel below (no Close Early, no "Admin" framing, always
+// expanded) since this is a standard player deleting their own game, not a
+// league-management action - only ever rendered when canManage is false
+// (see the isOwnAdHocGame usage further down), so an Admin or this
+// division's League Manager gets the full admin panel instead, not this one.
+function DeleteOwnAdHocGamePanel({ division, setError }) {
+  const navigate = useNavigate();
+  const [confirmName, setConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const onDelete = async () => {
+    setDeleting(true);
+    setError('');
+    try {
+      await api.deleteDivision(division.id);
+      navigate('/account');
+    } catch (err) {
+      setError(err.message);
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2 style={{ marginTop: 0 }}>Delete this game</h2>
+      <p className="muted">
+        Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture and
+        result. This cannot be undone. To confirm, type the game's name below.
+      </p>
+      <label>
+        Game name
+        <input
+          value={confirmName}
+          onChange={(e) => setConfirmName(e.target.value)}
+          placeholder={division.name}
+        />
+      </label>
+      <button
+        className="btn btn-danger"
+        type="button"
+        disabled={deleting || confirmName.trim() !== division.name}
+        onClick={onDelete}
+      >
+        {deleting ? 'Deleting…' : 'Delete this game permanently'}
+      </button>
+    </section>
+  );
+}
+
 // Admin-only, collapsed-by-default panel (same "Show/Hide" convention as
 // the Admin Override panel on the fixture page) that groups this division's
 // irreversible admin actions - Close Division Early and Delete Division -
@@ -1551,7 +1603,7 @@ const KNOCKOUT_BRACKET_POLL_MS = 15000;
 
 export default function DivisionDetail() {
   const { divisionId } = useParams();
-  const { isAdmin, isCaptain, isLeagueManager, canManageLeague } = useAuth();
+  const { isAdmin, isCaptain, isLeagueManager, canManageLeague, user } = useAuth();
   // Players have no reason to browse the general leagues list from here -
   // send their Home crumb straight to their own portal instead.
   const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
@@ -1628,6 +1680,14 @@ export default function DivisionDetail() {
   // which embeds the owning league's managerUserIds onto the division
   // response specifically so this page doesn't need a second fetch.
   const canManage = canManageLeague({ managerUserIds: division.leagueManagerUserIds });
+  // Standard player, own Ad Hoc Game: mirrors DELETE /api/divisions/:id's
+  // isOwnAdHocGame check - true only for a division this account created
+  // via POST /api/adhoc-games (createdByUserId is never set on a regular
+  // League Manager/Admin-created division), regardless of isCaptain/
+  // isLeagueManager. Only meaningful when canManage is false - an Admin or
+  // this division's League Manager already gets the full delete option via
+  // ManageDivisionPanel below.
+  const isOwnAdHocGame = !!(division.createdByUserId && user?.id === division.createdByUserId);
 
   const isTeams = division.entryType === 'teams';
   const isDoubles = division.entryType === 'doubles';
@@ -1787,6 +1847,9 @@ export default function DivisionDetail() {
           onChange={load}
           setError={setError}
         />
+      )}
+      {!canManage && isOwnAdHocGame && (
+        <DeleteOwnAdHocGamePanel division={division} setError={setError} />
       )}
 
       {isTeams ? (
