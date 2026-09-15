@@ -291,6 +291,8 @@ const networkApi = {
   startShotClock: (fixtureId, durationSeconds) =>
     request(`/fixtures/${fixtureId}/shot-clock/start`, { method: 'POST', body: JSON.stringify({ durationSeconds }) }),
   stopShotClock: (fixtureId) => request(`/fixtures/${fixtureId}/shot-clock/stop`, { method: 'POST' }),
+  setFixtureTableInfo: (fixtureId, table, venue) =>
+    request(`/fixtures/${fixtureId}/table-info`, { method: 'POST', body: JSON.stringify({ table, venue }) }),
 
   getApiKeys: () => request('/api-keys'),
   createApiKey: (label) => request('/api-keys', { method: 'POST', body: JSON.stringify({ label }) }),

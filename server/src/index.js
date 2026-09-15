@@ -5152,6 +5152,31 @@ app.post('/api/fixtures/:id/shot-clock/stop', requireAuth, asyncRoute((req, res)
   res.json(fixture);
 }));
 
+// Optional table number + venue tag for whichever physical table this match
+// is being played on - purely descriptive, entered from the Live Match
+// Controls card. Stamped onto every frame recorded from here on (both the
+// singles frames route and the team-fixture leg frames route below), so a
+// player's table record (buildPlayerProfile) can tell them which tables
+// they tend to win or lose on. Fixture-level rather than per-leg, so it
+// covers every leg of a team fixture too. Purely informational - doesn't
+// affect standings, points, or scoring in any way.
+app.post('/api/fixtures/:id/table-info', requireAuth, asyncRoute((req, res) => {
+  const { table, venue } = req.body || {};
+  if (table !== undefined && table !== null && typeof table !== 'string') {
+    throw new ApiError(400, 'table must be a string');
+  }
+  if (venue !== undefined && venue !== null && typeof venue !== 'string') {
+    throw new ApiError(400, 'venue must be a string');
+  }
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  fixture.table = typeof table === 'string' ? (table.trim().slice(0, 60) || undefined) : undefined;
+  fixture.venue = typeof venue === 'string' ? (venue.trim().slice(0, 80) || undefined) : undefined;
+  writeDb(db);
+  res.json(fixture);
+}));
+
 app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
   const { winnerPlayerId, method } = req.body;
   // Optional BND (Break and Dish) / RND (Reverse Break and Dish) tag on the
@@ -5193,7 +5218,7 @@ app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
     throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
   }
 
-  fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined });
+  fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
   fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
   fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
   fixture.status = 'in_progress';
@@ -5625,7 +5650,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((re
     throw new ApiError(400, `This leg's race target (${leg.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
   }
 
-  leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined });
+  leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
   leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
   leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
   leg.status = 'in_progress';

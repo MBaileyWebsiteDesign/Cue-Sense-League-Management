@@ -730,6 +730,12 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
 // smooth between the occasional onChange() refresh.
 function LiveMatchControls({ fixture, onChange, setError }) {
   const [now, setNow] = useState(Date.now());
+  // Optional table/venue tag for this match - see POST .../table-info.
+  // Local state seeded from the fixture and only pushed back on Save, so
+  // typing doesn't fight with the periodic tick/reload above.
+  const [tableNumber, setTableNumber] = useState(fixture.table || '');
+  const [venue, setVenue] = useState(fixture.venue || '');
+  const [savingTableInfo, setSavingTableInfo] = useState(false);
 
   useEffect(() => {
     if (!fixture.timer.running && !fixture.shotClock.running) return undefined;
@@ -744,6 +750,15 @@ function LiveMatchControls({ fixture, onChange, setError }) {
       onChange();
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const saveTableInfo = async () => {
+    setSavingTableInfo(true);
+    try {
+      await run(() => api.setFixtureTableInfo(fixture.id, tableNumber.trim(), venue.trim()));
+    } finally {
+      setSavingTableInfo(false);
     }
   };
 
@@ -791,6 +806,24 @@ function LiveMatchControls({ fixture, onChange, setError }) {
         </button>
         <button className="btn" onClick={() => run(() => api.stopShotClock(fixture.id))}>Stop</button>
       </div>
+      <div className="inline-form inline-form-center" style={{ alignItems: 'center', marginTop: 16 }}>
+        <div>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Table number (optional)</div>
+          <input type="text" value={tableNumber} onChange={(e) => setTableNumber(e.target.value)} placeholder="e.g. Table 3" />
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Venue (optional)</div>
+          <input type="text" value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="e.g. The Cue Club" />
+        </div>
+        <button className="btn" disabled={savingTableInfo} onClick={saveTableInfo}>
+          {savingTableInfo ? 'Saving…' : 'Save table & venue'}
+        </button>
+      </div>
+      {(fixture.table || fixture.venue) && (
+        <p className="muted" style={{ fontSize: '0.75rem', marginTop: 8 }}>
+          Recording frames against {fixture.table ? `table "${fixture.table}"` : 'no table set'}{fixture.venue ? ` at ${fixture.venue}` : ''} - builds each player's table win/loss record on their stats page.
+        </p>
+      )}
     </section>
   );
 }

@@ -266,6 +266,32 @@ export default function PlayerProfile() {
         )}
       </section>
 
+      {profile.tableRecord && profile.tableRecord.length > 0 && (
+        <section className="card">
+          <h2>Table record</h2>
+          <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
+            Win/loss by table, from the optional table number entered on the Live Match Controls card while playing - see which table you're most likely to win on. Experimental / staging only for now.
+          </p>
+          <table className="standings-table">
+            <thead>
+              <tr><th>Table</th><th>Venue</th><th>P</th><th>W</th><th>L</th><th>Win %</th></tr>
+            </thead>
+            <tbody>
+              {profile.tableRecord.map((t) => (
+                <tr key={t.table}>
+                  <td style={{ textAlign: 'left' }}>{t.table}</td>
+                  <td style={{ textAlign: 'left' }}>{t.venue || '-'}</td>
+                  <td>{t.played}</td>
+                  <td>{t.wins}</td>
+                  <td>{t.losses}</td>
+                  <td>{t.winPct}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       <section className="card">
         <h2>Match history</h2>
         {profile.results.length === 0 ? (
