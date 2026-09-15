@@ -3448,7 +3448,7 @@ export const demoApi = {
     };
   }),
 
-  recordFrame: op((fixtureId, winnerPlayerId) => {
+  recordFrame: op((fixtureId, winnerPlayerId, method) => {
     const fixture = db.fixtures.find((f) => f.id === fixtureId);
     if (!fixture) throw new ApiError(404, 'Fixture not found');
     const division = db.divisions.find((d) => d.id === fixture.divisionId);
@@ -3469,12 +3469,17 @@ export const demoApi = {
     if (![fixture.homePlayerId, fixture.awayPlayerId].includes(winnerPlayerId)) {
       throw new ApiError(400, 'winnerPlayerId must be one of the two players in this fixture');
     }
+    // Optional BND (Break and Dish) / RND (Reverse Break and Dish) tag -
+    // mirrors the server route.
+    if (method !== undefined && method !== null && method !== 'bnd' && method !== 'rnd') {
+      throw new ApiError(400, "method must be 'bnd', 'rnd', or omitted");
+    }
     // fixture.raceTo is null for Free Play (no frame count target) - skip
     // this check entirely, same as the server route.
     if (fixture.raceTo != null && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo)) {
       throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
     }
-    fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId });
+    fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined });
     fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
     fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
     fixture.status = 'in_progress';
@@ -3787,7 +3792,7 @@ export const demoApi = {
     return fixture;
   }),
 
-  recordLegFrame: op((fixtureId, legNumber, winnerPlayerId) => {
+  recordLegFrame: op((fixtureId, legNumber, winnerPlayerId, method) => {
     const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
     const division = db.divisions.find((d) => d.id === fixture.divisionId);
     if (!currentUser()?.isAdmin && !isRoundVisible(division, fixture.round)) {
@@ -3807,10 +3812,14 @@ export const demoApi = {
     if (![leg.homePlayerId, leg.awayPlayerId].includes(winnerPlayerId)) {
       throw new ApiError(400, 'winnerPlayerId must be one of the two nominated players for this leg');
     }
+    // See the matching recordFrame mock above for what `method` (BND/RND) does.
+    if (method !== undefined && method !== null && method !== 'bnd' && method !== 'rnd') {
+      throw new ApiError(400, "method must be 'bnd', 'rnd', or omitted");
+    }
     if (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo) {
       throw new ApiError(400, `This leg's race target (${leg.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
     }
-    leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId });
+    leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined });
     leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
     leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
     leg.status = 'in_progress';

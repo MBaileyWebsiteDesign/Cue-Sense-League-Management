@@ -1848,7 +1848,7 @@ export default function DivisionDetail() {
             <>
               <thead>
                 <tr>
-                  <th title="Position">#</th><th>{isDoubles ? 'Pairing' : 'Player'}</th><th title="Played">P</th><th title="Won">W</th><th title="Lost">L</th><th title="Frames For">F</th><th title="Frames Against">A</th><th title="Frame Difference">+/-</th><th title="Points">Pts</th>
+                  <th title="Position">#</th><th>{isDoubles ? 'Pairing' : 'Player'}</th><th title="Played">P</th><th title="Won">W</th><th title="Lost">L</th><th title="Frames For">F</th><th title="Frames Against">A</th><th title="Frame Difference">+/-</th><th title="Break and Dish">BND</th><th title="Reverse Break and Dish">RND</th><th title="Points">Pts</th>
                 </tr>
               </thead>
               <tbody>
@@ -1862,6 +1862,8 @@ export default function DivisionDetail() {
                     <td>{row.framesFor}</td>
                     <td>{row.framesAgainst}</td>
                     <td>{row.frameDifference}</td>
+                    <td>{row.bnd || 0}</td>
+                    <td>{row.rnd || 0}</td>
                     <td><strong>{row.points}</strong></td>
                   </tr>
                 ))}
@@ -1872,7 +1874,7 @@ export default function DivisionDetail() {
         <p className="standings-legend">
           {isTeams
             ? 'P = Played · W = Won · D = Drawn · L = Lost · LF = Legs For · LA = Legs Against · +/- = Leg Difference · Pts = Points'
-            : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · Pts = Points'}
+            : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · BND = Break and Dish · RND = Reverse Break and Dish · Pts = Points'}
         </p>
       </section>
 

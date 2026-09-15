@@ -294,10 +294,10 @@ function LegRow({ fixture, leg, onChange, setError }) {
   const isAwayNominee = !!user?.playerId && user.playerId === leg.awayPlayerId;
   const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status) && leg.frames.length === 0;
 
-  const onRecord = async (winnerPlayerId) => {
+  const onRecord = async (winnerPlayerId, method) => {
     setError('');
     try {
-      await api.recordLegFrame(fixture.id, leg.legNumber, winnerPlayerId);
+      await api.recordLegFrame(fixture.id, leg.legNumber, winnerPlayerId, method);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -344,6 +344,24 @@ function LegRow({ fixture, leg, onChange, setError }) {
               <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.homePlayerId)}>
                 Frame won
               </button>
+              <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
+                <button
+                  className="btn btn-yellow"
+                  disabled={locked}
+                  title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
+                  onClick={() => onRecord(leg.homePlayerId, 'bnd')}
+                >
+                  BND
+                </button>
+                <button
+                  className="btn btn-yellow"
+                  disabled={locked}
+                  title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
+                  onClick={() => onRecord(leg.homePlayerId, 'rnd')}
+                >
+                  RND
+                </button>
+              </div>
             </div>
             <div className="scoreboard-vs">vs</div>
             <div className="scoreboard-player">
@@ -352,6 +370,24 @@ function LegRow({ fixture, leg, onChange, setError }) {
               <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.awayPlayerId)}>
                 Frame won
               </button>
+              <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
+                <button
+                  className="btn btn-yellow"
+                  disabled={locked}
+                  title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
+                  onClick={() => onRecord(leg.awayPlayerId, 'bnd')}
+                >
+                  BND
+                </button>
+                <button
+                  className="btn btn-yellow"
+                  disabled={locked}
+                  title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
+                  onClick={() => onRecord(leg.awayPlayerId, 'rnd')}
+                >
+                  RND
+                </button>
+              </div>
             </div>
           </div>
           <div className="page-header">
@@ -510,10 +546,10 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
     );
   }
 
-  const onRecord = async (winnerId) => {
+  const onRecord = async (winnerId, method) => {
     setError('');
     try {
-      await api.recordFrame(fixture.id, winnerId);
+      await api.recordFrame(fixture.id, winnerId, method);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -549,6 +585,24 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.homePlayerId)}>
             Frame won by {homeEntrant.name}
           </button>
+          <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
+            <button
+              className="btn btn-yellow"
+              disabled={locked}
+              title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
+              onClick={() => onRecord(fixture.homePlayerId, 'bnd')}
+            >
+              BND
+            </button>
+            <button
+              className="btn btn-yellow"
+              disabled={locked}
+              title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
+              onClick={() => onRecord(fixture.homePlayerId, 'rnd')}
+            >
+              RND
+            </button>
+          </div>
         </div>
         <div className="scoreboard-vs">vs</div>
         <div className="scoreboard-player">
@@ -557,6 +611,24 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.awayPlayerId)}>
             Frame won by {awayEntrant.name}
           </button>
+          <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
+            <button
+              className="btn btn-yellow"
+              disabled={locked}
+              title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
+              onClick={() => onRecord(fixture.awayPlayerId, 'bnd')}
+            >
+              BND
+            </button>
+            <button
+              className="btn btn-yellow"
+              disabled={locked}
+              title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
+              onClick={() => onRecord(fixture.awayPlayerId, 'rnd')}
+            >
+              RND
+            </button>
+          </div>
         </div>
       </section>
 
@@ -638,6 +710,8 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           {fixture.frames.map((f) => (
             <li key={f.frameNumber}>
               Frame {f.frameNumber}: {f.winnerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
+              {f.method === 'bnd' && <strong> (BND)</strong>}
+              {f.method === 'rnd' && <strong> (RND)</strong>}
             </li>
           ))}
           {fixture.frames.length === 0 && <li className="muted">No frames recorded yet.</li>}

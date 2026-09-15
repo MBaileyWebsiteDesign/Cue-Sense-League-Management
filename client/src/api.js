@@ -327,8 +327,8 @@ const networkApi = {
   },
   restoreBackup: (data) => request('/admin/restore', { method: 'POST', body: JSON.stringify(data) }),
   wipeAllData: () => request('/admin/wipe', { method: 'POST' }),
-  recordFrame: (fixtureId, winnerPlayerId) =>
-    request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId }) }),
+  recordFrame: (fixtureId, winnerPlayerId, method) =>
+    request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId, method }) }),
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),
   submitResult: (fixtureId) => request(`/fixtures/${fixtureId}/submit-result`, { method: 'POST' }),
   confirmResult: (fixtureId) => request(`/fixtures/${fixtureId}/confirm-result`, { method: 'POST' }),
@@ -365,10 +365,10 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ homePlayerId, awayPlayerId }),
     }),
-  recordLegFrame: (fixtureId, legNumber, winnerPlayerId) =>
+  recordLegFrame: (fixtureId, legNumber, winnerPlayerId, method) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/frames`, {
       method: 'POST',
-      body: JSON.stringify({ winnerPlayerId }),
+      body: JSON.stringify({ winnerPlayerId, method }),
     }),
   undoLastLegFrame: (fixtureId, legNumber) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/frames/last`, { method: 'DELETE' }),
