@@ -251,6 +251,11 @@ function AppShell() {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
             <Route path="/adhoc-game/new" element={<RequireLogin><AdHocGame /></RequireLogin>} />
+            {/* "Quick Game" button on the Player Portal - same AdHocGame
+                component/page, but with quickStart set so it skips
+                GameSetupForm and creates a Free Play/Singles game itself on
+                mount (see AdHocGame.jsx's quickStart prop). */}
+            <Route path="/adhoc-game/quick" element={<RequireLogin><AdHocGame quickStart /></RequireLogin>} />
             <Route path="/open-leagues" element={<RequireLogin><OpenLeagues /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />

@@ -392,6 +392,10 @@ export default function PlayerPortal() {
           <Link className="btn btn-primary" to={`/players/${user.playerId}`}>View my stats &amp; match history</Link>
         )}
         <Link className="btn btn-primary" to="/adhoc-game/new">Ad Hoc Game</Link>
+        {/* Skips the Ad Hoc Game wizard entirely - straight to a Free Play,
+            2-player game pre-named "<Player Name> - <Date Created>" (see
+            AdHocGame.jsx's quickStart prop / /adhoc-game/quick route). */}
+        <Link className="btn btn-primary" to="/adhoc-game/quick">Quick Game</Link>
         <Link className="btn btn-primary" to="/open-leagues">Leagues I can Join</Link>
       </div>
 

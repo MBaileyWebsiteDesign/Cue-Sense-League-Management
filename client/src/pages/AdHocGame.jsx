@@ -663,38 +663,71 @@ function SelectPlayers({ justCreated, onStarted }) {
 }
 
 // A player-initiated, one-off game - see PlayerPortal.jsx's "+ Ad Hoc Game"
-// button. Two steps: set the game up (same fields as a League Manager's
-// "+ New Division" form, see GameSetupForm), then add players and start
-// (see SelectPlayers). "Start Game" normally lands on the resulting
-// division's own page (/divisions/:id) - from there on, it behaves exactly
-// like any other division (results, standings, disputes, the lot), just
-// without a real league season around it. Free Play is the one exception:
-// SelectPlayers' onStart sends it straight to /fixtures/:id instead, since
-// a Free Play "division" is just the one 2-player match and there's nothing
-// else on the division overview worth stopping at first.
-export default function AdHocGame() {
+// and "Quick Game" buttons. Two steps: set the game up (same fields as a
+// League Manager's "+ New Division" form, see GameSetupForm), then add
+// players and start (see SelectPlayers). "Start Game" normally lands on the
+// resulting division's own page (/divisions/:id) - from there on, it
+// behaves exactly like any other division (results, standings, disputes,
+// the lot), just without a real league season around it. Free Play is the
+// one exception: SelectPlayers' onStart sends it straight to /fixtures/:id
+// instead, since a Free Play "division" is just the one 2-player match and
+// there's nothing else on the division overview worth stopping at first.
+//
+// `quickStart` (set by the "Quick Game" button/route, /adhoc-game/quick)
+// skips GameSetupForm entirely: on mount it calls createAdHocGame itself
+// with a Free Play/Singles game pre-named "<Player Name> - <Date Created>"
+// (the logged-in user's name and the date the button was clicked), landing
+// the player straight on SelectPlayers with only the opponent left to add -
+// SelectPlayers' own pre-add effect (above) still adds the creator
+// themselves.
+export default function AdHocGame({ quickStart = false }) {
   const navigate = useNavigate();
   const [createdDivision, setCreatedDivision] = useState(null);
+  const [quickError, setQuickError] = useState('');
   // Players landing on this page have no leagues section to browse back to
   // (it's just a one-off 2-player Free Play game), so their Home crumb goes
   // straight to their own portal instead of the general leagues list.
-  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const { user, isAdmin, isCaptain, isLeagueManager } = useAuth();
   const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
-  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'My Account', to: '/account' }, { label: 'Ad Hoc Game' }]);
+  const pageTitle = quickStart ? 'Quick Game' : 'Ad Hoc Game';
+  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'My Account', to: '/account' }, { label: pageTitle }]);
+
+  useEffect(() => {
+    if (!quickStart || createdDivision) return;
+    let cancelled = false;
+    const playerName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Player';
+    const dateCreated = new Date().toLocaleDateString();
+    api.createAdHocGame({
+      name: `${playerName} - ${dateCreated}`,
+      entryType: 'singles',
+      scheduling: FREE_PLAY_SCHEDULING,
+    }).then((division) => {
+      if (!cancelled) setCreatedDivision(division);
+    }).catch((err) => {
+      if (!cancelled) setQuickError(err.message);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickStart]);
 
   return (
     <div>
       {!createdDivision && <p><Link to="/account">&larr; My Account</Link></p>}
       <div className="page-header">
         <div>
-          <h1>Ad Hoc Game</h1>
-          {!createdDivision && (
+          <h1>{pageTitle}</h1>
+          {!createdDivision && !quickStart && (
             <p className="muted">Set up a one-off game - not tied to any league season.</p>
+          )}
+          {!createdDivision && quickStart && !quickError && (
+            <p className="muted">Setting up your Free Play game…</p>
           )}
         </div>
       </div>
 
-      {!createdDivision ? (
+      {quickStart && !createdDivision ? (
+        quickError ? <p className="error">{quickError}</p> : <p>Creating your game…</p>
+      ) : !createdDivision ? (
         <GameSetupForm onCreated={setCreatedDivision} />
       ) : (
         <SelectPlayers justCreated={createdDivision} onStarted={(path) => navigate(path)} />
