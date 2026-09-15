@@ -23,6 +23,11 @@ export function computeStandings(division, fixtures, players) {
       framesAgainst: 0,
       frameDifference: 0,
       points: 0,
+      // BND (Break and Dish) / RND (Reverse Break and Dish) - count of
+      // frames won that way, tallied from each frame's `method` tag below.
+      // Informational only - doesn't affect points/ranking.
+      bnd: 0,
+      rnd: 0,
     });
   }
 
@@ -41,6 +46,13 @@ export function computeStandings(division, fixtures, players) {
     home.framesAgainst += fixture.awayFrameScore;
     away.framesFor += fixture.awayFrameScore;
     away.framesAgainst += fixture.homeFrameScore;
+
+    for (const frame of fixture.frames || []) {
+      const winner = table.get(frame.winnerPlayerId);
+      if (!winner) continue;
+      if (frame.method === 'bnd') winner.bnd += 1;
+      else if (frame.method === 'rnd') winner.rnd += 1;
+    }
 
     if (fixture.winnerPlayerId === null) {
       // Force-completed 0-0 by an admin closing the division/league early

@@ -5153,7 +5153,14 @@ app.post('/api/fixtures/:id/shot-clock/stop', requireAuth, asyncRoute((req, res)
 }));
 
 app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
-  const { winnerPlayerId } = req.body;
+  const { winnerPlayerId, method } = req.body;
+  // Optional BND (Break and Dish) / RND (Reverse Break and Dish) tag on the
+  // frame - the winner is recorded exactly as any other frame win, just
+  // tagged for frame history, player stats (buildPlayerProfile) and
+  // division standings (computeStandings) to pick up separately.
+  if (method !== undefined && method !== null && method !== 'bnd' && method !== 'rnd') {
+    throw new ApiError(400, "method must be 'bnd', 'rnd', or omitted");
+  }
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
@@ -5186,7 +5193,7 @@ app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
     throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
   }
 
-  fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId });
+  fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined });
   fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
   fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
   fixture.status = 'in_progress';
@@ -5589,7 +5596,11 @@ app.post('/api/fixtures/:id/legs/:legNumber/nominate', requireAuth, asyncRoute((
 }));
 
 app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((req, res) => {
-  const { winnerPlayerId } = req.body;
+  const { winnerPlayerId, method } = req.body;
+  // See the matching singles frames route above for what `method` (BND/RND) does.
+  if (method !== undefined && method !== null && method !== 'bnd' && method !== 'rnd') {
+    throw new ApiError(400, "method must be 'bnd', 'rnd', or omitted");
+  }
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
@@ -5614,7 +5625,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((re
     throw new ApiError(400, `This leg's race target (${leg.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
   }
 
-  leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId });
+  leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined });
   leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
   leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
   leg.status = 'in_progress';

@@ -204,6 +204,8 @@ export default function PlayerProfile() {
           <div><strong>{winPct}%</strong><div className="muted">Win rate</div></div>
           <div><strong>{career.framesFor}-{career.framesAgainst}</strong><div className="muted">Frames for/against</div></div>
           <div><strong>{career.frameDifference > 0 ? '+' : ''}{career.frameDifference}</strong><div className="muted">Frame diff</div></div>
+          <div><strong>{career.bnd || 0}</strong><div className="muted" title="Break and Dish - breaks and clears the whole rack including the black without missing, opponent gets no visit">BND</div></div>
+          <div><strong>{career.rnd || 0}</strong><div className="muted" title="Reverse Break and Dish - the breaker misses, then this player clears the whole rack including the black on their first visit without missing">RND</div></div>
         </div>
         {profile.formGuide && profile.formGuide.length > 0 && (
           <div style={{ marginTop: 12 }}>

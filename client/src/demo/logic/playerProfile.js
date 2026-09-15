@@ -6,7 +6,7 @@ export function buildPlayerProfile(db, playerId) {
   const player = db.players.find((p) => p.id === playerId);
   if (!player) return null;
 
-  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0 };
+  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0 };
   const headToHeadMap = new Map();
   const results = [];
 
@@ -71,6 +71,15 @@ export function buildPlayerProfile(db, playerId) {
       scheduledDate: fixture.scheduledDate,
       round: fixture.round,
     });
+    // BND (Break and Dish) / RND (Reverse Break and Dish) - frames this
+    // player personally won that way, tallied from the frame-level `method`
+    // tag (see POST /fixtures/:id/frames). Purely informational - doesn't
+    // affect win/loss/points anywhere.
+    for (const frame of fixture.frames || []) {
+      if (frame.winnerPlayerId !== playerId) continue;
+      if (frame.method === 'bnd') career.bnd += 1;
+      else if (frame.method === 'rnd') career.rnd += 1;
+    }
   }
 
   const teamFixtures = db.fixtures.filter(
@@ -95,6 +104,13 @@ export function buildPlayerProfile(db, playerId) {
         scheduledDate: fixture.scheduledDate,
         round: fixture.round,
       });
+      // BND/RND tally for this leg - see the matching comment in the
+      // singles loop above.
+      for (const frame of leg.frames || []) {
+        if (frame.winnerPlayerId !== playerId) continue;
+        if (frame.method === 'bnd') career.bnd += 1;
+        else if (frame.method === 'rnd') career.rnd += 1;
+      }
     }
   }
 
