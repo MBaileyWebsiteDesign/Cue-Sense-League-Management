@@ -1072,8 +1072,11 @@ export const demoApi = {
   getMe: op(() => publicUser(currentUser())),
 
   // Mirrors server/src/index.js's GET /api/users/me/leagues - static
-  // read-only league/division membership shown in the Player Portal's "Your
-  // Details" section.
+  // read-only league/division membership shown in the Player Portal's "My
+  // Leagues, Divisions & Ad Hoc/Quick Games" section. isAdHocPool
+  // (2026-09-16) mirrors the same field added server-side, so that section
+  // can split entries into three categories without matching on the
+  // league's name string.
   getMyLeagueMembership: op(() => {
     const user = currentUser();
     if (!user || !user.playerId) return [];
@@ -1093,6 +1096,7 @@ export const demoApi = {
         divisionId: d.id,
         divisionName: d.name,
         status: d.status || 'active',
+        isAdHocPool: !!league?.isAdHocPool,
       };
     });
   }),

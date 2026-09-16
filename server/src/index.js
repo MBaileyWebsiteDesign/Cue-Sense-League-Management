@@ -270,11 +270,14 @@ app.get('/api/users/me/leagues', requireAuth, asyncRoute((req, res) => {
   );
   // divisionId/leagueId/status added alongside the original leagueName/
   // divisionName pair (kept for ProfileForm.jsx's existing inline summary)
-  // so the player portal's own "My Leagues & Divisions" section (NQT: list
-  // divisions/leagues they're in or have been in) can link straight into
-  // each one and show whether it's still running. Membership here is never
-  // cleared when a division completes, so this already covers past
-  // divisions, not just current ones.
+  // so the player portal's own "My Leagues, Divisions & Ad Hoc/Quick Games"
+  // section (NQT: list divisions/leagues they're in or have been in) can
+  // link straight into each one and show whether it's still running.
+  // isAdHocPool (2026-09-16) lets that same section split entries into
+  // "My Leagues" / "Divisions" / "Ad Hoc/Quick Games" without matching on
+  // the league's name string. Membership here is never cleared when a
+  // division completes, so this already covers past divisions, not just
+  // current ones.
   const result = divisions.map((d) => {
     const league = db.leagues.find((l) => l.id === d.leagueId);
     return {
@@ -283,6 +286,7 @@ app.get('/api/users/me/leagues', requireAuth, asyncRoute((req, res) => {
       divisionId: d.id,
       divisionName: d.name,
       status: d.status || 'active',
+      isAdHocPool: !!league?.isAdHocPool,
     };
   });
   res.json(result);
