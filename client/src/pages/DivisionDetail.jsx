@@ -585,7 +585,7 @@ function KillerBoard({ division, onChange, setError }) {
   );
 }
 
-function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin }) {
+function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin, isPlayerSession }) {
   const [playerId, setPlayerId] = useState('');
   const [quickFirstName, setQuickFirstName] = useState('');
   const [quickLastName, setQuickLastName] = useState('');
@@ -871,7 +871,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         </p>
       ) : isFreePlay ? (
         <p className="muted">Free Play match ready - the roster is locked.</p>
-      ) : (
+      ) : !isPlayerSession ? (
         <>
           <p className="muted">
             Fixtures generated - the roster is locked, no further additions or removals
@@ -885,7 +885,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           </p>
           <GameTimeEstimate division={division} />
         </>
-      )}
+      ) : null}
 
     </section>
   );
@@ -1015,7 +1015,7 @@ function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setErr
   );
 }
 
-function TeamRoster({ division, registeredPlayers, onChange, setError }) {
+function TeamRoster({ division, registeredPlayers, onChange, setError, isPlayerSession }) {
   const [teamName, setTeamName] = useState('');
   const [playerIds, setPlayerIds] = useState({}); // teamId -> selected registered playerId
   // A player can only be on one roster within a division at a time.
@@ -1166,12 +1166,12 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
           onChange={onChange}
           setError={setError}
         />
-      ) : (
+      ) : !isPlayerSession ? (
         <>
           <p className="muted">Fixtures generated — team rosters are locked.</p>
           <GameTimeEstimate division={division} />
         </>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -1183,7 +1183,7 @@ function TeamRoster({ division, registeredPlayers, onChange, setError }) {
 // and fixtures are scored like singles (no legs), so there's no per-leg
 // nomination step - a pairing just needs to be full before fixtures can be
 // generated.
-function PairingRoster({ division, registeredPlayers, onChange, setError }) {
+function PairingRoster({ division, registeredPlayers, onChange, setError, isPlayerSession }) {
   const [pairingName, setPairingName] = useState('');
   const [playerIds, setPlayerIds] = useState({}); // pairingId -> selected registered playerId
   const assignedElsewhere = new Set(division.pairings.flatMap((p) => p.players.map((pl) => pl.id)));
@@ -1333,12 +1333,12 @@ function PairingRoster({ division, registeredPlayers, onChange, setError }) {
           onChange={onChange}
           setError={setError}
         />
-      ) : (
+      ) : !isPlayerSession ? (
         <>
           <p className="muted">Fixtures generated — pairings are locked.</p>
           <GameTimeEstimate division={division} />
         </>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -1765,7 +1765,13 @@ export default function DivisionDetail() {
 
   return (
     <div>
-      <p><Link to={`/leagues/${division.leagueId}`}>&larr; Back to league</Link></p>
+      <p>
+        {isPlayerSession ? (
+          <Link to="/account">&larr; Back to portal</Link>
+        ) : (
+          <Link to={`/leagues/${division.leagueId}`}>&larr; Back to league</Link>
+        )}
+      </p>
       <h1>{division.name}</h1>
       <p className="muted">
         {isTeams
@@ -1853,11 +1859,11 @@ export default function DivisionDetail() {
       )}
 
       {isTeams ? (
-        <TeamRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
+        <TeamRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isPlayerSession={isPlayerSession} />
       ) : isDoubles ? (
-        <PairingRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} />
+        <PairingRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isPlayerSession={isPlayerSession} />
       ) : (
-        <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isAdmin={canManage} />
+        <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isAdmin={canManage} isPlayerSession={isPlayerSession} />
       )}
 
       {canManage && !division.fixturesGenerated && (

@@ -135,7 +135,7 @@ function NoShowClaimButton({ onClaim }) {
   };
 
   return (
-    <div style={{ marginTop: 8 }}>
+    <div style={{ marginTop: 8, marginBottom: 16, textAlign: 'center' }}>
       {error && <p className="error">{error}</p>}
       {open ? (
         <div className="inline-form" style={{ flexWrap: 'wrap' }}>
@@ -149,7 +149,7 @@ function NoShowClaimButton({ onClaim }) {
           <button className="btn" disabled={busy} onClick={() => { setOpen(false); setError(''); }}>Cancel</button>
         </div>
       ) : (
-        <button className="btn" onClick={() => setOpen(true)}>Non-contactable / No Show</button>
+        <button className="btn btn-danger" onClick={() => setOpen(true)}>Non-contactable / No Show</button>
       )}
     </div>
   );
@@ -292,7 +292,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
   const raceTargetReached = leg.status === 'in_progress' && (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo);
   const isHomeNominee = !!user?.playerId && user.playerId === leg.homePlayerId;
   const isAwayNominee = !!user?.playerId && user.playerId === leg.awayPlayerId;
-  const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status);
+  const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status) && leg.frames.length === 0;
 
   const onRecord = async (winnerPlayerId, method) => {
     setError('');
@@ -398,10 +398,11 @@ function LegRow({ fixture, leg, onChange, setError }) {
           </div>
 
           {raceTargetReached && (
-            <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
-              Race to {leg.raceTo} reached ({leg.homeFrameScore}-{leg.awayFrameScore}).{' '}
-              <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
-                Submit for Confirmation
+            <p className="banner" style={{ background: '#dbeafe', color: '#1e40af', textAlign: 'center' }}>
+              Race to {leg.raceTo} reached ({leg.homeFrameScore}-{leg.awayFrameScore}).
+              <br />
+              <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginTop: 8 }}>
+                Submit
               </button>
             </p>
           )}
@@ -511,7 +512,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   const amAwayEntrant = isDoubles
     ? !!(user?.playerId && awayEntrant?.players?.some((p) => p.id === user.playerId))
     : user?.playerId === fixture.awayPlayerId;
-  const canReportNoShow = (amHomeEntrant || amAwayEntrant) && ['scheduled', 'in_progress'].includes(fixture.status);
+  const canReportNoShow = (amHomeEntrant || amAwayEntrant) && ['scheduled', 'in_progress'].includes(fixture.status) && fixture.frames.length === 0;
 
   const EntrantName = ({ entrant, id }) => {
     if (!entrant) return 'TBD';
@@ -632,10 +633,11 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
       </section>
 
       {raceTargetReached && (
-        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
-          Race to {fixture.raceTo} reached ({fixture.homeFrameScore}-{fixture.awayFrameScore}).{' '}
-          <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
-            Submit for Confirmation
+        <p className="banner" style={{ background: '#dbeafe', color: '#1e40af', textAlign: 'center' }}>
+          Race to {fixture.raceTo} reached ({fixture.homeFrameScore}-{fixture.awayFrameScore}).
+          <br />
+          <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginTop: 8 }}>
+            Submit
           </button>
         </p>
       )}

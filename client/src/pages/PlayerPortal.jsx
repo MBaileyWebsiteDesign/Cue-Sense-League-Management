@@ -262,7 +262,8 @@ function MyFixtures() {
   if (error) return <p className="error">{error}</p>;
   if (!fixtures) return <p>Loading…</p>;
 
-  const upcoming = fixtures.filter((f) => f.status !== 'completed');
+  const upcoming = fixtures.filter((f) => f.status !== 'completed' && f.status !== 'pending_confirmation');
+  const pendingConfirmation = fixtures.filter((f) => f.status === 'pending_confirmation');
   const recent = fixtures.filter((f) => f.status === 'completed').slice(-10).reverse();
 
   return (
@@ -289,6 +290,25 @@ function MyFixtures() {
                 ) : (
                   <Link to={`/fixtures/${f.id}`} className="btn btn-primary">Click to play</Link>
                 )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {pendingConfirmation.length > 0 && (
+        <>
+          <h3 style={{ fontSize: '1rem', color: 'var(--muted)' }}>Waiting Confirmation</h3>
+          <ul className="fixture-list">
+            {pendingConfirmation.map((f) => (
+              <li key={f.id}>
+                <Link to={`/fixtures/${f.id}`} className="fixture-info">
+                  <span className="fixture-line">{f.leagueName}</span>
+                  <span className="fixture-line">{f.divisionName}</span>
+                  <span className="fixture-line">Round {f.round}</span>
+                  <span className="fixture-line">vs {f.opponentName}</span>
+                </Link>
+                <span className="btn btn-danger" style={{ cursor: 'default' }}>Waiting Confirmation</span>
               </li>
             ))}
           </ul>
