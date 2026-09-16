@@ -345,30 +345,89 @@ function MyFixtures() {
 // now the only place the player's league/division membership is shown -
 // ProfileForm's "Your Details" used to repeat it inline but that was
 // removed as a redundant duplicate.
+//
+// 2026-09-16: split into three subsections under one heading/card - "My
+// Leagues" (each distinct league the player has a division in, deduped by
+// leagueId, linking to /leagues/:id), "Divisions" (every standard division
+// entry, same shape as the original single list), and "Ad Hoc/Quick Games"
+// (entries whose league is the shared hidden "Ad Hoc Games" pool - see
+// POST /api/adhoc-games in server/src/index.js). The split relies on the
+// server's isAdHocPool flag (added alongside this change to GET
+// /api/users/me/leagues) rather than matching on the league's name.
 function MyLeaguesAndDivisions({ leagues }) {
   if (!leagues || leagues.length === 0) {
     return (
       <section className="card">
-        <h2>My Leagues &amp; Divisions</h2>
-        <p className="muted">You're not registered in any leagues or divisions yet.</p>
+        <h2>My Leagues, Divisions &amp; Ad Hoc/Quick Games</h2>
+        <p className="muted">You're not registered in any leagues, divisions, or ad hoc/quick games yet.</p>
       </section>
     );
   }
+
+  const standard = leagues.filter((l) => !l.isAdHocPool);
+  const adHocGames = leagues.filter((l) => l.isAdHocPool);
+
+  const myLeagues = [];
+  const seenLeagueIds = new Set();
+  standard.forEach((l) => {
+    if (l.leagueId && !seenLeagueIds.has(l.leagueId)) {
+      seenLeagueIds.add(l.leagueId);
+      myLeagues.push(l);
+    }
+  });
+
   return (
     <section className="card">
-      <h2>My Leagues &amp; Divisions</h2>
-      <ul className="plain-list">
-        {leagues.map((l, i) => (
-          <li key={l.divisionId || i}>
-            {l.divisionId ? (
-              <Link to={`/divisions/${l.divisionId}`}>{l.leagueName} - {l.divisionName}</Link>
-            ) : (
-              <span>{l.leagueName} - {l.divisionName}</span>
-            )}
-            {l.status === 'completed' && <span className="muted"> · season complete</span>}
-          </li>
-        ))}
-      </ul>
+      <h2>My Leagues, Divisions &amp; Ad Hoc/Quick Games</h2>
+
+      <h3 style={{ fontSize: '1rem', color: 'var(--muted)' }}>My Leagues</h3>
+      {myLeagues.length === 0 ? (
+        <p className="muted">You're not registered in any leagues yet.</p>
+      ) : (
+        <ul className="plain-list">
+          {myLeagues.map((l) => (
+            <li key={l.leagueId}>
+              <Link to={`/leagues/${l.leagueId}`}>{l.leagueName}</Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h3 style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem' }}>Divisions</h3>
+      {standard.length === 0 ? (
+        <p className="muted">You're not registered in any divisions yet.</p>
+      ) : (
+        <ul className="plain-list">
+          {standard.map((l, i) => (
+            <li key={l.divisionId || i}>
+              {l.divisionId ? (
+                <Link to={`/divisions/${l.divisionId}`}>{l.leagueName} - {l.divisionName}</Link>
+              ) : (
+                <span>{l.leagueName} - {l.divisionName}</span>
+              )}
+              {l.status === 'completed' && <span className="muted"> · season complete</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h3 style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem' }}>Ad Hoc/Quick Games</h3>
+      {adHocGames.length === 0 ? (
+        <p className="muted">You haven't created or played in any Ad Hoc or Quick Games yet.</p>
+      ) : (
+        <ul className="plain-list">
+          {adHocGames.map((l, i) => (
+            <li key={l.divisionId || i}>
+              {l.divisionId ? (
+                <Link to={`/divisions/${l.divisionId}`}>{l.divisionName}</Link>
+              ) : (
+                <span>{l.divisionName}</span>
+              )}
+              {l.status === 'completed' && <span className="muted"> · completed</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
