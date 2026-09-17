@@ -501,24 +501,24 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 .btn-yellow:hover:not(:disabled) { background: #ca8a04; color: #fff; }
 
 /* Break button (FixtureDetail.jsx) - records who won the lag and broke to
-   start the current frame. A blue outline so it reads as its own thing next
+   start the current frame. A green outline so it reads as its own thing next
    to the yellow BND/RND buttons; .btn-break-selected marks whichever player
    is currently picked as the breaker for the frame in progress. */
 .btn-break {
   background: white;
-  border-color: #2563eb;
-  color: #2563eb;
+  border-color: #16a34a;
+  color: #15803d;
 }
 
-.btn-break:hover:not(:disabled) { background: #dbeafe; }
+.btn-break:hover:not(:disabled) { background: #dcfce7; }
 
 .btn-break.btn-break-selected {
-  background: #2563eb;
-  border-color: #2563eb;
+  background: #16a34a;
+  border-color: #16a34a;
   color: #fff;
 }
 
-.btn-break.btn-break-selected:hover:not(:disabled) { background: #1d4ed8; }
+.btn-break.btn-break-selected:hover:not(:disabled) { background: #15803d; }
 
 .btn-killer-safe {
   background: #16a34a;

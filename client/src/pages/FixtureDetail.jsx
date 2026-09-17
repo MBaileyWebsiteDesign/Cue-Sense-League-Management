@@ -407,6 +407,14 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 >
                   {breakerId === leg.awayPlayerId ? 'Breaking \u2713' : 'Break'}
                 </button>
+                <button
+                  className="btn btn-yellow"
+                  disabled={locked}
+                  title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
+                  onClick={() => onRecord(leg.awayPlayerId, 'rnd')}
+                >
+                  RND
+                </button>
               </div>
             </div>
           </div>
@@ -636,6 +644,14 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           </button>
           <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
             <button
+              className="btn btn-yellow"
+              disabled={locked}
+              title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
+              onClick={() => onRecord(fixture.homePlayerId, 'bnd')}
+            >
+              BND
+            </button>
+            <button
               type="button"
               className={`btn btn-break${breakerId === fixture.homePlayerId ? ' btn-break-selected' : ''}`}
               disabled={locked}
@@ -643,14 +659,6 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
               onClick={() => onSelectBreaker(fixture.homePlayerId)}
             >
               {breakerId === fixture.homePlayerId ? 'Breaking \u2713' : 'Break'}
-            </button>
-            <button
-              className="btn btn-yellow"
-              disabled={locked}
-              title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
-              onClick={() => onRecord(fixture.homePlayerId, 'bnd')}
-            >
-              BND
             </button>
             <button
               className="btn btn-yellow"
@@ -670,6 +678,14 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             Frame won by {awayEntrant.name}
           </button>
           <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
+            <button
+              className="btn btn-yellow"
+              disabled={locked}
+              title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
+              onClick={() => onRecord(fixture.awayPlayerId, 'bnd')}
+            >
+              BND
+            </button>
             <button
               type="button"
               className={`btn btn-break${breakerId === fixture.awayPlayerId ? ' btn-break-selected' : ''}`}
@@ -887,7 +903,62 @@ function LiveMatchControls({ fixture, onChange, setError }) {
         <p className="muted" style={{ fontSize: '0.75rem', marginTop: 8 }}>
           Recording frames against {fixture.table ? `table "${fixture.table}"` : 'no table set'}{fixture.venue ? ` at ${fixture.venue}` : ''} - builds each player's table win/loss record on their stats page.
         </p>
-    );
+      )}
+    </section>
+  );
+}
+
+// Admin-only: assign this fixture to a table plus a date/time - see
+// server/src/index.js's POST /api/fixtures/:id/schedule (rejects a
+// double-booking on the same table at the same date+time).
+function ScheduleFixturePanel({ fixture, onChange, setError }) {
+  const [tables, setTables] = useState([]);
+  const [tableId, setTableId] = useState(fixture.tableId || '');
+  const [scheduledDate, setScheduledDate] = useState(fixture.scheduledDate || '');
+  const [scheduledTime, setScheduledTime] = useState(fixture.scheduledTime || '');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    api.getLeague(fixture.leagueId).then((league) => setTables(league.tables)).catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixture.leagueId]);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      await api.scheduleFixture(fixture.id, {
+        tableId: tableId || null,
+        scheduledDate: scheduledDate || null,
+        scheduledTime: scheduledTime || null,
+      });
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2>Schedule</h2>
+      <form className="inline-form" onSubmit={onSubmit}>
+        <select value={tableId} onChange={(e) => setTableId(e.target.value)}>
+          <option value="">No table assigned</option>
+          {tables.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
+        <input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
+        <button className="btn btn-primary" type="submit" disabled={submitting}>
+          {submitting ? 'Saving…' : 'Save'}
+        </button>
+      </form>
+    </section>
+  );
 }
 
 export default function FixtureDetail() {
@@ -955,7 +1026,7 @@ export default function FixtureDetail() {
     <div>
       <p>
         {isPlayerSession ? (
-          <Link to="/account">&larw; Back to fixtures</Link>
+          <Link to="/account">&larr; Back to fixtures</Link>
         ) : (
           <Link to={`/divisions/${fixture.divisionId}`}>&larr; Back to division</Link>
         )}
