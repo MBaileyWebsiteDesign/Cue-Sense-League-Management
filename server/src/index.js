@@ -326,6 +326,7 @@ function createUserAccount(db, fields) {
     // /permissions below).
     venueId: fields.venueId || null,
     isVenueManager: !!fields.isVenueManager,
+    membershipStartDate: null,
     membershipRenewalDate: null,
     status: 'active',
     playerId: linkedPlayer.id,
@@ -7044,6 +7045,35 @@ app.post('/api/admin/users/:id/venue', requireAdmin, asyncRoute((req, res) => {
       details: venue
         ? `Set ${user.firstName} ${user.lastName}'s Venue to "${venue.name}"${previousVenue ? ` (was "${previousVenue.name}")` : ''}`
         : `Cleared ${user.firstName} ${user.lastName}'s Venue${previousVenue ? ` (was "${previousVenue.name}")` : ''}`,
+    });
+    writeDb(db);
+  }
+  res.json(publicUser(user));
+}));
+
+app.post('/api/admin/users/:id/membership-dates', requireAdmin, asyncRoute((req, res) => {
+  // Membership dates: start date and end date, admin-set only, both optional/
+  // nullable - a player can have neither, either, or both set at any time.
+  // End date deliberately reuses the existing membershipRenewalDate field
+  // (added when Membership Management first shipped) rather than introducing
+  // a third date concept - the Venue Manager Portal's "due for renewal"
+  // counts key off this same field, so setting an end date here is what
+  // makes those counts start working.
+  const { membershipStartDate, membershipEndDate } = req.body || {};
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  const nextStart = membershipStartDate || null;
+  const nextEnd = membershipEndDate || null;
+  if (user.membershipStartDate !== nextStart || user.membershipRenewalDate !== nextEnd) {
+    user.membershipStartDate = nextStart;
+    user.membershipRenewalDate = nextEnd;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.membershipDates',
+      targetType: 'user',
+      targetId: user.id,
+      details: `Set ${user.firstName} ${user.lastName}'s membership dates to start=${nextStart || 'none'}, end=${nextEnd || 'none'}`,
     });
     writeDb(db);
   }

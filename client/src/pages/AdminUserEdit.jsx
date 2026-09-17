@@ -52,6 +52,55 @@ function VenuePanel({ user, venues, onSaved, setError, setSuccess }) {
   );
 }
 
+// Membership dates - both optional/nullable; a player can have neither, either,
+// or both set. End date reuses the existing membershipRenewalDate field
+// (server/src/index.js's POST /api/admin/users/:id/membership-dates), which is
+// what the Venue Manager Portal's "due for renewal" counts key off.
+function MembershipDatesPanel({ user, onSaved, setError, setSuccess }) {
+  const [startDate, setStartDate] = useState(user.membershipStartDate || '');
+  const [endDate, setEndDate] = useState(user.membershipRenewalDate || '');
+  const [submitting, setSubmitting] = useState(false);
+  const dirty =
+    startDate !== (user.membershipStartDate || '') ||
+    endDate !== (user.membershipRenewalDate || '');
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setSubmitting(true);
+    try {
+      const updated = await api.adminSetMembershipDates(user.id, {
+        membershipStartDate: startDate || null,
+        membershipEndDate: endDate || null,
+      });
+      onSaved(updated);
+      setSuccess('Membership dates updated.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="card form" onSubmit={onSubmit}>
+      <h2>Membership dates</h2>
+      <label>
+        Start date <span className="muted">(optional)</span>
+        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+      </label>
+      <label>
+        End date <span className="muted">(optional)</span>
+        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+      </label>
+      <button className="btn btn-primary" type="submit" disabled={!dirty || submitting}>
+        {submitting ? 'Saving…' : 'Save Membership Dates'}
+      </button>
+    </form>
+  );
+}
+
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
 function ProfileForm({ user, onSaved, setError, setSuccess }) {
@@ -240,6 +289,7 @@ export default function AdminUserEdit() {
           )}
           <ProfileForm user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
           <VenuePanel user={user} venues={venues} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
+          <MembershipDatesPanel user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
           <PermissionsPanel user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
           <ResetPasswordForm user={user} setError={setError} setSuccess={setSuccess} />
         </>

@@ -68,6 +68,15 @@ const networkApi = {
   adminSetUserVenue: (id, venueId) =>
     request(`/admin/users/${id}/venue`, { method: 'POST', body: JSON.stringify({ venueId }) }),
 
+  // Membership dates: start date and end date (end date reuses the existing
+  // membershipRenewalDate field server-side - see server/src/index.js's
+  // POST /api/admin/users/:id/membership-dates). Both optional/nullable.
+  adminSetMembershipDates: (id, { membershipStartDate, membershipEndDate }) =>
+    request(`/admin/users/${id}/membership-dates`, {
+      method: 'POST',
+      body: JSON.stringify({ membershipStartDate, membershipEndDate }),
+    }),
+
   // Membership Management: Venues (client/src/pages/MembershipManagement.jsx)
   // - Overall-Admin-only to create/rename/delete a venue and to grant/revoke
   // Venue Manager access, same shape as League Managers on a League.

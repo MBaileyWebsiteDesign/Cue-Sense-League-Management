@@ -260,6 +260,10 @@ export function readDb() {
     // exactly as expected for a fresh rollout of this feature. Setting this
     // from the UI is a follow-up step, not part of this first pass.
     if (user.membershipRenewalDate === undefined) user.membershipRenewalDate = null;
+    // Membership dates: start date, added alongside the end date (which reuses
+    // the existing membershipRenewalDate field above) - see AdminUserEdit.jsx's
+    // MembershipDatesPanel and POST /api/admin/users/:id/membership-dates.
+    if (user.membershipStartDate === undefined) user.membershipStartDate = null;
   }
 
   cache = { mtimeMs, state };
