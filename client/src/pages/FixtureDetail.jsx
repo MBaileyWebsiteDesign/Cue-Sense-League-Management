@@ -313,6 +313,9 @@ function LegRow({ fixture, leg, onChange, setError }) {
           : leg.homePlayerId;
       })()
     : null;
+  // See the matching consts in SinglesFixtureView above for what these do.
+  const homeNotTheirTurn = currentBreakerId != null && currentBreakerId !== leg.homePlayerId;
+  const awayNotTheirTurn = currentBreakerId != null && currentBreakerId !== leg.awayPlayerId;
 
   const onToggleAlternativeBreaking = async () => {
     setError('');
@@ -387,12 +390,15 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 <button
                   type="button"
                   className={`btn btn-break${breakerId === leg.homePlayerId ? ' btn-break-selected' : ''}`}
-                  disabled={locked}
+                  disabled={locked || homeNotTheirTurn}
                   title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
                   onClick={() => onSelectBreaker(leg.homePlayerId)}
                 >
                   {breakerId === leg.homePlayerId ? 'Breaking \u2713' : 'Break'}
                 </button>
+                {homeNotTheirTurn && (
+                  <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
+                )}
                 <button
                   className="btn btn-yellow"
                   disabled={locked}
@@ -422,12 +428,15 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 <button
                   type="button"
                   className={`btn btn-break${breakerId === leg.awayPlayerId ? ' btn-break-selected' : ''}`}
-                  disabled={locked}
+                  disabled={locked || awayNotTheirTurn}
                   title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
                   onClick={() => onSelectBreaker(leg.awayPlayerId)}
                 >
                   {breakerId === leg.awayPlayerId ? 'Breaking \u2713' : 'Break'}
                 </button>
+                {awayNotTheirTurn && (
+                  <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
+                )}
                 <button
                   className="btn btn-yellow"
                   disabled={locked}
@@ -644,6 +653,11 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           : fixture.homePlayerId;
       })()
     : null;
+  // While alternative breaking is on, the Break button is only usable for
+  // whoever's actually due to break next - stops a manual Break click
+  // fighting with the automatic alternation.
+  const homeNotTheirTurn = currentBreakerId != null && currentBreakerId !== fixture.homePlayerId;
+  const awayNotTheirTurn = currentBreakerId != null && currentBreakerId !== fixture.awayPlayerId;
 
   const onRecord = async (winnerId, method) => {
     setError('');
@@ -697,12 +711,15 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             <button
               type="button"
               className={`btn btn-break${breakerId === fixture.homePlayerId ? ' btn-break-selected' : ''}`}
-              disabled={locked}
+              disabled={locked || homeNotTheirTurn}
               title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
               onClick={() => onSelectBreaker(fixture.homePlayerId)}
             >
               {breakerId === fixture.homePlayerId ? 'Breaking \u2713' : 'Break'}
             </button>
+            {homeNotTheirTurn && (
+              <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
+            )}
             <button
               className="btn btn-yellow"
               disabled={locked}
@@ -732,12 +749,15 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             <button
               type="button"
               className={`btn btn-break${breakerId === fixture.awayPlayerId ? ' btn-break-selected' : ''}`}
-              disabled={locked}
+              disabled={locked || awayNotTheirTurn}
               title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
               onClick={() => onSelectBreaker(fixture.awayPlayerId)}
             >
               {breakerId === fixture.awayPlayerId ? 'Breaking \u2713' : 'Break'}
             </button>
+            {awayNotTheirTurn && (
+              <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
+            )}
             <button
               className="btn btn-yellow"
               disabled={locked}
