@@ -456,6 +456,11 @@ function LegRow({ fixture, leg, onChange, setError }) {
               Undo last frame
             </button>
           </div>
+          {currentBreakerId && (
+            <p className="muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
+              Player to break next frame: {currentBreakerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name}
+            </p>
+          )}
 
           {raceTargetReached && (
             <p className="banner" style={{ background: '#dbeafe', color: '#1e40af', textAlign: 'center' }}>
@@ -859,7 +864,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
 // display every second locally (rather than polling the server) using the
 // startedAt timestamp the server already returns, so the display stays
 // smooth between the occasional onChange() refresh.
-function LiveMatchControls({ fixture, isTeams, onChange, setError }) {
+function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) {
   const [now, setNow] = useState(Date.now());
   // Optional table/venue tag for this match - see POST .../table-info.
   // Local state seeded from the fixture and only pushed back on Save, so
@@ -867,6 +872,20 @@ function LiveMatchControls({ fixture, isTeams, onChange, setError }) {
   const [tableNumber, setTableNumber] = useState(fixture.table || '');
   const [venue, setVenue] = useState(fixture.venue || '');
   const [savingTableInfo, setSavingTableInfo] = useState(false);
+
+  // Alternative breaking: see the matching computation in SinglesFixtureView
+  // for what this does - used here only to name the next breaker below the
+  // toggle, never sent to the server.
+  const currentBreakerId = fixture.alternativeBreaking
+    ? (() => {
+        const lastBreakerFrame = [...fixture.frames].reverse().find((f) => f.breakerPlayerId);
+        return lastBreakerFrame
+          ? (lastBreakerFrame.breakerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId)
+          : fixture.homePlayerId;
+      })()
+    : null;
+  const homeEntrantName = isDoubles ? fixture.homePairing?.name : fixture.homePlayer?.name;
+  const awayEntrantName = isDoubles ? fixture.awayPairing?.name : fixture.awayPlayer?.name;
 
   useEffect(() => {
     if (!fixture.timer.running && !fixture.shotClock.running) return undefined;
@@ -968,6 +987,11 @@ function LiveMatchControls({ fixture, isTeams, onChange, setError }) {
             Alternative breaking: {fixture.alternativeBreaking ? 'On' : 'Off'}
           </button>
         </div>
+      )}
+      {!isTeams && currentBreakerId && (
+        <p className="muted" style={{ fontSize: '0.8rem', marginTop: 6 }}>
+          Player to break next frame: {currentBreakerId === fixture.homePlayerId ? homeEntrantName : awayEntrantName}
+        </p>
       )}
     </section>
   );
@@ -1101,7 +1125,7 @@ export default function FixtureDetail() {
       {error && <p className="error">{error}</p>}
 
       {isAdminSession && <ScheduleFixturePanel fixture={fixture} onChange={load} setError={setError} />}
-      {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} isTeams={isTeams} onChange={load} setError={setError} />}
+      {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} setError={setError} />}
 
       {isTeams ? (
         <TeamFixtureView fixture={fixture} onChange={load} setError={setError} />
