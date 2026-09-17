@@ -485,7 +485,7 @@ export default function AdminUsers() {
                   aria-label="Select all users"
                 />
               </th>
-              <th>Name</th><th>Email</th><th>Team</th><th>Class</th><th>Flags</th><th>Status</th>
+              <th>Name</th><th>Email</th><th>Team</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -506,14 +506,17 @@ export default function AdminUsers() {
                 <td style={{ textAlign: 'left' }}>{u.email}</td>
                 <td style={{ textAlign: 'left' }}>{u.teamName}</td>
                 <td>{u.classification || '—'}</td>
-                <td>{[u.isAdmin && 'Admin', u.isCaptain && 'Captain', u.isLeagueManager && 'League Manager', u.isVenueManager && 'Venue Manager'].filter(Boolean).join(', ') || '—'}</td>
+                <td>{u.isAdmin ? '✓' : ''}</td>
+                <td>{u.isCaptain ? '✓' : ''}</td>
+                <td>{u.isLeagueManager ? '✓' : ''}</td>
+                <td>{u.isVenueManager ? '✓' : ''}</td>
                 <td>
                   <span className={`status ${u.status === 'suspended' ? '' : 'status-completed'}`}>{u.status}</span>
                 </td>
               </tr>
             ))}
             {users.length === 0 && (
-              <tr><td colSpan={7} className="muted">No users match that search.</td></tr>
+              <tr><td colSpan={10} className="muted">No users match that search.</td></tr>
             )}
           </tbody>
         </table>
