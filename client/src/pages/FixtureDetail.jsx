@@ -457,9 +457,17 @@ function LegRow({ fixture, leg, onChange, setError }) {
             </button>
           </div>
           {currentBreakerId && (
-            <p className="muted" style={{ fontSize: '0.8rem', marginTop: -4, marginBottom: 8 }}>
-              Player to break next frame: {currentBreakerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name}
-            </p>
+            <div className="inline-form" style={{ marginTop: -4, marginBottom: 8 }}>
+              <button
+                type="button"
+                className="btn btn-alt-breaking-on"
+                tabIndex={-1}
+                aria-disabled="true"
+                style={{ cursor: 'default', pointerEvents: 'none' }}
+              >
+                Player to break next frame: {currentBreakerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name}
+              </button>
+            </div>
           )}
 
           {raceTargetReached && (
@@ -989,9 +997,17 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
         </div>
       )}
       {!isTeams && currentBreakerId && (
-        <p className="muted" style={{ fontSize: '0.8rem', marginTop: 6 }}>
-          Player to break next frame: {currentBreakerId === fixture.homePlayerId ? homeEntrantName : awayEntrantName}
-        </p>
+        <div className="inline-form inline-form-center" style={{ alignItems: 'center', marginTop: 8 }}>
+          <button
+            type="button"
+            className="btn btn-alt-breaking-on"
+            tabIndex={-1}
+            aria-disabled="true"
+            style={{ cursor: 'default', pointerEvents: 'none' }}
+          >
+            Player to break next frame: {currentBreakerId === fixture.homePlayerId ? homeEntrantName : awayEntrantName}
+          </button>
+        </div>
       )}
     </section>
   );
