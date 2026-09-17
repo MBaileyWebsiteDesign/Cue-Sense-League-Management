@@ -355,6 +355,7 @@ function BulkImportPanel({ onImported }) {
 
 export default function AdminUsers() {
   const [users, setUsers] = useState(null);
+  const [venues, setVenues] = useState([]);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -367,8 +368,11 @@ export default function AdminUsers() {
 
   useEffect(() => {
     load('');
+    api.getVenues().then(setVenues).catch((e) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const venueNameById = Object.fromEntries(venues.map((v) => [v.id, v.name]));
 
   const onSearch = (e) => {
     e.preventDefault();
@@ -485,7 +489,7 @@ export default function AdminUsers() {
                   aria-label="Select all users"
                 />
               </th>
-              <th>Name</th><th>Email</th><th>Team</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
+              <th>Name</th><th>Email</th><th>Team</th><th>Venue</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -505,6 +509,7 @@ export default function AdminUsers() {
                 </td>
                 <td style={{ textAlign: 'left' }}>{u.email}</td>
                 <td style={{ textAlign: 'left' }}>{u.teamName}</td>
+                <td style={{ textAlign: 'left' }}>{venueNameById[u.venueId] || '—'}</td>
                 <td>{u.classification || '—'}</td>
                 <td>{u.isAdmin ? '✓' : ''}</td>
                 <td>{u.isCaptain ? '✓' : ''}</td>
@@ -516,7 +521,7 @@ export default function AdminUsers() {
               </tr>
             ))}
             {users.length === 0 && (
-              <tr><td colSpan={10} className="muted">No users match that search.</td></tr>
+              <tr><td colSpan={11} className="muted">No users match that search.</td></tr>
             )}
           </tbody>
         </table>
