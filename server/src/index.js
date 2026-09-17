@@ -29,6 +29,8 @@ import {
   requireAdmin,
   requireAnyAdmin,
   assertLeagueAccess,
+  requireVenueManager,
+  assertVenueAccess,
   generateApiKeyValue,
   hashApiKey,
 } from './userAuth.js';
@@ -318,6 +320,13 @@ function createUserAccount(db, fields) {
     isAdmin: !!fields.isAdmin,
     isCaptain: !!fields.isCaptain,
     isLeagueManager: !!fields.isLeagueManager,
+    // Membership Management: every new account starts with no Venue and no
+    // Venue Manager flag, same as every other role flag above - assigned
+    // afterwards from Manage Users (see POST /api/admin/users/:id/venue and
+    // /permissions below).
+    venueId: fields.venueId || null,
+    isVenueManager: !!fields.isVenueManager,
+    membershipRenewalDate: null,
     status: 'active',
     playerId: linkedPlayer.id,
     createdAt: new Date().toISOString(),
@@ -756,6 +765,236 @@ app.delete('/api/leagues/:id/managers/:userId', requireAdmin, asyncRoute((req, r
     writeDb(db);
   }
   res.json(league);
+}));
+
+// ---------- Venues (Membership Management) ----------
+// A Venue is a simple named record (id, name, managerUserIds[]) that every
+// account type (player, captain, league manager, admin) can be assigned to
+// via its own `venueId` field - see POST /api/admin/users/:id/venue above.
+// Overall-Admin-only to create/rename/delete and to grant/revoke Venue
+// Manager access, exactly the same shape as League Managers above but for
+// venues rather than leagues. See the Venue Manager Portal routes further
+// down for what a granted Venue Manager can actually do with this.
+
+app.get('/api/venues', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json([...db.venues].sort((a, b) => a.name.localeCompare(b.name)));
+}));
+
+app.post('/api/venues', requireAdmin, asyncRoute((req, res) => {
+  const { name } = req.body || {};
+  if (!name || !name.trim()) throw new ApiError(400, 'Venue name is required');
+  const db = readDb();
+  const trimmed = name.trim();
+  if (db.venues.some((v) => v.name.toLowerCase() === trimmed.toLowerCase())) {
+    throw new ApiError(409, 'A venue with this name already exists');
+  }
+  const venue = { id: uuid(), name: trimmed, managerUserIds: [], createdAt: new Date().toISOString() };
+  db.venues.push(venue);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'venue.create',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Created venue "${venue.name}"`,
+  });
+  writeDb(db);
+  res.status(201).json(venue);
+}));
+
+app.patch('/api/venues/:id', requireAdmin, asyncRoute((req, res) => {
+  const { name } = req.body || {};
+  if (!name || !name.trim()) throw new ApiError(400, 'Venue name is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const trimmed = name.trim();
+  if (db.venues.some((v) => v.id !== venue.id && v.name.toLowerCase() === trimmed.toLowerCase())) {
+    throw new ApiError(409, 'A venue with this name already exists');
+  }
+  const previousName = venue.name;
+  venue.name = trimmed;
+  if (previousName !== venue.name) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.rename',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Renamed venue "${previousName}" to "${venue.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(venue);
+}));
+
+// Blocked, rather than silently orphaning accounts, if anyone is still
+// assigned to this venue - same reasoning as userInUse further down for
+// deleting a user account. Reassign or clear every account's Venue first.
+app.delete('/api/venues/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const assignedCount = db.users.filter((u) => u.venueId === venue.id).length;
+  if (assignedCount > 0) {
+    throw new ApiError(400, `${assignedCount} account(s) are still assigned to this venue - reassign or clear their Venue first`);
+  }
+  db.venues = db.venues.filter((v) => v.id !== venue.id);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'venue.delete',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Deleted venue "${venue.name}"`,
+  });
+  writeDb(db);
+  res.json({ ok: true });
+}));
+
+app.post('/api/venues/:id/managers', requireAdmin, asyncRoute((req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) throw new ApiError(400, 'userId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) throw new ApiError(404, 'User not found');
+  if (!user.isVenueManager) {
+    throw new ApiError(400, `${user.firstName} ${user.lastName} isn't flagged as a Venue Manager yet - grant that on their account first`);
+  }
+  if (!Array.isArray(venue.managerUserIds)) venue.managerUserIds = [];
+  if (!venue.managerUserIds.includes(userId)) {
+    venue.managerUserIds.push(userId);
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.manager_added',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Gave ${user.firstName} ${user.lastName} Venue Manager access to "${venue.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(venue);
+}));
+
+app.delete('/api/venues/:id/managers/:userId', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const user = db.users.find((u) => u.id === req.params.userId);
+  if (!Array.isArray(venue.managerUserIds)) venue.managerUserIds = [];
+  const hadAccess = venue.managerUserIds.includes(req.params.userId);
+  venue.managerUserIds = venue.managerUserIds.filter((id) => id !== req.params.userId);
+  if (hadAccess) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.manager_removed',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Removed ${user ? `${user.firstName} ${user.lastName}` : 'a user'}'s Venue Manager access to "${venue.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(venue);
+}));
+
+// ---------- Venue Manager Portal ----------
+// The Venue Manager's own landing page (client/src/pages/VenueManagerPortal.jsx):
+// a Status box (registered players at this venue, and how many are due for
+// membership renewal in the next 6/4/2 months) plus a player search box.
+// An Overall Admin can also reach these (requireVenueManager lets isAdmin
+// through, same as requireAnyAdmin does for leagues) and effectively sees
+// every venue, exactly like an Overall Admin isn't scoped to specific
+// leagues either.
+
+app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const { user } = req.auth;
+  const venues = user.isAdmin
+    ? db.venues
+    : db.venues.filter((v) => Array.isArray(v.managerUserIds) && v.managerUserIds.includes(user.id));
+  res.json([...venues].sort((a, b) => a.name.localeCompare(b.name)));
+}));
+
+// Adds `months` calendar months to `from` (a Date), matching how a renewal
+// window is normally talked about ("due in the next 6 months") rather than
+// an approximate 30-day-per-month calculation.
+function addMonths(from, months) {
+  const d = new Date(from.getTime());
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  // "Registered players with the same Venue" - every account (any type;
+  // Venue is a variable on all of them, not just plain players) assigned to
+  // this venue, excluding suspended accounts, same as everywhere else in
+  // the app that counts "active" accounts.
+  const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
+
+  const now = new Date();
+  // Each tier counts anyone due between now and now+N months - deliberately
+  // overlapping (whoever's due within 2 months is also counted in the 4-
+  // and 6-month tiers), the normal way renewal-reminder buckets work. Every
+  // count is 0 until membershipRenewalDate is actually set against a player
+  // - there's no UI to set one yet (a follow-up step), so that's expected
+  // for now, not a bug.
+  const dueWithin = (months) => {
+    const cutoff = addMonths(now, months);
+    return venuePlayers.filter((u) => {
+      if (!u.membershipRenewalDate) return false;
+      const renewalDate = new Date(u.membershipRenewalDate);
+      if (Number.isNaN(renewalDate.getTime())) return false;
+      return renewalDate >= now && renewalDate <= cutoff;
+    }).length;
+  };
+
+  res.json({
+    venueId: venue.id,
+    venueName: venue.name,
+    registeredPlayers: venuePlayers.length,
+    dueIn6Months: dueWithin(6),
+    dueIn4Months: dueWithin(4),
+    dueIn2Months: dueWithin(2),
+  });
+}));
+
+// Single search box - matches first name, last name, or the full "First
+// Last" combination, same substring/case-insensitive style as Manage Users'
+// own search (GET /api/admin/users above), scoped to just this venue's
+// registered accounts.
+app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, q = '' } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const query = q.trim().toLowerCase();
+  let players = db.users.filter((u) => u.venueId === venue.id);
+  if (query) {
+    players = players.filter((u) =>
+      (u.firstName || '').toLowerCase().includes(query) ||
+      (u.lastName || '').toLowerCase().includes(query) ||
+      `${u.firstName} ${u.lastName}`.toLowerCase().includes(query)
+    );
+  }
+  players = [...players].sort((a, b) => a.lastName.localeCompare(b.lastName));
+  res.json(players.map((u) => ({
+    id: u.id,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    email: u.email,
+    status: u.status,
+    membershipRenewalDate: u.membershipRenewalDate,
+  })));
 }));
 
 // ---------- League payments (manual confirmation) ----------
@@ -6722,7 +6961,7 @@ app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
 // Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
 // toggle now that an account can be both, either or neither.
 app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
-  const { isAdmin, isCaptain, isLeagueManager } = req.body;
+  const { isAdmin, isCaptain, isLeagueManager, isVenueManager } = req.body;
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
@@ -6749,6 +6988,21 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
       }
     }
   }
+  // Same pattern as League Manager above, for Membership Management's Venue
+  // Manager flag - revoking it also strips scoped access to every venue
+  // they were assigned to (venue.managerUserIds), rather than leaving a
+  // stale grant a re-flag would silently reactivate.
+  if (isVenueManager !== undefined && !!isVenueManager !== user.isVenueManager) {
+    user.isVenueManager = !!isVenueManager;
+    changes.push(user.isVenueManager ? 'granted Venue Manager' : 'revoked Venue Manager');
+    if (!user.isVenueManager) {
+      for (const venue of db.venues) {
+        if (Array.isArray(venue.managerUserIds) && venue.managerUserIds.includes(user.id)) {
+          venue.managerUserIds = venue.managerUserIds.filter((id) => id !== user.id);
+        }
+      }
+    }
+  }
   if (changes.length > 0) {
     recordAudit(db, {
       actor: req.adminSession.label,
@@ -6759,6 +7013,40 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
     });
   }
   writeDb(db);
+  res.json(publicUser(user));
+}));
+
+// Sets (or clears) which Venue this account belongs to - a plain data field
+// on every account type (player, captain, league manager, admin), not a
+// permission, so it's deliberately its own route rather than folded into
+// either applyProfileFields (which POST /api/users/me also uses - Venue is
+// admin-set only, never self-service) or the boolean-flag permissions route
+// above. See the "---------- Venues ----------" section further down for
+// how a venue is created/managed.
+app.post('/api/admin/users/:id/venue', requireAdmin, asyncRoute((req, res) => {
+  const { venueId } = req.body || {};
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  let venue = null;
+  if (venueId) {
+    venue = db.venues.find((v) => v.id === venueId);
+    if (!venue) throw new ApiError(404, 'Venue not found');
+  }
+  if (user.venueId !== (venue ? venue.id : null)) {
+    const previousVenue = db.venues.find((v) => v.id === user.venueId);
+    user.venueId = venue ? venue.id : null;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.venue',
+      targetType: 'user',
+      targetId: user.id,
+      details: venue
+        ? `Set ${user.firstName} ${user.lastName}'s Venue to "${venue.name}"${previousVenue ? ` (was "${previousVenue.name}")` : ''}`
+        : `Cleared ${user.firstName} ${user.lastName}'s Venue${previousVenue ? ` (was "${previousVenue.name}")` : ''}`,
+    });
+    writeDb(db);
+  }
   res.json(publicUser(user));
 }));
 

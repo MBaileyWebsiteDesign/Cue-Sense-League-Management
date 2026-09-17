@@ -84,6 +84,7 @@ export function AuthProvider({ children }) {
     isAdmin: !!user?.isAdmin,
     isCaptain: !!user?.isCaptain,
     isLeagueManager: !!user?.isLeagueManager,
+    isVenueManager: !!user?.isVenueManager,
     canManageLeague,
     login,
     logout,

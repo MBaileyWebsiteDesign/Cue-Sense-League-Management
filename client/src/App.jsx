@@ -31,6 +31,8 @@ const GameAdjustments = lazy(() => import('./pages/GameAdjustments.jsx'));
 const CaptainPortal = lazy(() => import('./pages/CaptainPortal.jsx'));
 const LeagueManagerPortal = lazy(() => import('./pages/LeagueManagerPortal.jsx'));
 const AdminPortal = lazy(() => import('./pages/AdminPortal.jsx'));
+const MembershipManagement = lazy(() => import('./pages/MembershipManagement.jsx'));
+const VenueManagerPortal = lazy(() => import('./pages/VenueManagerPortal.jsx'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers.jsx'));
 const AdminUserEdit = lazy(() => import('./pages/AdminUserEdit.jsx'));
 const AdminAuditLog = lazy(() => import('./pages/AdminAuditLog.jsx'));
@@ -101,6 +103,19 @@ function RequireCaptain({ children }) {
   return children;
 }
 
+// Venue Manager Portal gate - same pattern as RequireCaptain: an Overall
+// Admin can also see it (mirrors requireVenueManager in
+// server/src/userAuth.js letting isAdmin through the same door).
+function RequireVenueManager({ children }) {
+  const { isVenueManager, isAdmin } = useAuth();
+  const location = useLocation();
+
+  if (!isVenueManager && !isAdmin) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return children;
+}
+
 // On a narrow (phone-width) screen there isn't room for every link in one
 // row (Admin Portal, Captain Portal, Player Portal, Log out), so below the
 // 640px breakpoint (see styles.css) the link list
@@ -110,7 +125,7 @@ function RequireCaptain({ children }) {
 // hamburger button is display:none and .header-accounts just renders as
 // the same inline row it always did - nothing changes for desktop/tablet.
 function HeaderNav() {
-  const { isLoggedIn, isAdmin, isCaptain, isLeagueManager, logout } = useAuth();
+  const { isLoggedIn, isAdmin, isCaptain, isLeagueManager, isVenueManager, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -146,6 +161,11 @@ function HeaderNav() {
         {isLeagueManager && !isAdmin && (
           <Link to="/league-manager" className="header-link" onClick={closeMenu}>
             League Manager Portal
+          </Link>
+        )}
+        {isVenueManager && !isAdmin && (
+          <Link to="/venue-manager" className="header-link" onClick={closeMenu}>
+            Venue Manager Portal
           </Link>
         )}
         {(isAdmin || isCaptain) && (
@@ -259,7 +279,9 @@ function AppShell() {
             <Route path="/open-leagues" element={<RequireLogin><OpenLeagues /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
+            <Route path="/venue-manager" element={<RequireVenueManager><VenueManagerPortal /></RequireVenueManager>} />
             <Route path="/admin" element={<RequireAdmin><AdminPortal /></RequireAdmin>} />
+            <Route path="/admin/membership" element={<RequireAdmin><MembershipManagement /></RequireAdmin>} />
             <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
             <Route path="/admin/users/:userId" element={<RequireAdmin><AdminUserEdit /></RequireAdmin>} />
             <Route path="/admin/audit-log" element={<RequireAdmin><AdminAuditLog /></RequireAdmin>} />

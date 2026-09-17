@@ -3,6 +3,55 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
+// Membership Management: which Venue this account belongs to - a plain data
+// field on every account type, admin-set only (see POST
+// /api/admin/users/:id/venue). Kept as its own small card, separate from
+// ProfileForm above, since it isn't part of applyProfileFields (that
+// function also backs the self-service PATCH /api/users/me, and Venue is
+// deliberately never self-editable).
+function VenuePanel({ user, venues, onSaved, setError, setSuccess }) {
+  const [venueId, setVenueId] = useState(user.venueId || '');
+  const [submitting, setSubmitting] = useState(false);
+  const dirty = venueId !== (user.venueId || '');
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setSubmitting(true);
+    try {
+      const updated = await api.adminSetUserVenue(user.id, venueId || null);
+      onSaved(updated);
+      setSuccess('Venue updated.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form className="card form" onSubmit={onSubmit}>
+      <h2>Venue</h2>
+      <label>
+        Venue <span className="muted">(optional)</span>
+        <select value={venueId} onChange={(e) => setVenueId(e.target.value)}>
+          <option value="">Not set</option>
+          {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      </label>
+      <button className="btn btn-primary" type="submit" disabled={!dirty || submitting}>
+        {submitting ? 'Saving…' : 'Save Venue'}
+      </button>
+      {venues.length === 0 && (
+        <p className="muted" style={{ fontSize: '0.85rem' }}>
+          No venues exist yet - create one from Admin Portal &rarr; Membership Management first.
+        </p>
+      )}
+    </form>
+  );
+}
+
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
 function ProfileForm({ user, onSaved, setError, setSuccess }) {
@@ -104,6 +153,9 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         <button className="btn" disabled={busy} onClick={() => setPermission({ isLeagueManager: !user.isLeagueManager })}>
           {user.isLeagueManager ? 'Revoke League Manager' : 'Grant League Manager'}
         </button>
+        <button className="btn" disabled={busy} onClick={() => setPermission({ isVenueManager: !user.isVenueManager })}>
+          {user.isVenueManager ? 'Revoke Venue Manager' : 'Grant Venue Manager'}
+        </button>
         <button className="btn" disabled={busy} onClick={toggleStatus}>
           {user.status === 'suspended' ? 'Reactivate Account' : 'Suspend Account'}
         </button>
@@ -114,7 +166,8 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         Manager makes this account eligible to be assigned scoped admin access to specific
         leagues (assign them from that league's own page) - granting it here doesn't give
         access to anything by itself, and revoking it also strips any leagues they were
-        already assigned to.
+        already assigned to. Venue Manager works the same way, but for venues - assign them
+        from Admin Portal &rarr; Membership Management.
       </p>
     </section>
   );
@@ -157,11 +210,13 @@ function ResetPasswordForm({ user, setError, setSuccess }) {
 export default function AdminUserEdit() {
   const { userId } = useParams();
   const [user, setUser] = useState(null);
+  const [venues, setVenues] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
     api.adminGetUser(userId).then(setUser).catch((e) => setError(e.message));
+    api.getVenues().then(setVenues).catch(() => {});
   }, [userId]);
 
   useSetBreadcrumbs(
@@ -184,6 +239,7 @@ export default function AdminUserEdit() {
             <p className="muted"><Link to={`/players/${user.playerId}`}>View their stats &amp; match history</Link></p>
           )}
           <ProfileForm user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
+          <VenuePanel user={user} venues={venues} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
           <PermissionsPanel user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
           <ResetPasswordForm user={user} setError={setError} setSuccess={setSuccess} />
         </>
