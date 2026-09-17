@@ -5180,6 +5180,20 @@ app.post('/api/fixtures/:id/shot-clock/stop', requireAuth, asyncRoute((req, res)
 // they tend to win or lose on. Fixture-level rather than per-leg, so it
 // covers every leg of a team fixture too. Purely informational - doesn't
 // affect standings, points, or scoring in any way.
+app.post('/api/fixtures/:id/alternative-breaking', requireAuth, asyncRoute((req, res) => {
+  const { enabled } = req.body || {};
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  // Toggles whether the breaker for each frame from here on is derived
+  // automatically (alternating from whoever broke last) rather than left to
+  // a manual Break click - see POST .../frames below for the alternation
+  // logic itself. Purely a scoring-flow switch; doesn't touch past frames.
+  fixture.alternativeBreaking = !!enabled;
+  writeDb(db);
+  res.json(fixture);
+}));
+
 app.post('/api/fixtures/:id/table-info', requireAuth, asyncRoute((req, res) => {
   const { table, venue } = req.body || {};
   if (table !== undefined && table !== null && typeof table !== 'string') {
@@ -5247,7 +5261,23 @@ app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
     throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
   }
 
-  fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: breaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
+  // Alternative breaking: once enabled, who broke each frame is derived
+    // automatically rather than taken from the client - it alternates from
+    // whoever broke the most recently-recorded frame (any manually-supplied
+    // `breaker` is only used for the very first frame, e.g. the lag winner).
+    // If no prior frame has a recorded breaker at all (enabled mid-match with
+    // no lag ever logged), the home player is assumed to break first.
+    let resolvedBreaker = breaker;
+    if (fixture.alternativeBreaking) {
+      const lastBreakerFrame = [...fixture.frames].reverse().find((f) => f.breakerPlayerId);
+      if (lastBreakerFrame) {
+        resolvedBreaker = lastBreakerFrame.breakerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+      } else if (!resolvedBreaker) {
+        resolvedBreaker = fixture.homePlayerId;
+      }
+    }
+
+    fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
   fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
   fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
   fixture.status = 'in_progress';
@@ -5649,6 +5679,16 @@ app.post('/api/fixtures/:id/legs/:legNumber/nominate', requireAuth, asyncRoute((
   res.json(fixture);
 }));
 
+app.post('/api/fixtures/:id/legs/:legNumber/alternative-breaking', requireAuth, asyncRoute((req, res) => {
+  const { enabled } = req.body || {};
+  const db = readDb();
+  const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  // See the matching singles-fixture route above for what this does.
+  leg.alternativeBreaking = !!enabled;
+  writeDb(db);
+  res.json(fixture);
+}));
+
 app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((req, res) => {
   const { winnerPlayerId, method, breaker } = req.body;
   // See the matching singles frames route above for what `method` (BND/RND) does.
@@ -5686,7 +5726,19 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((re
     throw new ApiError(400, `This leg's race target (${leg.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
   }
 
-  leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: breaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
+  // See the matching singles frames route above for what alternative
+    // breaking does - same logic, scoped to this leg's own frames/players.
+    let resolvedBreaker = breaker;
+    if (leg.alternativeBreaking) {
+      const lastBreakerFrame = [...leg.frames].reverse().find((f) => f.breakerPlayerId);
+      if (lastBreakerFrame) {
+        resolvedBreaker = lastBreakerFrame.breakerPlayerId === leg.homePlayerId ? leg.awayPlayerId : leg.homePlayerId;
+      } else if (!resolvedBreaker) {
+        resolvedBreaker = leg.homePlayerId;
+      }
+    }
+
+    leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
   leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
   leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
   leg.status = 'in_progress';

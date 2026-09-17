@@ -3452,6 +3452,14 @@ export const demoApi = {
     };
   }),
 
+  setAlternativeBreaking: op((fixtureId, enabled) => {
+    const fixture = db.fixtures.find((f) => f.id === fixtureId);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    // See the matching server route for what this does.
+    fixture.alternativeBreaking = !!enabled;
+    return fixture;
+  }),
+
   recordFrame: op((fixtureId, winnerPlayerId, method, breaker) => {
     const fixture = db.fixtures.find((f) => f.id === fixtureId);
     if (!fixture) throw new ApiError(404, 'Fixture not found');
@@ -3491,7 +3499,18 @@ export const demoApi = {
     if (fixture.raceTo != null && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo)) {
       throw new ApiError(400, `The race target (${fixture.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
     }
-    fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: breaker || undefined });
+    // Alternative breaking: see the matching server route for the logic -
+    // mirrored here so the static demo build behaves the same way.
+    let resolvedBreaker = breaker;
+    if (fixture.alternativeBreaking) {
+      const lastBreakerFrame = [...fixture.frames].reverse().find((f) => f.breakerPlayerId);
+      if (lastBreakerFrame) {
+        resolvedBreaker = lastBreakerFrame.breakerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+      } else if (!resolvedBreaker) {
+        resolvedBreaker = fixture.homePlayerId;
+      }
+    }
+    fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined });
     fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
     fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
     fixture.status = 'in_progress';
@@ -3804,6 +3823,13 @@ export const demoApi = {
     return fixture;
   }),
 
+  setLegAlternativeBreaking: op((fixtureId, legNumber, enabled) => {
+    const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
+    // See the matching server route for what this does.
+    leg.alternativeBreaking = !!enabled;
+    return fixture;
+  }),
+
   recordLegFrame: op((fixtureId, legNumber, winnerPlayerId, method, breaker) => {
     const { fixture, leg } = findTeamFixtureAndLeg(fixtureId, legNumber);
     const division = db.divisions.find((d) => d.id === fixture.divisionId);
@@ -3838,7 +3864,17 @@ export const demoApi = {
     if (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo) {
       throw new ApiError(400, `This leg's race target (${leg.raceTo}) has been reached - submit the result for confirmation instead of recording another frame.`);
     }
-    leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: breaker || undefined });
+    // See the matching recordFrame mock above for what alternative breaking does.
+    let resolvedBreaker = breaker;
+    if (leg.alternativeBreaking) {
+      const lastBreakerFrame = [...leg.frames].reverse().find((f) => f.breakerPlayerId);
+      if (lastBreakerFrame) {
+        resolvedBreaker = lastBreakerFrame.breakerPlayerId === leg.homePlayerId ? leg.awayPlayerId : leg.homePlayerId;
+      } else if (!resolvedBreaker) {
+        resolvedBreaker = leg.homePlayerId;
+      }
+    }
+    leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined });
     leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
     leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
     leg.status = 'in_progress';

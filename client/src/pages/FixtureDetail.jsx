@@ -303,6 +303,27 @@ function LegRow({ fixture, leg, onChange, setError }) {
     setBreakerId((cur) => (cur === playerId ? null : playerId));
   };
 
+  // Alternative breaking: see the matching computation in SinglesFixtureView
+  // above - same logic, scoped to this leg's own frames/players.
+  const currentBreakerId = leg.alternativeBreaking
+    ? (() => {
+        const lastBreakerFrame = [...leg.frames].reverse().find((f) => f.breakerPlayerId);
+        return lastBreakerFrame
+          ? (lastBreakerFrame.breakerPlayerId === leg.homePlayerId ? leg.awayPlayerId : leg.homePlayerId)
+          : leg.homePlayerId;
+      })()
+    : null;
+
+  const onToggleAlternativeBreaking = async () => {
+    setError('');
+    try {
+      await api.setLegAlternativeBreaking(fixture.id, leg.legNumber, !leg.alternativeBreaking);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const onRecord = async (winnerPlayerId, method) => {
     setError('');
     try {
@@ -348,7 +369,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
       ) : (
         <>
           <div className="scoreboard">
-            <div className="scoreboard-player">
+            <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === leg.homePlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
               <h2><Link to={`/players/${leg.homePlayerId}`}>{leg.homePlayer.name}</Link></h2>
               <div className="score">{leg.homeFrameScore}</div>
               <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.homePlayerId)}>
@@ -383,7 +404,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
               </div>
             </div>
             <div className="scoreboard-vs">vs</div>
-            <div className="scoreboard-player">
+            <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === leg.awayPlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
               <h2><Link to={`/players/${leg.awayPlayerId}`}>{leg.awayPlayer.name}</Link></h2>
               <div className="score">{leg.awayFrameScore}</div>
               <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.awayPlayerId)}>
@@ -420,6 +441,15 @@ function LegRow({ fixture, leg, onChange, setError }) {
           </div>
           <div className="page-header">
             <span className="muted">Race to {leg.raceTo}</span>
+            <button
+              type="button"
+              className={`btn ${leg.alternativeBreaking ? 'btn-alt-breaking-on' : 'btn-alt-breaking-off'}`}
+              disabled={locked}
+              title="When on, the app automatically alternates who breaks each frame of this leg (the first frame's breaker is still set manually via the Break button, e.g. after a lag)."
+              onClick={onToggleAlternativeBreaking}
+            >
+              Alternative breaking: {leg.alternativeBreaking ? 'On' : 'Off'}
+            </button>
             <button className="btn" disabled={leg.frames.length === 0 || locked} onClick={onUndo}>
               Undo last frame
             </button>
@@ -602,6 +632,19 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
     setBreakerId((cur) => (cur === playerId ? null : playerId));
   };
 
+  // Alternative breaking: who's due to break the next frame, mirroring the
+  // server's alternation logic - used only to highlight the scoreboard
+  // below, never sent to the server (the server resolves the real breaker
+  // itself once alternative breaking is on).
+  const currentBreakerId = fixture.alternativeBreaking
+    ? (() => {
+        const lastBreakerFrame = [...fixture.frames].reverse().find((f) => f.breakerPlayerId);
+        return lastBreakerFrame
+          ? (lastBreakerFrame.breakerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId)
+          : fixture.homePlayerId;
+      })()
+    : null;
+
   const onRecord = async (winnerId, method) => {
     setError('');
     try {
@@ -636,7 +679,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   return (
     <div>
       <section className="card scoreboard">
-        <div className="scoreboard-player">
+        <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === fixture.homePlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
           <h2><EntrantName entrant={homeEntrant} id={fixture.homePlayerId} /></h2>
           <div className="score">{fixture.homeFrameScore}</div>
           <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.homePlayerId)}>
@@ -671,7 +714,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           </div>
         </div>
         <div className="scoreboard-vs">vs</div>
-        <div className="scoreboard-player">
+        <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === fixture.awayPlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
           <h2><EntrantName entrant={awayEntrant} id={fixture.awayPlayerId} /></h2>
           <div className="score">{fixture.awayFrameScore}</div>
           <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.awayPlayerId)}>
@@ -808,7 +851,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
 // display every second locally (rather than polling the server) using the
 // startedAt timestamp the server already returns, so the display stays
 // smooth between the occasional onChange() refresh.
-function LiveMatchControls({ fixture, onChange, setError }) {
+function LiveMatchControls({ fixture, isTeams, onChange, setError }) {
   const [now, setNow] = useState(Date.now());
   // Optional table/venue tag for this match - see POST .../table-info.
   // Local state seeded from the fixture and only pushed back on Save, so
@@ -903,6 +946,20 @@ function LiveMatchControls({ fixture, onChange, setError }) {
         <p className="muted" style={{ fontSize: '0.75rem', marginTop: 8 }}>
           Recording frames against {fixture.table ? `table "${fixture.table}"` : 'no table set'}{fixture.venue ? ` at ${fixture.venue}` : ''} - builds each player's table win/loss record on their stats page.
         </p>
+      )}
+      {/* Team fixtures alternate breaking per-leg (each leg has its own pair
+          of players) - see the matching toggle inside LegRow instead. */}
+      {!isTeams && (
+        <div className="inline-form inline-form-center" style={{ alignItems: 'center', marginTop: 16 }}>
+          <button
+            type="button"
+            className={`btn ${fixture.alternativeBreaking ? 'btn-alt-breaking-on' : 'btn-alt-breaking-off'}`}
+            title="When on, the app automatically alternates who breaks each frame (the first frame's breaker is still set manually via the Break button, e.g. after a lag)."
+            onClick={() => run(() => api.setAlternativeBreaking(fixture.id, !fixture.alternativeBreaking))}
+          >
+            Alternative breaking: {fixture.alternativeBreaking ? 'On' : 'Off'}
+          </button>
+        </div>
       )}
     </section>
   );
@@ -1036,7 +1093,7 @@ export default function FixtureDetail() {
       {error && <p className="error">{error}</p>}
 
       {isAdminSession && <ScheduleFixturePanel fixture={fixture} onChange={load} setError={setError} />}
-      {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} onChange={load} setError={setError} />}
+      {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} isTeams={isTeams} onChange={load} setError={setError} />}
 
       {isTeams ? (
         <TeamFixtureView fixture={fixture} onChange={load} setError={setError} />

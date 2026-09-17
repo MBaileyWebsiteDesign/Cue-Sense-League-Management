@@ -329,6 +329,8 @@ const networkApi = {
   },
   restoreBackup: (data) => request('/admin/restore', { method: 'POST', body: JSON.stringify(data) }),
   wipeAllData: () => request('/admin/wipe', { method: 'POST' }),
+  setAlternativeBreaking: (fixtureId, enabled) =>
+    request(`/fixtures/${fixtureId}/alternative-breaking`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   recordFrame: (fixtureId, winnerPlayerId, method, breaker) =>
     request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId, method, breaker }) }),
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),
@@ -367,6 +369,8 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ homePlayerId, awayPlayerId }),
     }),
+  setLegAlternativeBreaking: (fixtureId, legNumber, enabled) =>
+    request(`/fixtures/${fixtureId}/legs/${legNumber}/alternative-breaking`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   recordLegFrame: (fixtureId, legNumber, winnerPlayerId, method, breaker) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/frames`, {
       method: 'POST',
