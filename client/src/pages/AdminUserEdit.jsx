@@ -56,6 +56,15 @@ function VenuePanel({ user, venues, onSaved, setError, setSuccess }) {
 // or both set. End date reuses the existing membershipRenewalDate field
 // (server/src/index.js's POST /api/admin/users/:id/membership-dates), which is
 // what the Venue Manager Portal's "due for renewal" counts key off.
+// Adding a year to a start date for the default end date - done with plain
+// Date math (not a library) since this only ever needs to shift by exactly
+// one calendar year and land on the corresponding YYYY-MM-DD.
+function addOneYear(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function MembershipDatesPanel({ user, onSaved, setError, setSuccess }) {
   const [startDate, setStartDate] = useState(user.membershipStartDate || '');
   const [endDate, setEndDate] = useState(user.membershipRenewalDate || '');
@@ -63,6 +72,17 @@ function MembershipDatesPanel({ user, onSaved, setError, setSuccess }) {
   const dirty =
     startDate !== (user.membershipStartDate || '') ||
     endDate !== (user.membershipRenewalDate || '');
+
+  // Picking a start date defaults the end date to exactly one year later -
+  // but only when there's no end date set yet, so it never overwrites one
+  // an admin already entered on purpose.
+  const onStartDateChange = (e) => {
+    const value = e.target.value;
+    setStartDate(value);
+    if (value && !endDate) {
+      setEndDate(addOneYear(value));
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -86,9 +106,12 @@ function MembershipDatesPanel({ user, onSaved, setError, setSuccess }) {
   return (
     <form className="card form" onSubmit={onSubmit}>
       <h2>Membership dates</h2>
+      <p className="muted" style={{ margin: '0 0 8px', fontSize: '0.85rem' }}>
+        Setting a start date fills in an end date one year later automatically, if no end date is set yet - you can still change either field.
+      </p>
       <label>
         Start date <span className="muted">(optional)</span>
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <input type="date" value={startDate} onChange={onStartDateChange} />
       </label>
       <label>
         End date <span className="muted">(optional)</span>
