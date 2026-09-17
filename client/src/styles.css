@@ -520,6 +520,26 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 
 .btn-break.btn-break-selected:hover:not(:disabled) { background: #15803d; }
 
+/* Alternative breaking toggle (Live Match Controls card, and each LegRow for
+   team fixtures) - solid green when on, solid red when off (default off),
+   distinct from the outlined .btn-break so the two read as different kinds
+   of control (one-off lag record vs a persistent match setting). */
+.btn-alt-breaking-on {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.btn-alt-breaking-on:hover:not(:disabled) { background: #15803d; }
+
+.btn-alt-breaking-off {
+  background: #fee2e2;
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.btn-alt-breaking-off:hover:not(:disabled) { background: #fecaca; }
+
 .btn-killer-safe {
   background: #16a34a;
   border-color: #16a34a;
@@ -653,6 +673,21 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 }
 
 .scoreboard-vs { color: var(--muted); font-weight: 700; }
+
+/* Alternative breaking: highlights whose turn it is to break next -
+   FixtureDetail.jsx (SinglesFixtureView) and LegRow apply these to the
+   whole .scoreboard-player block for the breaking/non-breaking side, based
+   on the same alternation logic as the server. Name and score both pick up
+   the colour since .score has its own color rule above (var(--primary)). */
+.scoreboard-player-breaking h2,
+.scoreboard-player-breaking .score {
+  color: #16a34a;
+}
+
+.scoreboard-player-not-breaking h2,
+.scoreboard-player-not-breaking .score {
+  color: #b91c1c;
+}
 
 .scoreboard-player h2 a,
 .standings-table a,
