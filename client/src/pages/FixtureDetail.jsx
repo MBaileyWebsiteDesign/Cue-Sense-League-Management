@@ -313,9 +313,8 @@ function LegRow({ fixture, leg, onChange, setError }) {
           : leg.homePlayerId;
       })()
     : null;
-  // See the matching consts in SinglesFixtureView above for what these do.
-  const homeNotTheirTurn = currentBreakerId != null && currentBreakerId !== leg.homePlayerId;
-  const awayNotTheirTurn = currentBreakerId != null && currentBreakerId !== leg.awayPlayerId;
+  // See the matching const in SinglesFixtureView above for what this does.
+  const breakOrderLocked = leg.alternativeBreaking && leg.frames.some((f) => f.breakerPlayerId);
 
   const onToggleAlternativeBreaking = async () => {
     setError('');
@@ -390,7 +389,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 <button
                   type="button"
                   className={`btn btn-break${breakerId === leg.homePlayerId ? ' btn-break-selected' : ''}`}
-                  disabled={locked || homeNotTheirTurn}
+                  disabled={locked || breakOrderLocked}
                   title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
                   onClick={() => onSelectBreaker(leg.homePlayerId)}
                 >
@@ -425,7 +424,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 <button
                   type="button"
                   className={`btn btn-break${breakerId === leg.awayPlayerId ? ' btn-break-selected' : ''}`}
-                  disabled={locked || awayNotTheirTurn}
+                  disabled={locked || breakOrderLocked}
                   title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
                   onClick={() => onSelectBreaker(leg.awayPlayerId)}
                 >
@@ -647,11 +646,12 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
           : fixture.homePlayerId;
       })()
     : null;
-  // While alternative breaking is on, the Break button is only usable for
-  // whoever's actually due to break next - stops a manual Break click
-  // fighting with the automatic alternation.
-  const homeNotTheirTurn = currentBreakerId != null && currentBreakerId !== fixture.homePlayerId;
-  const awayNotTheirTurn = currentBreakerId != null && currentBreakerId !== fixture.awayPlayerId;
+  // While alternative breaking is on, the Break button decides only who
+  // breaks the very first frame (the lag winner) - once that frame's been
+  // recorded, the breaking order is set and every frame after alternates
+  // automatically, so both Break buttons lock out rather than staying
+  // usable for one side.
+  const breakOrderLocked = fixture.alternativeBreaking && fixture.frames.some((f) => f.breakerPlayerId);
 
   const onRecord = async (winnerId, method) => {
     setError('');
@@ -705,7 +705,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             <button
               type="button"
               className={`btn btn-break${breakerId === fixture.homePlayerId ? ' btn-break-selected' : ''}`}
-              disabled={locked || homeNotTheirTurn}
+              disabled={locked || breakOrderLocked}
               title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
               onClick={() => onSelectBreaker(fixture.homePlayerId)}
             >
@@ -740,7 +740,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             <button
               type="button"
               className={`btn btn-break${breakerId === fixture.awayPlayerId ? ' btn-break-selected' : ''}`}
-              disabled={locked || awayNotTheirTurn}
+              disabled={locked || breakOrderLocked}
               title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
               onClick={() => onSelectBreaker(fixture.awayPlayerId)}
             >
