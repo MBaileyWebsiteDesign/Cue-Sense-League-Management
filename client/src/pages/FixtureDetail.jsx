@@ -396,9 +396,6 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 >
                   {breakerId === leg.homePlayerId ? 'Breaking \u2713' : 'Break'}
                 </button>
-                {homeNotTheirTurn && (
-                  <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
-                )}
                 <button
                   className="btn btn-yellow"
                   disabled={locked}
@@ -434,9 +431,6 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 >
                   {breakerId === leg.awayPlayerId ? 'Breaking \u2713' : 'Break'}
                 </button>
-                {awayNotTheirTurn && (
-                  <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
-                )}
                 <button
                   className="btn btn-yellow"
                   disabled={locked}
@@ -717,9 +711,6 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             >
               {breakerId === fixture.homePlayerId ? 'Breaking \u2713' : 'Break'}
             </button>
-            {homeNotTheirTurn && (
-              <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
-            )}
             <button
               className="btn btn-yellow"
               disabled={locked}
@@ -755,9 +746,6 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             >
               {breakerId === fixture.awayPlayerId ? 'Breaking \u2713' : 'Break'}
             </button>
-            {awayNotTheirTurn && (
-              <div className="muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>It's not this player's turn to break</div>
-            )}
             <button
               className="btn btn-yellow"
               disabled={locked}
