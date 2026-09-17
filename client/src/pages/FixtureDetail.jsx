@@ -294,10 +294,20 @@ function LegRow({ fixture, leg, onChange, setError }) {
   const isAwayNominee = !!user?.playerId && user.playerId === leg.awayPlayerId;
   const canReportNoShow = (isHomeNominee || isAwayNominee) && ['scheduled', 'in_progress'].includes(leg.status) && leg.frames.length === 0;
 
+  // Records which player won the lag and broke to start the frame currently
+  // being played. Purely informational (frame history only) - doesn't award
+  // a frame win by itself, so it's tracked locally here and only sent along
+  // once the frame's actual winner is recorded (Frame won/BND/RND below).
+  const [breakerId, setBreakerId] = useState(null);
+  const onSelectBreaker = (playerId) => {
+    setBreakerId((cur) => (cur === playerId ? null : playerId));
+  };
+
   const onRecord = async (winnerPlayerId, method) => {
     setError('');
     try {
-      await api.recordLegFrame(fixture.id, leg.legNumber, winnerPlayerId, method);
+      await api.recordLegFrame(fixture.id, leg.legNumber, winnerPlayerId, method, breakerId || undefined);
+      setBreakerId(null);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -354,6 +364,15 @@ function LegRow({ fixture, leg, onChange, setError }) {
                   BND
                 </button>
                 <button
+                  type="button"
+                  className={`btn btn-break${breakerId === leg.homePlayerId ? ' btn-break-selected' : ''}`}
+                  disabled={locked}
+                  title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
+                  onClick={() => onSelectBreaker(leg.homePlayerId)}
+                >
+                  {breakerId === leg.homePlayerId ? 'Breaking \u2713' : 'Break'}
+                </button>
+                <button
                   className="btn btn-yellow"
                   disabled={locked}
                   title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
@@ -378,6 +397,15 @@ function LegRow({ fixture, leg, onChange, setError }) {
                   onClick={() => onRecord(leg.awayPlayerId, 'bnd')}
                 >
                   BND
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-break${breakerId === leg.awayPlayerId ? ' btn-break-selected' : ''}`}
+                  disabled={locked}
+                  title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
+                  onClick={() => onSelectBreaker(leg.awayPlayerId)}
+                >
+                  {breakerId === leg.awayPlayerId ? 'Breaking \u2713' : 'Break'}
                 </button>
                 <button
                   className="btn btn-yellow"
@@ -427,6 +455,25 @@ function LegRow({ fixture, leg, onChange, setError }) {
             onDispute={async (reason) => { await api.disputeLegResult(fixture.id, leg.legNumber, reason); onChange(); }}
             onReopen={async () => { await api.adminReopenLeg(fixture.id, leg.legNumber); onChange(); }}
           />
+
+          <section className="card">
+            <h2 style={{ marginTop: 0 }}>Frame history</h2>
+            <ol className="frame-history">
+              {leg.frames.map((f) => (
+                <li key={f.frameNumber}>
+                  Frame {f.frameNumber}: Winner: {f.winnerPlayerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name}
+                  {f.method === 'bnd' && <strong> (BND)</strong>}
+                  {f.method === 'rnd' && <strong> (RND)</strong>}
+                  {f.breakerPlayerId && (
+                    <span className="muted">
+                      {' '}- Breaking player: {f.breakerPlayerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name}
+                    </span>
+                  )}
+                </li>
+              ))}
+              {leg.frames.length === 0 && <li className="muted">No frames recorded yet.</li>}
+            </ol>
+          </section>
         </>
       )}
     </div>
@@ -546,10 +593,20 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
     );
   }
 
+  // Records which player won the lag and broke to start the frame currently
+  // being played. Purely informational (frame history only) - doesn't award
+  // a frame win by itself, so it's tracked locally here and only sent along
+  // once the frame's actual winner is recorded (Frame won/BND/RND below).
+  const [breakerId, setBreakerId] = useState(null);
+  const onSelectBreaker = (playerId) => {
+    setBreakerId((cur) => (cur === playerId ? null : playerId));
+  };
+
   const onRecord = async (winnerId, method) => {
     setError('');
     try {
-      await api.recordFrame(fixture.id, winnerId, method);
+      await api.recordFrame(fixture.id, winnerId, method, breakerId || undefined);
+      setBreakerId(null);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -595,6 +652,15 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
               BND
             </button>
             <button
+              type="button"
+              className={`btn btn-break${breakerId === fixture.homePlayerId ? ' btn-break-selected' : ''}`}
+              disabled={locked}
+              title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
+              onClick={() => onSelectBreaker(fixture.homePlayerId)}
+            >
+              {breakerId === fixture.homePlayerId ? 'Breaking \u2713' : 'Break'}
+            </button>
+            <button
               className="btn btn-yellow"
               disabled={locked}
               title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
@@ -619,6 +685,15 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
               onClick={() => onRecord(fixture.awayPlayerId, 'bnd')}
             >
               BND
+            </button>
+            <button
+              type="button"
+              className={`btn btn-break${breakerId === fixture.awayPlayerId ? ' btn-break-selected' : ''}`}
+              disabled={locked}
+              title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
+              onClick={() => onSelectBreaker(fixture.awayPlayerId)}
+            >
+              {breakerId === fixture.awayPlayerId ? 'Breaking \u2713' : 'Break'}
             </button>
             <button
               className="btn btn-yellow"
@@ -709,9 +784,14 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
         <ol className="frame-history">
           {fixture.frames.map((f) => (
             <li key={f.frameNumber}>
-              Frame {f.frameNumber}: {f.winnerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
+              Frame {f.frameNumber}: Winner: {f.winnerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
               {f.method === 'bnd' && <strong> (BND)</strong>}
               {f.method === 'rnd' && <strong> (RND)</strong>}
+              {f.breakerPlayerId && (
+                <span className="muted">
+                  {' '}- Breaking player: {f.breakerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
+                </span>
+              )}
             </li>
           ))}
           {fixture.frames.length === 0 && <li className="muted">No frames recorded yet.</li>}
