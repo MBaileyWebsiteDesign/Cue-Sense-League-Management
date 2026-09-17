@@ -240,3 +240,43 @@ export function assertLeagueAccess(req, league) {
   }
   throw new ApiError(403, "You don't have manager access to this league");
 }
+
+// Venue Manager gate (Membership Management, 2026-09-17): mirrors
+// requireAnyAdmin/assertLeagueAccess above, but for venues rather than
+// leagues. Lets an Overall Admin OR anyone flagged isVenueManager through
+// the door for the Venue Manager Portal routes - same as requireAnyAdmin,
+// this alone does NOT check which venue is being touched; every route using
+// it must also call assertVenueAccess(req, venue) once it has resolved the
+// specific venue the request targets.
+export function requireVenueManager(req, res, next) {
+  const user = loadActiveUser(tokenFromHeader(req));
+  if (!user || user.status === 'suspended') {
+    throw new ApiError(401, 'Login required for this action');
+  }
+  if (!user.isAdmin && !user.isVenueManager) {
+    throw new ApiError(403, 'Admin or Venue Manager access required');
+  }
+  req.auth = { userId: user.id, user };
+  req.adminSession = { label: `${user.firstName} ${user.lastName}` };
+  next();
+}
+
+// Call after requireVenueManager, once the target venue is known - an
+// Overall Admin (isAdmin) always passes; a Venue Manager only passes for a
+// venue whose managerUserIds (assigned by an Overall Admin via
+// POST /api/venues/:id/managers - Venue Managers can never assign
+// themselves) includes their own user id.
+export function assertVenueAccess(req, venue) {
+  const user = req.auth && req.auth.user;
+  if (!user) throw new ApiError(401, 'Login required for this action');
+  if (user.isAdmin) return;
+  if (
+    user.isVenueManager &&
+    venue &&
+    Array.isArray(venue.managerUserIds) &&
+    venue.managerUserIds.includes(user.id)
+  ) {
+    return;
+  }
+  throw new ApiError(403, "You don't have manager access to this venue");
+}

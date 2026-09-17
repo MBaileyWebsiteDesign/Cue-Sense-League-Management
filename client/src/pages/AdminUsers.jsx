@@ -506,7 +506,7 @@ export default function AdminUsers() {
                 <td style={{ textAlign: 'left' }}>{u.email}</td>
                 <td style={{ textAlign: 'left' }}>{u.teamName}</td>
                 <td>{u.classification || '—'}</td>
-                <td>{[u.isAdmin && 'Admin', u.isCaptain && 'Captain', u.isLeagueManager && 'League Manager'].filter(Boolean).join(', ') || '—'}</td>
+                <td>{[u.isAdmin && 'Admin', u.isCaptain && 'Captain', u.isLeagueManager && 'League Manager', u.isVenueManager && 'Venue Manager'].filter(Boolean).join(', ') || '—'}</td>
                 <td>
                   <span className={`status ${u.status === 'suspended' ? '' : 'status-completed'}`}>{u.status}</span>
                 </td>
