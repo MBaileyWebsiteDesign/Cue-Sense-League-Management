@@ -6,7 +6,7 @@ export function buildPlayerProfile(db, playerId) {
   const player = db.players.find((p) => p.id === playerId);
   if (!player) return null;
 
-  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0 };
+  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0 };
   const headToHeadMap = new Map();
   const results = [];
 
@@ -79,6 +79,11 @@ export function buildPlayerProfile(db, playerId) {
       if (frame.winnerPlayerId !== playerId) continue;
       if (frame.method === 'bnd') career.bnd += 1;
       else if (frame.method === 'rnd') career.rnd += 1;
+      // Break/non-break win split - mirrors server/src/services/playerProfile.js.
+      if (frame.breakerPlayerId) {
+        if (frame.breakerPlayerId === playerId) career.breakWins += 1;
+        else career.nonBreakWins += 1;
+      }
     }
   }
 
@@ -110,6 +115,11 @@ export function buildPlayerProfile(db, playerId) {
         if (frame.winnerPlayerId !== playerId) continue;
         if (frame.method === 'bnd') career.bnd += 1;
         else if (frame.method === 'rnd') career.rnd += 1;
+        // Break/non-break win split for this leg - mirrors the server.
+        if (frame.breakerPlayerId) {
+          if (frame.breakerPlayerId === playerId) career.breakWins += 1;
+          else career.nonBreakWins += 1;
+        }
       }
     }
   }

@@ -14,6 +14,12 @@
   --muted: #6b7280;
   --border: #e2e5e9;
   --bg: #f7f5f0;
+  /* Categorical chart colours - validated (dataviz skill) for the light card
+     surface: worst adjacent CVD Delta E 24.7, normal-vision Delta E 33.6,
+     both well clear of the >=8 / >=15 gates. Used for the player profile's
+     Break + Win vs Non-Breaking + Win pie chart. */
+  --chart-series-1: #2a78d6;
+  --chart-series-2: #eb6834;
 }
 
 * { box-sizing: border-box; }
@@ -286,6 +292,56 @@ h3 { font-size: 1.05rem; font-weight: 700; }
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
 }
+
+/* Break + Win vs Non-Breaking + Win pie chart on the player profile Career
+   card - a plain CSS conic-gradient donut (no charting library in this app)
+   plus a text legend, so the win split is never color-alone. */
+.break-win-chart {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.break-win-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.break-win-pie {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.break-win-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+.break-win-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.break-win-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.break-win-swatch-1 { background: var(--chart-series-1); }
+.break-win-swatch-2 { background: var(--chart-series-2); }
 
 /* Groups a card-grid under a small caption (e.g. Admin Portal's Season
    Setup / Day-to-day / Records & Tools) so cards used at very different
