@@ -308,9 +308,11 @@ function LegRow({ fixture, leg, onChange, setError }) {
   const currentBreakerId = leg.alternativeBreaking
     ? (() => {
         const lastBreakerFrame = [...leg.frames].reverse().find((f) => f.breakerPlayerId);
+        // No frame's breaker recorded yet - the lag decides who breaks
+        // frame 1, so there's nothing to show until that's set.
         return lastBreakerFrame
           ? (lastBreakerFrame.breakerPlayerId === leg.homePlayerId ? leg.awayPlayerId : leg.homePlayerId)
-          : leg.homePlayerId;
+          : null;
       })()
     : null;
   // See the matching const in SinglesFixtureView above for what this does.
@@ -456,7 +458,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
               Undo last frame
             </button>
           </div>
-          {currentBreakerId && (
+          {leg.alternativeBreaking && (
             <div className="inline-form" style={{ marginTop: -4, marginBottom: 8 }}>
               <button
                 type="button"
@@ -465,7 +467,9 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 aria-disabled="true"
                 style={{ cursor: 'default', pointerEvents: 'none' }}
               >
-                Player to break next frame: {currentBreakerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name}
+                Player to break next frame: {currentBreakerId
+                  ? (currentBreakerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name)
+                  : ''}
               </button>
             </div>
           )}
@@ -654,9 +658,11 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   const currentBreakerId = fixture.alternativeBreaking
     ? (() => {
         const lastBreakerFrame = [...fixture.frames].reverse().find((f) => f.breakerPlayerId);
+        // No frame's breaker recorded yet - the lag decides who breaks
+        // frame 1, so there's nothing to show until that's set.
         return lastBreakerFrame
           ? (lastBreakerFrame.breakerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId)
-          : fixture.homePlayerId;
+          : null;
       })()
     : null;
   // While alternative breaking is on, the Break button decides only who
@@ -887,9 +893,11 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
   const currentBreakerId = fixture.alternativeBreaking
     ? (() => {
         const lastBreakerFrame = [...fixture.frames].reverse().find((f) => f.breakerPlayerId);
+        // No frame's breaker recorded yet - the lag decides who breaks
+        // frame 1, so there's nothing to show until that's set.
         return lastBreakerFrame
           ? (lastBreakerFrame.breakerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId)
-          : fixture.homePlayerId;
+          : null;
       })()
     : null;
   const homeEntrantName = isDoubles ? fixture.homePairing?.name : fixture.homePlayer?.name;
@@ -996,7 +1004,7 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
           </button>
         </div>
       )}
-      {!isTeams && currentBreakerId && (
+      {!isTeams && fixture.alternativeBreaking && (
         <div className="inline-form inline-form-center" style={{ alignItems: 'center', marginTop: 8 }}>
           <button
             type="button"
@@ -1005,7 +1013,9 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
             aria-disabled="true"
             style={{ cursor: 'default', pointerEvents: 'none' }}
           >
-            Player to break next frame: {currentBreakerId === fixture.homePlayerId ? homeEntrantName : awayEntrantName}
+            Player to break next frame: {currentBreakerId
+              ? (currentBreakerId === fixture.homePlayerId ? homeEntrantName : awayEntrantName)
+              : ''}
           </button>
         </div>
       )}
