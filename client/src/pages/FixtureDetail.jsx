@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
+import {
+  enqueueFrame,
+  enqueueLegFrame,
+  newRequestId,
+  reattachFixture,
+  applyOptimisticFrame,
+  rollbackOptimisticFrame,
+} from '../scoringQueue.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useIsAdminSession } from '../useAdminSession.js';
 import { useAuth } from '../AuthContext.jsx';
@@ -285,7 +293,7 @@ function LegNominationForm({ fixture, leg, onChange, setError }) {
   );
 }
 
-function LegRow({ fixture, leg, onChange, setError }) {
+function LegRow({ fixture, leg, onChange, setError, onOptimisticLegFrame, onRollbackLegFrame }) {
   const { user, isAdmin } = useAuth();
   const complete = leg.status === 'completed';
   const locked = complete || leg.status === 'pending_confirmation' || leg.status === 'disputed';
@@ -302,6 +310,10 @@ function LegRow({ fixture, leg, onChange, setError }) {
   const onSelectBreaker = (playerId) => {
     setBreakerId((cur) => (cur === playerId ? null : playerId));
   };
+  // True while a frame recording for this leg is queued/in flight (see
+  // scoringQueue.js) - guards the frame-win buttons against a double tap
+  // recording the same frame twice while a slow request is still pending.
+  const [framePending, setFramePending] = useState(false);
 
   // Alternative breaking: see the matching computation in SinglesFixtureView
   // above - same logic, scoped to this leg's own frames/players.
@@ -328,15 +340,35 @@ function LegRow({ fixture, leg, onChange, setError }) {
     }
   };
 
-  const onRecord = async (winnerPlayerId, method) => {
+  const onRecord = (winnerPlayerId, method) => {
     setError('');
-    try {
-      await api.recordLegFrame(fixture.id, leg.legNumber, winnerPlayerId, method, breakerId || undefined);
-      setBreakerId(null);
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    }
+    const clientRequestId = newRequestId();
+    const chosenBreaker = breakerId || undefined;
+    setBreakerId(null);
+    setFramePending(true);
+    // Optimistic UI: show the frame's effect on the scoreboard immediately,
+    // before the network request (queued below, with automatic retry on a
+    // slow/dropped connection) actually confirms it - reconciled with the
+    // server's real state once the request succeeds, or rolled back if it's
+    // definitively rejected.
+    onOptimisticLegFrame(leg.legNumber, { winnerPlayerId, method, breaker: chosenBreaker, clientRequestId });
+    enqueueLegFrame({
+      fixtureId: fixture.id,
+      legNumber: leg.legNumber,
+      winnerPlayerId,
+      method,
+      breaker: chosenBreaker,
+      clientRequestId,
+      onSettled: (err) => {
+        setFramePending(false);
+        if (err) {
+          onRollbackLegFrame(leg.legNumber, clientRequestId);
+          setError(err.message);
+        } else {
+          onChange();
+        }
+      },
+    });
   };
 
   const onUndo = async () => {
@@ -372,17 +404,24 @@ function LegRow({ fixture, leg, onChange, setError }) {
         <LegNominationForm fixture={fixture} leg={leg} onChange={onChange} setError={setError} />
       ) : (
         <>
+          {framePending && (
+            <p className="muted">
+              {typeof navigator !== 'undefined' && navigator.onLine === false
+                ? 'Offline - this frame will be recorded automatically once you\'re back online.'
+                : 'Saving frame\u2026'}
+            </p>
+          )}
           <div className="scoreboard">
             <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === leg.homePlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
               <h2><Link to={`/players/${leg.homePlayerId}`}>{leg.homePlayer.name}</Link></h2>
               <div className="score">{leg.homeFrameScore}</div>
-              <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.homePlayerId)}>
+              <button className="btn btn-primary" disabled={locked || framePending} onClick={() => onRecord(leg.homePlayerId)}>
                 Frame won
               </button>
               <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
                 <button
                   className="btn btn-yellow"
-                  disabled={locked}
+                  disabled={locked || framePending}
                   title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
                   onClick={() => onRecord(leg.homePlayerId, 'bnd')}
                 >
@@ -399,7 +438,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 </button>
                 <button
                   className="btn btn-yellow"
-                  disabled={locked}
+                  disabled={locked || framePending}
                   title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
                   onClick={() => onRecord(leg.homePlayerId, 'rnd')}
                 >
@@ -411,13 +450,13 @@ function LegRow({ fixture, leg, onChange, setError }) {
             <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === leg.awayPlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
               <h2><Link to={`/players/${leg.awayPlayerId}`}>{leg.awayPlayer.name}</Link></h2>
               <div className="score">{leg.awayFrameScore}</div>
-              <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(leg.awayPlayerId)}>
+              <button className="btn btn-primary" disabled={locked || framePending} onClick={() => onRecord(leg.awayPlayerId)}>
                 Frame won
               </button>
               <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
                 <button
                   className="btn btn-yellow"
-                  disabled={locked}
+                  disabled={locked || framePending}
                   title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
                   onClick={() => onRecord(leg.awayPlayerId, 'bnd')}
                 >
@@ -434,7 +473,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
                 </button>
                 <button
                   className="btn btn-yellow"
-                  disabled={locked}
+                  disabled={locked || framePending}
                   title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
                   onClick={() => onRecord(leg.awayPlayerId, 'rnd')}
                 >
@@ -454,7 +493,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
             >
               Alternative breaking: {leg.alternativeBreaking ? 'On' : 'Off'}
             </button>
-            <button className="btn" disabled={leg.frames.length === 0 || locked} onClick={onUndo}>
+            <button className="btn" disabled={leg.frames.length === 0 || locked || framePending} onClick={onUndo}>
               Undo last frame
             </button>
           </div>
@@ -518,6 +557,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
                       {' '}- Breaking player: {f.breakerPlayerId === leg.homePlayerId ? leg.homePlayer.name : leg.awayPlayer.name}
                     </span>
                   )}
+                  {f.pending && <span className="muted"> - saving…</span>}
                 </li>
               ))}
               {leg.frames.length === 0 && <li className="muted">No frames recorded yet.</li>}
@@ -529,7 +569,7 @@ function LegRow({ fixture, leg, onChange, setError }) {
   );
 }
 
-function TeamFixtureView({ fixture, onChange, setError }) {
+function TeamFixtureView({ fixture, onChange, setError, onOptimisticLegFrame, onRollbackLegFrame }) {
   const complete = fixture.status === 'completed';
   const drawn = complete && fixture.winnerTeamId === null;
 
@@ -574,7 +614,7 @@ function TeamFixtureView({ fixture, onChange, setError }) {
       )}
 
       {fixture.legs.map((leg) => (
-        <LegRow key={leg.legNumber} fixture={fixture} leg={leg} onChange={onChange} setError={setError} />
+        <LegRow key={leg.legNumber} fixture={fixture} leg={leg} onChange={onChange} setError={setError} onOptimisticLegFrame={onOptimisticLegFrame} onRollbackLegFrame={onRollbackLegFrame} />
       ))}
     </div>
   );
@@ -585,7 +625,7 @@ function TeamFixtureView({ fixture, onChange, setError }) {
 // awayPairing, a named 2-3 player group) - the two are structurally
 // identical (one continuous frame race, no legs), differing only in what
 // the "entrant" is and whether it links to a player profile page.
-function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
+function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimisticFrame, onRollbackFrame }) {
   const { user, isAdmin } = useAuth();
   const complete = fixture.status === 'completed';
   // Scoring is locked once a result has been submitted (pending_confirmation)
@@ -650,6 +690,10 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   const onSelectBreaker = (playerId) => {
     setBreakerId((cur) => (cur === playerId ? null : playerId));
   };
+  // True while a frame recording is queued/in flight (see scoringQueue.js)
+  // - guards the frame-win buttons against a double tap recording the same
+  // frame twice while a slow request is still pending.
+  const [framePending, setFramePending] = useState(false);
 
   // Alternative breaking: who's due to break the next frame, mirroring the
   // server's alternation logic - used only to highlight the scoreboard
@@ -672,15 +716,34 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
   // usable for one side.
   const breakOrderLocked = fixture.alternativeBreaking && fixture.frames.some((f) => f.breakerPlayerId);
 
-  const onRecord = async (winnerId, method) => {
+  const onRecord = (winnerId, method) => {
     setError('');
-    try {
-      await api.recordFrame(fixture.id, winnerId, method, breakerId || undefined);
-      setBreakerId(null);
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    }
+    const clientRequestId = newRequestId();
+    const chosenBreaker = breakerId || undefined;
+    setBreakerId(null);
+    setFramePending(true);
+    // Optimistic UI: show the frame's effect on the scoreboard immediately,
+    // before the network request (queued below, with automatic retry on a
+    // slow/dropped connection) actually confirms it - reconciled with the
+    // server's real state once the request succeeds, or rolled back if it's
+    // definitively rejected.
+    onOptimisticFrame({ winnerPlayerId: winnerId, method, breaker: chosenBreaker, clientRequestId });
+    enqueueFrame({
+      fixtureId: fixture.id,
+      winnerPlayerId: winnerId,
+      method,
+      breaker: chosenBreaker,
+      clientRequestId,
+      onSettled: (err) => {
+        setFramePending(false);
+        if (err) {
+          onRollbackFrame(clientRequestId);
+          setError(err.message);
+        } else {
+          onChange();
+        }
+      },
+    });
   };
 
   const onUndo = async () => {
@@ -705,17 +768,24 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
 
   return (
     <div>
+      {framePending && (
+        <p className="muted">
+          {typeof navigator !== 'undefined' && navigator.onLine === false
+            ? 'Offline - this frame will be recorded automatically once you\'re back online.'
+            : 'Saving frame\u2026'}
+        </p>
+      )}
       <section className="card scoreboard">
         <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === fixture.homePlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
           <h2><EntrantName entrant={homeEntrant} id={fixture.homePlayerId} /></h2>
           <div className="score">{fixture.homeFrameScore}</div>
-          <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.homePlayerId)}>
+          <button className="btn btn-primary" disabled={locked || framePending} onClick={() => onRecord(fixture.homePlayerId)}>
             Frame won by {homeEntrant.name}
           </button>
           <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
             <button
               className="btn btn-yellow"
-              disabled={locked}
+              disabled={locked || framePending}
               title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
               onClick={() => onRecord(fixture.homePlayerId, 'bnd')}
             >
@@ -732,7 +802,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             </button>
             <button
               className="btn btn-yellow"
-              disabled={locked}
+              disabled={locked || framePending}
               title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
               onClick={() => onRecord(fixture.homePlayerId, 'rnd')}
             >
@@ -744,13 +814,13 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
         <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === fixture.awayPlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
           <h2><EntrantName entrant={awayEntrant} id={fixture.awayPlayerId} /></h2>
           <div className="score">{fixture.awayFrameScore}</div>
-          <button className="btn btn-primary" disabled={locked} onClick={() => onRecord(fixture.awayPlayerId)}>
+          <button className="btn btn-primary" disabled={locked || framePending} onClick={() => onRecord(fixture.awayPlayerId)}>
             Frame won by {awayEntrant.name}
           </button>
           <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
             <button
               className="btn btn-yellow"
-              disabled={locked}
+              disabled={locked || framePending}
               title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
               onClick={() => onRecord(fixture.awayPlayerId, 'bnd')}
             >
@@ -767,7 +837,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
             </button>
             <button
               className="btn btn-yellow"
-              disabled={locked}
+              disabled={locked || framePending}
               title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
               onClick={() => onRecord(fixture.awayPlayerId, 'rnd')}
             >
@@ -847,7 +917,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
       <section className="card">
         <div className="page-header">
           <h2>Frame history</h2>
-          <button className="btn" disabled={fixture.frames.length === 0 || locked} onClick={onUndo}>
+          <button className="btn" disabled={fixture.frames.length === 0 || locked || framePending} onClick={onUndo}>
             Undo last frame
           </button>
         </div>
@@ -862,6 +932,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError }) {
                   {' '}- Breaking player: {f.breakerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
                 </span>
               )}
+              {f.pending && <span className="muted"> - saving…</span>}
             </li>
           ))}
           {fixture.frames.length === 0 && <li className="muted">No frames recorded yet.</li>}
@@ -1096,8 +1167,39 @@ export default function FixtureDetail() {
 
   useEffect(() => {
     load();
+    // Any scoring actions still queued from before this page loaded (e.g.
+    // the tab was closed or reloaded while a frame recording was retrying
+    // on a dropped connection) lost their original onSettled callback when
+    // the page reloaded - reattach `load` so their eventual success/failure
+    // still refreshes this page instead of silently resolving in the
+    // background. See scoringQueue.js.
+    reattachFixture(fixtureId, () => load());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixtureId]);
+
+  // Optimistic UI for scoring actions (see scoringQueue.js): applies a
+  // frame's effect on the local fixture state immediately, before the
+  // network request confirms it, so the scoreboard updates instantly even
+  // on a slow connection. `onChange`/`load` still refetches the canonical
+  // state once the request actually succeeds; these only bridge the gap.
+  const onOptimisticFrame = (patch) => {
+    setFixture((cur) => (cur ? applyOptimisticFrame(cur, patch) : cur));
+  };
+  const onRollbackFrame = (clientRequestId) => {
+    setFixture((cur) => (cur ? rollbackOptimisticFrame(cur, clientRequestId) : cur));
+  };
+  const onOptimisticLegFrame = (legNumber, patch) => {
+    setFixture((cur) => {
+      if (!cur) return cur;
+      return { ...cur, legs: cur.legs.map((leg) => (leg.legNumber === legNumber ? applyOptimisticFrame(leg, patch) : leg)) };
+    });
+  };
+  const onRollbackLegFrame = (legNumber, clientRequestId) => {
+    setFixture((cur) => {
+      if (!cur) return cur;
+      return { ...cur, legs: cur.legs.map((leg) => (leg.legNumber === legNumber ? rollbackOptimisticFrame(leg, clientRequestId) : leg)) };
+    });
+  };
 
   useEffect(() => {
     if (!fixture) return;
@@ -1154,9 +1256,22 @@ export default function FixtureDetail() {
       {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} setError={setError} />}
 
       {isTeams ? (
-        <TeamFixtureView fixture={fixture} onChange={load} setError={setError} />
+        <TeamFixtureView
+          fixture={fixture}
+          onChange={load}
+          setError={setError}
+          onOptimisticLegFrame={onOptimisticLegFrame}
+          onRollbackLegFrame={onRollbackLegFrame}
+        />
       ) : (
-        <SinglesFixtureView fixture={fixture} isDoubles={isDoubles} onChange={load} setError={setError} />
+        <SinglesFixtureView
+          fixture={fixture}
+          isDoubles={isDoubles}
+          onChange={load}
+          setError={setError}
+          onOptimisticFrame={onOptimisticFrame}
+          onRollbackFrame={onRollbackFrame}
+        />
       )}
 
       {isAdminSession && <AdminOverridePanel fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} />}
