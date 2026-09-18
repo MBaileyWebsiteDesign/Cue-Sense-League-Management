@@ -68,6 +68,15 @@ export default function AdminPortal() {
           </p>
         </Link>
 
+        <Link to="/admin/membership" className="card card-link">
+          <h2>Membership Management</h2>
+          <p className="muted">
+            Create Venues, grant accounts Venue Manager access, and assign each account's Venue
+            from Manage Users. Venue Managers get their own portal with a membership status
+            overview and player search, scoped to the venue(s) they manage.
+          </p>
+        </Link>
+
         <Link to="/issues-bugs-features" className="card card-link">
           <h2>Issues / Bugs / Features</h2>
           <p className="muted">

@@ -187,6 +187,12 @@ export default function PlayerProfile() {
 
   const { career } = profile;
   const winPct = career.played > 0 ? Math.round((career.won / career.played) * 100) : 0;
+  // Break vs non-break win split - only counts frames that actually have a
+  // recorded breaker (see server/src/services/playerProfile.js), so this can
+  // be smaller than `career.won` for players with older, unbreaker-tagged history.
+  const breakTrackedTotal = (career.breakWins || 0) + (career.nonBreakWins || 0);
+  const breakWinPct = breakTrackedTotal > 0 ? Math.round((career.breakWins / breakTrackedTotal) * 100) : 0;
+  const breakWinDeg = breakTrackedTotal > 0 ? (career.breakWins / breakTrackedTotal) * 360 : 0;
 
   return (
     <div>
@@ -206,7 +212,36 @@ export default function PlayerProfile() {
           <div><strong>{career.frameDifference > 0 ? '+' : ''}{career.frameDifference}</strong><div className="muted">Frame diff</div></div>
           <div><strong>{career.bnd || 0}</strong><div className="muted" title="Break and Dish - breaks and clears the whole rack including the black without missing, opponent gets no visit">BND</div></div>
           <div><strong>{career.rnd || 0}</strong><div className="muted" title="Reverse Break and Dish - the breaker misses, then this player clears the whole rack including the black on their first visit without missing">RND</div></div>
+          <div><strong>{career.breakWins || 0}</strong><div className="muted" title="Frames this player won on their own break">Break + Win</div></div>
+          <div><strong>{career.nonBreakWins || 0}</strong><div className="muted" title="Frames this player won without having the break">Non-Breaking + Win</div></div>
         </div>
+        {breakTrackedTotal > 0 && (
+          <div className="break-win-chart">
+            <div className="muted" style={{ marginBottom: 8 }}>
+              Break + Win vs Non-Breaking + Win ({breakTrackedTotal} frame{breakTrackedTotal === 1 ? '' : 's'} with a recorded breaker)
+            </div>
+            <div className="break-win-chart-row">
+              <div
+                className="break-win-pie"
+                role="img"
+                aria-label={`Break and win: ${career.breakWins || 0} frames (${breakWinPct}%). Non-breaking and win: ${career.nonBreakWins || 0} frames (${100 - breakWinPct}%).`}
+                style={{
+                  background: `conic-gradient(var(--chart-series-1) 0deg ${breakWinDeg}deg, var(--chart-series-2) ${breakWinDeg}deg 360deg)`,
+                }}
+              />
+              <ul className="break-win-legend">
+                <li>
+                  <span className="break-win-swatch break-win-swatch-1" aria-hidden="true" />
+                  Break + Win — <strong>{career.breakWins || 0}</strong> <span className="muted">({breakWinPct}%)</span>
+                </li>
+                <li>
+                  <span className="break-win-swatch break-win-swatch-2" aria-hidden="true" />
+                  Non-Breaking + Win — <strong>{career.nonBreakWins || 0}</strong> <span className="muted">({100 - breakWinPct}%)</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        )}
         {profile.formGuide && profile.formGuide.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <div className="muted" style={{ marginBottom: 4 }}>Form (most recent first)</div>

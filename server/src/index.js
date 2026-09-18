@@ -29,6 +29,8 @@ import {
   requireAdmin,
   requireAnyAdmin,
   assertLeagueAccess,
+  requireVenueManager,
+  assertVenueAccess,
   generateApiKeyValue,
   hashApiKey,
 } from './userAuth.js';
@@ -318,6 +320,14 @@ function createUserAccount(db, fields) {
     isAdmin: !!fields.isAdmin,
     isCaptain: !!fields.isCaptain,
     isLeagueManager: !!fields.isLeagueManager,
+    // Membership Management: every new account starts with no Venue and no
+    // Venue Manager flag, same as every other role flag above - assigned
+    // afterwards from Manage Users (see POST /api/admin/users/:id/venue and
+    // /permissions below).
+    venueId: fields.venueId || null,
+    isVenueManager: !!fields.isVenueManager,
+    membershipStartDate: null,
+    membershipRenewalDate: null,
     status: 'active',
     playerId: linkedPlayer.id,
     createdAt: new Date().toISOString(),
@@ -756,6 +766,340 @@ app.delete('/api/leagues/:id/managers/:userId', requireAdmin, asyncRoute((req, r
     writeDb(db);
   }
   res.json(league);
+}));
+
+// ---------- Venues (Membership Management) ----------
+// A Venue is a simple named record (id, name, managerUserIds[]) that every
+// account type (player, captain, league manager, admin) can be assigned to
+// via its own `venueId` field - see POST /api/admin/users/:id/venue above.
+// Overall-Admin-only to create/rename/delete and to grant/revoke Venue
+// Manager access, exactly the same shape as League Managers above but for
+// venues rather than leagues. See the Venue Manager Portal routes further
+// down for what a granted Venue Manager can actually do with this.
+
+app.get('/api/venues', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json([...db.venues].sort((a, b) => a.name.localeCompare(b.name)));
+}));
+
+app.post('/api/venues', requireAdmin, asyncRoute((req, res) => {
+  const { name } = req.body || {};
+  if (!name || !name.trim()) throw new ApiError(400, 'Venue name is required');
+  const db = readDb();
+  const trimmed = name.trim();
+  if (db.venues.some((v) => v.name.toLowerCase() === trimmed.toLowerCase())) {
+    throw new ApiError(409, 'A venue with this name already exists');
+  }
+  const venue = { id: uuid(), name: trimmed, managerUserIds: [], createdAt: new Date().toISOString() };
+  db.venues.push(venue);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'venue.create',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Created venue "${venue.name}"`,
+  });
+  writeDb(db);
+  res.status(201).json(venue);
+}));
+
+app.patch('/api/venues/:id', requireAdmin, asyncRoute((req, res) => {
+  const { name } = req.body || {};
+  if (!name || !name.trim()) throw new ApiError(400, 'Venue name is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const trimmed = name.trim();
+  if (db.venues.some((v) => v.id !== venue.id && v.name.toLowerCase() === trimmed.toLowerCase())) {
+    throw new ApiError(409, 'A venue with this name already exists');
+  }
+  const previousName = venue.name;
+  venue.name = trimmed;
+  if (previousName !== venue.name) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.rename',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Renamed venue "${previousName}" to "${venue.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(venue);
+}));
+
+// Blocked, rather than silently orphaning accounts, if anyone is still
+// assigned to this venue - same reasoning as userInUse further down for
+// deleting a user account. Reassign or clear every account's Venue first.
+app.delete('/api/venues/:id', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const assignedCount = db.users.filter((u) => u.venueId === venue.id).length;
+  if (assignedCount > 0) {
+    throw new ApiError(400, `${assignedCount} account(s) are still assigned to this venue - reassign or clear their Venue first`);
+  }
+  db.venues = db.venues.filter((v) => v.id !== venue.id);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'venue.delete',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Deleted venue "${venue.name}"`,
+  });
+  writeDb(db);
+  res.json({ ok: true });
+}));
+
+app.post('/api/venues/:id/managers', requireAdmin, asyncRoute((req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) throw new ApiError(400, 'userId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) throw new ApiError(404, 'User not found');
+  if (!user.isVenueManager) {
+    throw new ApiError(400, `${user.firstName} ${user.lastName} isn't flagged as a Venue Manager yet - grant that on their account first`);
+  }
+  if (!Array.isArray(venue.managerUserIds)) venue.managerUserIds = [];
+  if (!venue.managerUserIds.includes(userId)) {
+    venue.managerUserIds.push(userId);
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.manager_added',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Gave ${user.firstName} ${user.lastName} Venue Manager access to "${venue.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(venue);
+}));
+
+app.delete('/api/venues/:id/managers/:userId', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const user = db.users.find((u) => u.id === req.params.userId);
+  if (!Array.isArray(venue.managerUserIds)) venue.managerUserIds = [];
+  const hadAccess = venue.managerUserIds.includes(req.params.userId);
+  venue.managerUserIds = venue.managerUserIds.filter((id) => id !== req.params.userId);
+  if (hadAccess) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.manager_removed',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Removed ${user ? `${user.firstName} ${user.lastName}` : 'a user'}'s Venue Manager access to "${venue.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(venue);
+}));
+
+// ---------- Venue Manager Portal ----------
+// The Venue Manager's own landing page (client/src/pages/VenueManagerPortal.jsx):
+// a Status box (registered players at this venue, and how many are due for
+// membership renewal, each of the 6/4/2-month tiles now an exclusive band -
+// see inRenewalBand below), a player search box, and a Registered Players
+// list (everyone at the venue, via the same players endpoint with an empty
+// query). An Overall Admin can also reach these (requireVenueManager lets
+// isAdmin through, same as requireAnyAdmin does for leagues) and
+// effectively sees every venue, exactly like an Overall Admin isn't scoped
+// to specific leagues either.
+
+app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const { user } = req.auth;
+  const venues = user.isAdmin
+    ? db.venues
+    : db.venues.filter((v) => Array.isArray(v.managerUserIds) && v.managerUserIds.includes(user.id));
+  res.json([...venues].sort((a, b) => a.name.localeCompare(b.name)));
+}));
+
+// Adds `months` calendar months to `from` (a Date), matching how a renewal
+// window is normally talked about ("due in the next 6 months") rather than
+// an approximate 30-day-per-month calculation.
+function addMonths(from, months) {
+  const d = new Date(from.getTime());
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+// Whether `renewalDate` falls in the exclusive band (lowMonths, highMonths]
+// months from `now` - e.g. band(now, date, 2, 4) is true for a renewal more
+// than 2 months away but no more than 4 months away. lowMonths of 0 makes
+// the lower bound inclusive of `now` itself, so a renewal due today or
+// already overdue still counts in the 2-month tile.
+function inRenewalBand(now, renewalDate, lowMonths, highMonths) {
+  const lowerCutoff = lowMonths === 0 ? now : addMonths(now, lowMonths);
+  const upperCutoff = addMonths(now, highMonths);
+  return lowMonths === 0
+    ? renewalDate >= lowerCutoff && renewalDate <= upperCutoff
+    : renewalDate > lowerCutoff && renewalDate <= upperCutoff;
+}
+
+app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  // "Registered players with the same Venue" - every account (any type;
+  // Venue is a variable on all of them, not just plain players) assigned to
+  // this venue, excluding suspended accounts, same as everywhere else in
+  // the app that counts "active" accounts.
+  const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
+
+  const now = new Date();
+  // Each tier counts only players whose renewal falls in that tier's own
+  // exclusive window - 2 months: due within the next 2 months; 4 months:
+  // more than 2 but within 4; 6 months: more than 4 but within 6 - so a
+  // player only ever appears in one tile, the one that actually matches
+  // their renewal date (previously these were cumulative/overlapping,
+  // which put anyone due soon into every tile up to their real window).
+  // Every count is 0 until membershipRenewalDate is actually set against a
+  // player - there's no UI to set one yet (a follow-up step), so that's
+  // expected for now, not a bug.
+  const dueWithin = (lowMonths, highMonths) => venuePlayers.filter((u) => {
+    if (!u.membershipRenewalDate) return false;
+    const renewalDate = new Date(u.membershipRenewalDate);
+    if (Number.isNaN(renewalDate.getTime())) return false;
+    return inRenewalBand(now, renewalDate, lowMonths, highMonths);
+  }).length;
+
+  res.json({
+    venueId: venue.id,
+    venueName: venue.name,
+    registeredPlayers: venuePlayers.length,
+    dueIn6Months: dueWithin(4, 6),
+    dueIn4Months: dueWithin(2, 4),
+    dueIn2Months: dueWithin(0, 2),
+  });
+}));
+
+// Backs the clickable "Due in N months" stat tiles on the Venue Manager
+// Portal's Status box - returns the actual player records behind one of
+// those counts (same exclusive-band definition as dueWithin above, same
+// suspended-account exclusion, so the list's length always matches the
+// number that was clicked), sorted soonest-due first.
+app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, months } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const monthsNum = Number(months);
+  if (![2, 4, 6].includes(monthsNum)) throw new ApiError(400, 'months must be one of: 2, 4, 6');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
+  const now = new Date();
+  // Same exclusive band as the Status tile this drill-down was opened from
+  // (see inRenewalBand above), so the list's length always matches the
+  // number that was clicked - e.g. months=6 only lists players due more
+  // than 4 months out but within 6, not everyone due within 6 months.
+  const bandLow = { 2: 0, 4: 2, 6: 4 }[monthsNum];
+  const due = venuePlayers.filter((u) => {
+    if (!u.membershipRenewalDate) return false;
+    const renewalDate = new Date(u.membershipRenewalDate);
+    if (Number.isNaN(renewalDate.getTime())) return false;
+    return inRenewalBand(now, renewalDate, bandLow, monthsNum);
+  });
+  due.sort((a, b) => new Date(a.membershipRenewalDate) - new Date(b.membershipRenewalDate));
+
+  res.json(due.map((u) => ({
+    id: u.id,
+    playerId: u.playerId || null,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    email: u.email,
+    membershipRenewalDate: u.membershipRenewalDate,
+  })));
+}));
+
+// Single search box - matches first name, last name, or the full "First
+// Last" combination, same substring/case-insensitive style as Manage Users'
+// own search (GET /api/admin/users above), scoped to just this venue's
+// registered accounts.
+app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, q = '' } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const query = q.trim().toLowerCase();
+  let players = db.users.filter((u) => u.venueId === venue.id);
+  if (query) {
+    players = players.filter((u) =>
+      (u.firstName || '').toLowerCase().includes(query) ||
+      (u.lastName || '').toLowerCase().includes(query) ||
+      `${u.firstName} ${u.lastName}`.toLowerCase().includes(query)
+    );
+  }
+  players = [...players].sort((a, b) => a.lastName.localeCompare(b.lastName));
+  res.json(players.map((u) => ({
+    id: u.id,
+    playerId: u.playerId || null,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    email: u.email,
+    status: u.status,
+    membershipRenewalDate: u.membershipRenewalDate,
+  })));
+}));
+
+// Quick-renew buttons on the Search players results (client/src/pages/
+// VenueManagerPortal.jsx's PlayerSearchBox) - 1/6/12 months. Extends
+// (doesn't replace) the player's existing membershipRenewalDate by the
+// chosen number of months; if they don't have one set yet, extends from
+// today instead (there's nothing to extend from otherwise). Scoped to the
+// player's own venue, same assertVenueAccess check as every other
+// Venue Manager Portal route, plus an explicit check that the player
+// actually belongs to the venue being renewed against (a Venue Manager
+// could otherwise pass any player id alongside a venue they do manage).
+app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, months } = req.body || {};
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const monthsNum = Number(months);
+  if (![1, 6, 12].includes(monthsNum)) throw new ApiError(400, 'months must be one of: 1, 6, 12');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (player.venueId !== venue.id) throw new ApiError(403, 'Player is not registered to this venue');
+
+  const existing = player.membershipRenewalDate ? new Date(player.membershipRenewalDate) : null;
+  const base = existing && !Number.isNaN(existing.getTime()) ? existing : new Date();
+  const nextDateStr = addMonths(base, monthsNum).toISOString().slice(0, 10);
+  const previous = player.membershipRenewalDate;
+  player.membershipRenewalDate = nextDateStr;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.membershipRenewal',
+    targetType: 'user',
+    targetId: player.id,
+    details: `Renewed ${player.firstName} ${player.lastName}'s membership by ${monthsNum} month(s): ${previous || 'none'} -> ${nextDateStr}`,
+  });
+  writeDb(db);
+
+  res.json({
+    id: player.id,
+    playerId: player.playerId || null,
+    firstName: player.firstName,
+    lastName: player.lastName,
+    email: player.email,
+    status: player.status,
+    membershipRenewalDate: player.membershipRenewalDate,
+  });
 }));
 
 // ---------- League payments (manual confirmation) ----------
@@ -6722,7 +7066,7 @@ app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
 // Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
 // toggle now that an account can be both, either or neither.
 app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
-  const { isAdmin, isCaptain, isLeagueManager } = req.body;
+  const { isAdmin, isCaptain, isLeagueManager, isVenueManager } = req.body;
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
@@ -6749,6 +7093,21 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
       }
     }
   }
+  // Same pattern as League Manager above, for Membership Management's Venue
+  // Manager flag - revoking it also strips scoped access to every venue
+  // they were assigned to (venue.managerUserIds), rather than leaving a
+  // stale grant a re-flag would silently reactivate.
+  if (isVenueManager !== undefined && !!isVenueManager !== user.isVenueManager) {
+    user.isVenueManager = !!isVenueManager;
+    changes.push(user.isVenueManager ? 'granted Venue Manager' : 'revoked Venue Manager');
+    if (!user.isVenueManager) {
+      for (const venue of db.venues) {
+        if (Array.isArray(venue.managerUserIds) && venue.managerUserIds.includes(user.id)) {
+          venue.managerUserIds = venue.managerUserIds.filter((id) => id !== user.id);
+        }
+      }
+    }
+  }
   if (changes.length > 0) {
     recordAudit(db, {
       actor: req.adminSession.label,
@@ -6759,6 +7118,69 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
     });
   }
   writeDb(db);
+  res.json(publicUser(user));
+}));
+
+// Sets (or clears) which Venue this account belongs to - a plain data field
+// on every account type (player, captain, league manager, admin), not a
+// permission, so it's deliberately its own route rather than folded into
+// either applyProfileFields (which POST /api/users/me also uses - Venue is
+// admin-set only, never self-service) or the boolean-flag permissions route
+// above. See the "---------- Venues ----------" section further down for
+// how a venue is created/managed.
+app.post('/api/admin/users/:id/venue', requireAdmin, asyncRoute((req, res) => {
+  const { venueId } = req.body || {};
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  let venue = null;
+  if (venueId) {
+    venue = db.venues.find((v) => v.id === venueId);
+    if (!venue) throw new ApiError(404, 'Venue not found');
+  }
+  if (user.venueId !== (venue ? venue.id : null)) {
+    const previousVenue = db.venues.find((v) => v.id === user.venueId);
+    user.venueId = venue ? venue.id : null;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.venue',
+      targetType: 'user',
+      targetId: user.id,
+      details: venue
+        ? `Set ${user.firstName} ${user.lastName}'s Venue to "${venue.name}"${previousVenue ? ` (was "${previousVenue.name}")` : ''}`
+        : `Cleared ${user.firstName} ${user.lastName}'s Venue${previousVenue ? ` (was "${previousVenue.name}")` : ''}`,
+    });
+    writeDb(db);
+  }
+  res.json(publicUser(user));
+}));
+
+app.post('/api/admin/users/:id/membership-dates', requireAdmin, asyncRoute((req, res) => {
+  // Membership dates: start date and end date, admin-set only, both optional/
+  // nullable - a player can have neither, either, or both set at any time.
+  // End date deliberately reuses the existing membershipRenewalDate field
+  // (added when Membership Management first shipped) rather than introducing
+  // a third date concept - the Venue Manager Portal's "due for renewal"
+  // counts key off this same field, so setting an end date here is what
+  // makes those counts start working.
+  const { membershipStartDate, membershipEndDate } = req.body || {};
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  const nextStart = membershipStartDate || null;
+  const nextEnd = membershipEndDate || null;
+  if (user.membershipStartDate !== nextStart || user.membershipRenewalDate !== nextEnd) {
+    user.membershipStartDate = nextStart;
+    user.membershipRenewalDate = nextEnd;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.membershipDates',
+      targetType: 'user',
+      targetId: user.id,
+      details: `Set ${user.firstName} ${user.lastName}'s membership dates to start=${nextStart || 'none'}, end=${nextEnd || 'none'}`,
+    });
+    writeDb(db);
+  }
   res.json(publicUser(user));
 }));
 

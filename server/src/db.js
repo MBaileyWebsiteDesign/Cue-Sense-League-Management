@@ -93,6 +93,12 @@ const EMPTY_STATE = {
   guides: [],
 };
 
+// Note: `venues` above was declared as an empty scaffold collection long
+// before Membership Management existed and was never populated or read by
+// any route - see the 2026-09-17 Membership Management feature (this
+// project's `venues` section in index.js) for where it's actually built out:
+// { id, name, managerUserIds: [], createdAt }.
+
 function ensureDataFile() {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
   if (!existsSync(DATA_FILE)) {
@@ -135,6 +141,16 @@ export function readDb() {
   if (!state.leagueInterests) state.leagueInterests = [];
   if (!state.featureRequests) state.featureRequests = [];
   if (!state.guides) state.guides = [];
+  // Membership Management (2026-09-17): venues used to be an unused
+  // scaffold collection - now each one is a real record an Overall Admin
+  // creates/manages, with its own scoped Venue Managers (managerUserIds),
+  // mirroring how a League grants scoped access - see assertVenueAccess in
+  // userAuth.js and the "---------- Venues ----------" section in
+  // index.js. Backfill covers a venue record saved before managerUserIds
+  // existed (shouldn't happen post-launch, but costs nothing to guard).
+  for (const venue of state.venues) {
+    if (!Array.isArray(venue.managerUserIds)) venue.managerUserIds = [];
+  }
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
   // that route and the Arena display (GET /api/overlay/leagues/:id/arena).
@@ -229,6 +245,25 @@ export function readDb() {
     if (user.isLeagueManager === undefined) user.isLeagueManager = false;
     if (!user.status) user.status = 'active';
     if (user.playerId === undefined) user.playerId = null;
+    // Membership Management (2026-09-17): Venue is a variable on every
+    // account type (player, captain, league manager, admin), referencing
+    // state.venues by id - defaults to unset, same as a freshly-registered
+    // account with no venue assigned yet. isVenueManager is the account-
+    // level eligibility flag (mirrors isLeagueManager) - the actual scoped
+    // grant to one or more specific venues lives on venue.managerUserIds,
+    // set by an Overall Admin from the Membership Management page.
+    if (user.venueId === undefined) user.venueId = null;
+    if (user.isVenueManager === undefined) user.isVenueManager = false;
+    // Membership renewal date: null until an admin/venue manager actually
+    // sets one against a player - the Venue Manager status box's "due for
+    // renewal" counts are correctly 0 for everyone until this is populated,
+    // exactly as expected for a fresh rollout of this feature. Setting this
+    // from the UI is a follow-up step, not part of this first pass.
+    if (user.membershipRenewalDate === undefined) user.membershipRenewalDate = null;
+    // Membership dates: start date, added alongside the end date (which reuses
+    // the existing membershipRenewalDate field above) - see AdminUserEdit.jsx's
+    // MembershipDatesPanel and POST /api/admin/users/:id/membership-dates.
+    if (user.membershipStartDate === undefined) user.membershipStartDate = null;
   }
 
   cache = { mtimeMs, state };

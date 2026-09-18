@@ -63,6 +63,46 @@ const networkApi = {
   adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),
+  // Membership Management: which Venue this account belongs to - admin-set
+  // only (see server/src/index.js's POST /api/admin/users/:id/venue).
+  adminSetUserVenue: (id, venueId) =>
+    request(`/admin/users/${id}/venue`, { method: 'POST', body: JSON.stringify({ venueId }) }),
+
+  // Membership dates: start date and end date (end date reuses the existing
+  // membershipRenewalDate field server-side - see server/src/index.js's
+  // POST /api/admin/users/:id/membership-dates). Both optional/nullable.
+  adminSetMembershipDates: (id, { membershipStartDate, membershipEndDate }) =>
+    request(`/admin/users/${id}/membership-dates`, {
+      method: 'POST',
+      body: JSON.stringify({ membershipStartDate, membershipEndDate }),
+    }),
+
+  // Membership Management: Venues (client/src/pages/MembershipManagement.jsx)
+  // - Overall-Admin-only to create/rename/delete a venue and to grant/revoke
+  // Venue Manager access, same shape as League Managers on a League.
+  getVenues: () => request('/venues'),
+  createVenue: (name) => request('/venues', { method: 'POST', body: JSON.stringify({ name }) }),
+  renameVenue: (id, name) => request(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteVenue: (id) => request(`/venues/${id}`, { method: 'DELETE' }),
+  addVenueManager: (venueId, userId) =>
+    request(`/venues/${venueId}/managers`, { method: 'POST', body: JSON.stringify({ userId }) }),
+  removeVenueManager: (venueId, userId) =>
+    request(`/venues/${venueId}/managers/${userId}`, { method: 'DELETE' }),
+
+  // Venue Manager Portal (client/src/pages/VenueManagerPortal.jsx).
+  getMyManagedVenues: () => request('/venue-manager/venues'),
+  getVenueManagerStatus: (venueId) => request(`/venue-manager/status?venueId=${encodeURIComponent(venueId)}`),
+  // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
+  getVenueManagerDuePlayers: (venueId, months) =>
+    request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
+  searchVenuePlayers: (venueId, q = '') =>
+    request(`/venue-manager/players?venueId=${encodeURIComponent(venueId)}&q=${encodeURIComponent(q)}`),
+  // Quick-renew buttons on Search players' results - months must be 1, 6, or 12.
+  renewVenuePlayer: (venueId, playerId, months) =>
+    request(`/venue-manager/players/${playerId}/renew`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId, months }),
+    }),
 
   // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
   // - visible to every logged-in account, not just admins.

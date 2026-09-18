@@ -769,6 +769,8 @@ export default function LeagueDetail() {
               <option value="knockout_double_elim">Knockout (double elimination)</option>
               <option value="round_robin_single">Standard League - Single Leg (Everyone plays each other once)</option>
               <option value="round_robin_double">Standard League - Double Leg (Everyone plays each other twice, home and away)</option>
+              <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
+              <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
             </select>
           </label>
           {isKiller ? (

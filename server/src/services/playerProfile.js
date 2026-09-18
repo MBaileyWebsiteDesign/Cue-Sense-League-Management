@@ -6,7 +6,7 @@ export function buildPlayerProfile(db, playerId) {
   const player = db.players.find((p) => p.id === playerId);
   if (!player) return null;
 
-  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0 };
+  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0 };
   const headToHeadMap = new Map();
   const results = [];
   // Table record: how this player fares on each physical table they've
@@ -98,6 +98,14 @@ export function buildPlayerProfile(db, playerId) {
       if (frame.winnerPlayerId !== playerId) continue;
       if (frame.method === 'bnd') career.bnd += 1;
       else if (frame.method === 'rnd') career.rnd += 1;
+      // Break/non-break win split - only counted when this frame actually has a
+      // recorded breaker (see POST /fixtures/:id/frames `breaker`, and the
+      // Alternative Breaking auto-tagging). Frames with no breaker recorded at
+      // all don't count toward either bucket - nothing to attribute.
+      if (frame.breakerPlayerId) {
+        if (frame.breakerPlayerId === playerId) career.breakWins += 1;
+        else career.nonBreakWins += 1;
+      }
     }
     for (const frame of fixture.frames || []) {
       if (!frame.table) continue;
@@ -133,6 +141,12 @@ export function buildPlayerProfile(db, playerId) {
         if (frame.winnerPlayerId !== playerId) continue;
         if (frame.method === 'bnd') career.bnd += 1;
         else if (frame.method === 'rnd') career.rnd += 1;
+        // Break/non-break win split for this leg - see the matching comment
+        // in the singles loop above.
+        if (frame.breakerPlayerId) {
+          if (frame.breakerPlayerId === playerId) career.breakWins += 1;
+          else career.nonBreakWins += 1;
+        }
       }
       for (const frame of leg.frames || []) {
         if (!frame.table) continue;
