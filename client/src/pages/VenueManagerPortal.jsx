@@ -177,19 +177,25 @@ function StatusBox({ status, loading, venueId }) {
   );
 }
 
-// The three quick-renew buttons at the end of each Search players row.
-// Each extends that player's membershipRenewalDate by the given number of
-// months (from their existing date if they have one, otherwise from today -
-// see the server route's own comment). `busy` disables all three while a
-// request for this row is in flight, so a double-click can't fire two
-// renewals at once.
+// The three quick-renew buttons shown at the end of a player row (both on
+// Search players and on Registered players). Each extends that player's
+// membershipRenewalDate by the given number of months (from their existing
+// date if they have one, otherwise from today - see the server route's own
+// comment). `busy` disables all three while a request for this row is in
+// flight, so a double-click can't fire two renewals at once. Color-coded
+// with the same traffic-light trio as the renewal-due Status tiles: 1
+// month red, 6 months yellow, 12 months green - reusing the app's existing
+// .btn-danger for red and two new pale button classes for yellow/green
+// (see styles.css).
+const RENEW_BUTTON_CLASS = { 1: 'btn-danger', 6: 'btn-renew-yellow', 12: 'btn-renew-green' };
+
 function RenewButtons({ player, busy, onRenew }) {
   return (
     <span style={{ display: 'inline-flex', gap: 6 }}>
       {[1, 6, 12].map((months) => (
         <button
           key={months}
-          className="btn"
+          className={`btn ${RENEW_BUTTON_CLASS[months]}`}
           type="button"
           disabled={busy}
           onClick={() => onRenew(player, months)}
@@ -289,6 +295,8 @@ function PlayerSearchBox({ venueId }) {
 function RegisteredPlayersList({ venueId }) {
   const [players, setPlayers] = useState(null);
   const [error, setError] = useState('');
+  const [renewingId, setRenewingId] = useState(null);
+  const [renewError, setRenewError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -300,11 +308,25 @@ function RegisteredPlayersList({ venueId }) {
     return () => { cancelled = true; };
   }, [venueId]);
 
+  const onRenew = async (player, months) => {
+    setRenewingId(player.id);
+    setRenewError('');
+    try {
+      const updated = await api.renewVenuePlayer(venueId, player.id, months);
+      setPlayers((prev) => prev && prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+    } catch (err) {
+      setRenewError(err.message);
+    } finally {
+      setRenewingId(null);
+    }
+  };
+
   return (
     <section className="card">
       <h2>Registered players</h2>
       <p className="muted">Everyone currently registered to this venue.</p>
       {error && <p className="error">{error}</p>}
+      {renewError && <p className="error">{renewError}</p>}
       {!players && !error ? (
         <p>Loading…</p>
       ) : players && (
@@ -313,7 +335,7 @@ function RegisteredPlayersList({ venueId }) {
         ) : (
           <table className="standings-table">
             <thead>
-              <tr><th>Name</th><th>Email</th><th>Status</th><th>Renewal due</th></tr>
+              <tr><th>Name</th><th>Email</th><th>Status</th><th>Renewal due</th><th>Renew</th></tr>
             </thead>
             <tbody>
               {players.map((p) => (
@@ -322,6 +344,9 @@ function RegisteredPlayersList({ venueId }) {
                   <td style={{ textAlign: 'left' }}>{p.email}</td>
                   <td>{p.status}</td>
                   <td>{p.membershipRenewalDate || '—'}</td>
+                  <td>
+                    <RenewButtons player={p} busy={renewingId === p.id} onRenew={onRenew} />
+                  </td>
                 </tr>
               ))}
             </tbody>

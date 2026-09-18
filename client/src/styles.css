@@ -556,6 +556,27 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 
 .btn-yellow:hover:not(:disabled) { background: #ca8a04; color: #fff; }
 
+/* Quick-renew buttons (Venue Manager Portal's Search players and
+   Registered players tables, client/src/pages/VenueManagerPortal.jsx) -
+   the same traffic-light trio as the renewal-due Status tiles, applied
+   here to the button itself: 1 month reuses .btn-danger (pale red), 6
+   months pale yellow, 12 months pale green. */
+.btn-renew-yellow {
+  background: #fef3c7;
+  border-color: #b45309;
+  color: #b45309;
+}
+
+.btn-renew-yellow:hover:not(:disabled) { background: #fde68a; }
+
+.btn-renew-green {
+  background: #dcfce7;
+  border-color: #15803d;
+  color: #15803d;
+}
+
+.btn-renew-green:hover:not(:disabled) { background: #bbf7d0; }
+
 /* Break button (FixtureDetail.jsx) - records who won the lag and broke to
    start the current frame. A green outline so it reads as its own thing next
    to the yellow BND/RND buttons; .btn-break-selected marks whichever player
