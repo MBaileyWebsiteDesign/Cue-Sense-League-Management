@@ -5561,7 +5561,7 @@ app.post('/api/fixtures/:id/table-info', requireAuth, asyncRoute((req, res) => {
 }));
 
 app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
-  const { winnerPlayerId, method, breaker } = req.body;
+  const { winnerPlayerId, method, breaker, clientRequestId } = req.body;
   // Optional BND (Break and Dish) / RND (Reverse Break and Dish) tag on the
   // frame - the winner is recorded exactly as any other frame win, just
   // tagged for frame history, player stats (buildPlayerProfile) and
@@ -5578,6 +5578,21 @@ app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  // Idempotency: a retried request (the client's connection dropped before
+  // it saw the original response, so it doesn't know whether the frame was
+  // actually recorded) carries the same clientRequestId as the attempt that
+  // may have already succeeded. If a frame with this id already exists,
+  // this is that retry - return the current state as a no-op rather than
+  // double-record the frame. Checked before any other validation so a
+  // genuine replay always succeeds even if match state has since moved on
+  // (e.g. the race target was reached by this very frame).
+  if (clientRequestId) {
+    const alreadyRecorded = fixture.frames.find((f) => f.clientRequestId === clientRequestId);
+    if (alreadyRecorded) {
+      res.json(fixture);
+      return;
+    }
+  }
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
@@ -5626,7 +5641,7 @@ app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
       }
     }
 
-    fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
+    fixture.frames.push({ frameNumber: fixture.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined, clientRequestId: clientRequestId || undefined });
   fixture.homeFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.homePlayerId).length;
   fixture.awayFrameScore = fixture.frames.filter((f) => f.winnerPlayerId === fixture.awayPlayerId).length;
   fixture.status = 'in_progress';
@@ -6039,7 +6054,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/alternative-breaking', requireAuth, 
 }));
 
 app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((req, res) => {
-  const { winnerPlayerId, method, breaker } = req.body;
+  const { winnerPlayerId, method, breaker, clientRequestId } = req.body;
   // See the matching singles frames route above for what `method` (BND/RND) does.
   if (method !== undefined && method !== null && method !== 'bnd' && method !== 'rnd') {
     throw new ApiError(400, "method must be 'bnd', 'rnd', or omitted");
@@ -6050,6 +6065,15 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((re
   }
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  // Idempotency: see the matching check in the singles frames route above -
+  // same reasoning, scoped to this leg's own frames.
+  if (clientRequestId) {
+    const alreadyRecorded = leg.frames.find((f) => f.clientRequestId === clientRequestId);
+    if (alreadyRecorded) {
+      res.json(fixture);
+      return;
+    }
+  }
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
@@ -6087,7 +6111,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((re
       }
     }
 
-    leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined });
+    leg.frames.push({ frameNumber: leg.frames.length + 1, winnerPlayerId, method: method || undefined, breakerPlayerId: resolvedBreaker || undefined, table: fixture.table || undefined, venue: fixture.venue || undefined, clientRequestId: clientRequestId || undefined });
   leg.homeFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.homePlayerId).length;
   leg.awayFrameScore = leg.frames.filter((f) => f.winnerPlayerId === leg.awayPlayerId).length;
   leg.status = 'in_progress';
