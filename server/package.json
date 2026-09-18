@@ -11,6 +11,7 @@
     "seed": "node src/services/seed.js"
   },
   "dependencies": {
+    "compression": "^1.8.2",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "multer": "^2.2.0",
