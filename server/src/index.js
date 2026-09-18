@@ -1013,6 +1013,7 @@ app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((re
 
   res.json(due.map((u) => ({
     id: u.id,
+    playerId: u.playerId || null,
     firstName: u.firstName,
     lastName: u.lastName,
     email: u.email,
@@ -1044,6 +1045,7 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
   players = [...players].sort((a, b) => a.lastName.localeCompare(b.lastName));
   res.json(players.map((u) => ({
     id: u.id,
+    playerId: u.playerId || null,
     firstName: u.firstName,
     lastName: u.lastName,
     email: u.email,
@@ -1091,6 +1093,7 @@ app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute
 
   res.json({
     id: player.id,
+    playerId: player.playerId || null,
     firstName: player.firstName,
     lastName: player.lastName,
     email: player.email,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { api } from '../api.js';
@@ -38,6 +39,17 @@ function registeredPlayersTint(count) {
   if (count < 10) return TINT_RED;
   if (count <= 20) return TINT_YELLOW;
   return TINT_GREEN;
+}
+
+// Renders a player's name or email as a link into their public Player
+// Profile page (/players/:playerId - PlayerProfile.jsx, the same career/
+// stats page reachable from anywhere else in the app, e.g. standings and
+// fixture pages) so a Venue Manager can jump straight to "their portal"
+// view of that player. Not every account is guaranteed to carry a
+// playerId (older data could lack the link), so this falls back to plain
+// text rather than rendering a dead link.
+function PlayerLink({ playerId, children }) {
+  return playerId ? <Link to={`/players/${playerId}`}>{children}</Link> : children;
 }
 
 // A whole stat tile that is clickable when its count is non-zero (there's
@@ -122,8 +134,12 @@ function DuePlayersPanel({ venueId, months, onClose }) {
           <tbody>
             {players.map((p) => (
               <tr key={p.id}>
-                <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
-                <td style={{ textAlign: 'left' }}>{p.email}</td>
+                <td style={{ textAlign: 'left' }}>
+                  <PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink>
+                </td>
+                <td style={{ textAlign: 'left' }}>
+                  <PlayerLink playerId={p.playerId}>{p.email}</PlayerLink>
+                </td>
                 <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
               </tr>
             ))}
@@ -282,8 +298,12 @@ function PlayerSearchBox({ venueId }) {
             <tbody>
               {results.map((p) => (
                 <tr key={p.id}>
-                  <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
-                  <td style={{ textAlign: 'left' }}>{p.email}</td>
+                  <td style={{ textAlign: 'left' }}>
+                    <PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink>
+                  </td>
+                  <td style={{ textAlign: 'left' }}>
+                    <PlayerLink playerId={p.playerId}>{p.email}</PlayerLink>
+                  </td>
                   <td>{p.status}</td>
                   <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
                   <td>
@@ -352,8 +372,12 @@ function RegisteredPlayersList({ venueId }) {
             <tbody>
               {players.map((p) => (
                 <tr key={p.id}>
-                  <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
-                  <td style={{ textAlign: 'left' }}>{p.email}</td>
+                  <td style={{ textAlign: 'left' }}>
+                    <PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink>
+                  </td>
+                  <td style={{ textAlign: 'left' }}>
+                    <PlayerLink playerId={p.playerId}>{p.email}</PlayerLink>
+                  </td>
                   <td>{p.status}</td>
                   <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
                   <td>
