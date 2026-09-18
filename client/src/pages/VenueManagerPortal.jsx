@@ -3,6 +3,18 @@ import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { api } from '../api.js';
 
+// Displays a membershipRenewalDate (stored/sent as ISO "yyyy-mm-dd") in UK
+// format, dd-mm-yyyy, per Matt's request. Plain string reslicing rather than
+// a Date object, since the stored value has no time component and parsing
+// it as a Date risks a timezone-driven off-by-one-day shift.
+function formatDateUK(isoDate) {
+  if (!isoDate) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate);
+  if (!match) return isoDate;
+  const [, year, month, day] = match;
+  return `${day}-${month}-${year}`;
+}
+
 // The Venue Manager Portal - a Venue Manager's home base for the one (or
 // more) venue(s) an Overall Admin has granted them access to (see
 // assertVenueAccess in server/src/userAuth.js and the "Venue Managers"
@@ -112,7 +124,7 @@ function DuePlayersPanel({ venueId, months, onClose }) {
               <tr key={p.id}>
                 <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
                 <td style={{ textAlign: 'left' }}>{p.email}</td>
-                <td>{p.membershipRenewalDate || '—'}</td>
+                <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -273,7 +285,7 @@ function PlayerSearchBox({ venueId }) {
                   <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
                   <td style={{ textAlign: 'left' }}>{p.email}</td>
                   <td>{p.status}</td>
-                  <td>{p.membershipRenewalDate || '—'}</td>
+                  <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
                   <td>
                     <RenewButtons player={p} busy={renewingId === p.id} onRenew={onRenew} />
                   </td>
@@ -343,7 +355,7 @@ function RegisteredPlayersList({ venueId }) {
                   <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
                   <td style={{ textAlign: 'left' }}>{p.email}</td>
                   <td>{p.status}</td>
-                  <td>{p.membershipRenewalDate || '—'}</td>
+                  <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
                   <td>
                     <RenewButtons player={p} busy={renewingId === p.id} onRenew={onRenew} />
                   </td>
