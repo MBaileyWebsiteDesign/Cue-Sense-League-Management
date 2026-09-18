@@ -92,6 +92,9 @@ const networkApi = {
   // Venue Manager Portal (client/src/pages/VenueManagerPortal.jsx).
   getMyManagedVenues: () => request('/venue-manager/venues'),
   getVenueManagerStatus: (venueId) => request(`/venue-manager/status?venueId=${encodeURIComponent(venueId)}`),
+  // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
+  getVenueManagerDuePlayers: (venueId, months) =>
+    request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
   searchVenuePlayers: (venueId, q = '') =>
     request(`/venue-manager/players?venueId=${encodeURIComponent(venueId)}&q=${encodeURIComponent(q)}`),
 

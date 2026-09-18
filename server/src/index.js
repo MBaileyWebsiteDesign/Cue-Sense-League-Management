@@ -966,6 +966,41 @@ app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) 
   });
 }));
 
+// Backs the clickable "Due in N months" stat tiles on the Venue Manager
+// Portal's Status box - returns the actual player records behind one of
+// those counts (same overlapping-window definition as dueWithin above, same
+// suspended-account exclusion, so the list's length always matches the
+// number that was clicked), sorted soonest-due first.
+app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, months } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const monthsNum = Number(months);
+  if (![2, 4, 6].includes(monthsNum)) throw new ApiError(400, 'months must be one of: 2, 4, 6');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
+  const now = new Date();
+  const cutoff = addMonths(now, monthsNum);
+  const due = venuePlayers.filter((u) => {
+    if (!u.membershipRenewalDate) return false;
+    const renewalDate = new Date(u.membershipRenewalDate);
+    if (Number.isNaN(renewalDate.getTime())) return false;
+    return renewalDate >= now && renewalDate <= cutoff;
+  });
+  due.sort((a, b) => new Date(a.membershipRenewalDate) - new Date(b.membershipRenewalDate));
+
+  res.json(due.map((u) => ({
+    id: u.id,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    email: u.email,
+    membershipRenewalDate: u.membershipRenewalDate,
+  })));
+}));
+
 // Single search box - matches first name, last name, or the full "First
 // Last" combination, same substring/case-insensitive style as Manage Users'
 // own search (GET /api/admin/users above), scoped to just this venue's

@@ -11,7 +11,88 @@ import { api } from '../api.js';
 // search box. Every count in the Status box is expected to read 0 today -
 // there's no UI yet to set a player's membership renewal date, so nobody
 // has one; that's a follow-up step, not a bug in this page.
-function StatusBox({ status, loading }) {
+// A stat tile's number as a clickable control, styled to look exactly like
+// the plain text it replaces (no button chrome). Disabled (and not
+// clickable) when the count is 0 - nothing to show. Clicking the count
+// that's already open closes it again (see DueTile below).
+function DueCountButton({ count, active, onClick }) {
+  if (count === 0) {
+    return <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{count}</p>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="link-reset"
+      style={{
+        fontSize: '2rem',
+        fontWeight: 700,
+        margin: 0,
+        padding: 0,
+        border: 'none',
+        background: 'none',
+        cursor: 'pointer',
+        color: active ? 'var(--accent, #2563eb)' : 'inherit',
+        textDecoration: 'underline',
+        textUnderlineOffset: '4px',
+      }}
+    >
+      {count}
+    </button>
+  );
+}
+
+// The list of players behind whichever "Due in N months" tile is currently
+// selected - same table pattern as PlayerSearchBox's results below, minus
+// the Status column (Registered-players-only players are already filtered
+// to non-suspended by the API, so it'd always read the same thing).
+function DuePlayersPanel({ venueId, months, onClose }) {
+  const [players, setPlayers] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setPlayers(null);
+    setError('');
+    api.getVenueManagerDuePlayers(venueId, months)
+      .then((p) => { if (!cancelled) setPlayers(p); })
+      .catch((e) => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [venueId, months]);
+
+  return (
+    <div className="card" style={{ marginTop: 12 }}>
+      <div className="page-header" style={{ marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>Due in {months} months</h3>
+        <button className="btn" type="button" onClick={onClose}>Close</button>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {!players && !error ? (
+        <p>Loading…</p>
+      ) : players && (
+        <table className="standings-table">
+          <thead>
+            <tr><th>Name</th><th>Email</th><th>Renewal due</th></tr>
+          </thead>
+          <tbody>
+            {players.map((p) => (
+              <tr key={p.id}>
+                <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
+                <td style={{ textAlign: 'left' }}>{p.email}</td>
+                <td>{p.membershipRenewalDate || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function StatusBox({ status, loading, venueId }) {
+  const [openBucket, setOpenBucket] = useState(null);
+  const toggleBucket = (months) => setOpenBucket((prev) => (prev === months ? null : months));
+
   return (
     <section className="card">
       <h2>Status</h2>
@@ -26,24 +107,27 @@ function StatusBox({ status, loading }) {
           </div>
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Due in 6 months</h3>
-            <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{status.dueIn6Months}</p>
+            <DueCountButton count={status.dueIn6Months} active={openBucket === 6} onClick={() => toggleBucket(6)} />
             <p className="muted" style={{ margin: 0 }}>membership renewal</p>
           </div>
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Due in 4 months</h3>
-            <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{status.dueIn4Months}</p>
+            <DueCountButton count={status.dueIn4Months} active={openBucket === 4} onClick={() => toggleBucket(4)} />
             <p className="muted" style={{ margin: 0 }}>membership renewal</p>
           </div>
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Due in 2 months</h3>
-            <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{status.dueIn2Months}</p>
+            <DueCountButton count={status.dueIn2Months} active={openBucket === 2} onClick={() => toggleBucket(2)} />
             <p className="muted" style={{ margin: 0 }}>membership renewal</p>
           </div>
         </div>
       )}
+      {openBucket && (
+        <DuePlayersPanel venueId={venueId} months={openBucket} onClose={() => setOpenBucket(null)} />
+      )}
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 12 }}>
         Renewal counts are 0 until a membership renewal date is set against a player - that's not
-        built yet, so this is expected for now.
+        built yet, so this is expected for now. Click a non-zero count to see who it is.
       </p>
     </section>
   );
@@ -167,7 +251,7 @@ export default function VenueManagerPortal() {
               </label>
             </div>
           )}
-          <StatusBox status={status} loading={statusLoading} />
+          <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
           {selectedVenueId && <PlayerSearchBox venueId={selectedVenueId} />}
         </>
       )}
