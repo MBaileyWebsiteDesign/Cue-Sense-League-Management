@@ -901,11 +901,13 @@ app.delete('/api/venues/:id/managers/:userId', requireAdmin, asyncRoute((req, re
 // ---------- Venue Manager Portal ----------
 // The Venue Manager's own landing page (client/src/pages/VenueManagerPortal.jsx):
 // a Status box (registered players at this venue, and how many are due for
-// membership renewal in the next 6/4/2 months) plus a player search box.
-// An Overall Admin can also reach these (requireVenueManager lets isAdmin
-// through, same as requireAnyAdmin does for leagues) and effectively sees
-// every venue, exactly like an Overall Admin isn't scoped to specific
-// leagues either.
+// membership renewal, each of the 6/4/2-month tiles now an exclusive band -
+// see inRenewalBand below), a player search box, and a Registered Players
+// list (everyone at the venue, via the same players endpoint with an empty
+// query). An Overall Admin can also reach these (requireVenueManager lets
+// isAdmin through, same as requireAnyAdmin does for leagues) and
+// effectively sees every venue, exactly like an Overall Admin isn't scoped
+// to specific leagues either.
 
 app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) => {
   const db = readDb();
@@ -925,6 +927,19 @@ function addMonths(from, months) {
   return d;
 }
 
+// Whether `renewalDate` falls in the exclusive band (lowMonths, highMonths]
+// months from `now` - e.g. band(now, date, 2, 4) is true for a renewal more
+// than 2 months away but no more than 4 months away. lowMonths of 0 makes
+// the lower bound inclusive of `now` itself, so a renewal due today or
+// already overdue still counts in the 2-month tile.
+function inRenewalBand(now, renewalDate, lowMonths, highMonths) {
+  const lowerCutoff = lowMonths === 0 ? now : addMonths(now, lowMonths);
+  const upperCutoff = addMonths(now, highMonths);
+  return lowMonths === 0
+    ? renewalDate >= lowerCutoff && renewalDate <= upperCutoff
+    : renewalDate > lowerCutoff && renewalDate <= upperCutoff;
+}
+
 app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) => {
   const { venueId } = req.query;
   if (!venueId) throw new ApiError(400, 'venueId is required');
@@ -940,35 +955,35 @@ app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) 
   const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
 
   const now = new Date();
-  // Each tier counts anyone due between now and now+N months - deliberately
-  // overlapping (whoever's due within 2 months is also counted in the 4-
-  // and 6-month tiers), the normal way renewal-reminder buckets work. Every
-  // count is 0 until membershipRenewalDate is actually set against a player
-  // - there's no UI to set one yet (a follow-up step), so that's expected
-  // for now, not a bug.
-  const dueWithin = (months) => {
-    const cutoff = addMonths(now, months);
-    return venuePlayers.filter((u) => {
-      if (!u.membershipRenewalDate) return false;
-      const renewalDate = new Date(u.membershipRenewalDate);
-      if (Number.isNaN(renewalDate.getTime())) return false;
-      return renewalDate >= now && renewalDate <= cutoff;
-    }).length;
-  };
+  // Each tier counts only players whose renewal falls in that tier's own
+  // exclusive window - 2 months: due within the next 2 months; 4 months:
+  // more than 2 but within 4; 6 months: more than 4 but within 6 - so a
+  // player only ever appears in one tile, the one that actually matches
+  // their renewal date (previously these were cumulative/overlapping,
+  // which put anyone due soon into every tile up to their real window).
+  // Every count is 0 until membershipRenewalDate is actually set against a
+  // player - there's no UI to set one yet (a follow-up step), so that's
+  // expected for now, not a bug.
+  const dueWithin = (lowMonths, highMonths) => venuePlayers.filter((u) => {
+    if (!u.membershipRenewalDate) return false;
+    const renewalDate = new Date(u.membershipRenewalDate);
+    if (Number.isNaN(renewalDate.getTime())) return false;
+    return inRenewalBand(now, renewalDate, lowMonths, highMonths);
+  }).length;
 
   res.json({
     venueId: venue.id,
     venueName: venue.name,
     registeredPlayers: venuePlayers.length,
-    dueIn6Months: dueWithin(6),
-    dueIn4Months: dueWithin(4),
-    dueIn2Months: dueWithin(2),
+    dueIn6Months: dueWithin(4, 6),
+    dueIn4Months: dueWithin(2, 4),
+    dueIn2Months: dueWithin(0, 2),
   });
 }));
 
 // Backs the clickable "Due in N months" stat tiles on the Venue Manager
 // Portal's Status box - returns the actual player records behind one of
-// those counts (same overlapping-window definition as dueWithin above, same
+// those counts (same exclusive-band definition as dueWithin above, same
 // suspended-account exclusion, so the list's length always matches the
 // number that was clicked), sorted soonest-due first.
 app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((req, res) => {
@@ -983,12 +998,16 @@ app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((re
 
   const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
   const now = new Date();
-  const cutoff = addMonths(now, monthsNum);
+  // Same exclusive band as the Status tile this drill-down was opened from
+  // (see inRenewalBand above), so the list's length always matches the
+  // number that was clicked - e.g. months=6 only lists players due more
+  // than 4 months out but within 6, not everyone due within 6 months.
+  const bandLow = { 2: 0, 4: 2, 6: 4 }[monthsNum];
   const due = venuePlayers.filter((u) => {
     if (!u.membershipRenewalDate) return false;
     const renewalDate = new Date(u.membershipRenewalDate);
     if (Number.isNaN(renewalDate.getTime())) return false;
-    return renewalDate >= now && renewalDate <= cutoff;
+    return inRenewalBand(now, renewalDate, bandLow, monthsNum);
   });
   due.sort((a, b) => new Date(a.membershipRenewalDate) - new Date(b.membershipRenewalDate));
 

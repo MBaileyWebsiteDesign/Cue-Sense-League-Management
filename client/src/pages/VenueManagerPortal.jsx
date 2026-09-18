@@ -6,18 +6,36 @@ import { api } from '../api.js';
 // The Venue Manager Portal - a Venue Manager's home base for the one (or
 // more) venue(s) an Overall Admin has granted them access to (see
 // assertVenueAccess in server/src/userAuth.js and the "Venue Managers"
-// panel on MembershipManagement.jsx). First pass, per Matt's request: a
-// Status box (registered players + due-for-renewal counts) and a player
-// search box. Every count in the Status box is expected to read 0 today -
-// there's no UI yet to set a player's membership renewal date, so nobody
-// has one; that's a follow-up step, not a bug in this page.
+// panel on MembershipManagement.jsx). Status box (registered players +
+// due-for-renewal counts, each with its own traffic-light shading), a
+// player search box, and a Registered Players card listing everyone
+// currently assigned to the venue.
+
+// Pale traffic-light backgrounds, shared by the Registered Players tile and
+// the three due-for-renewal tiles. Kept as plain hex (rather than new CSS
+// classes) since these are the only places in the app that need this exact
+// pale-red/yellow/green trio; --danger/--warning/--success tokens don't
+// exist in styles.css today.
+const TINT_RED = '#fee2e2';
+const TINT_YELLOW = '#fef3c7';
+const TINT_GREEN = '#d1fae5';
+
+// Registered-players traffic light: Matt's thresholds are fewer than 10 ->
+// red, 10-20 inclusive -> yellow, above 20 -> green.
+function registeredPlayersTint(count) {
+  if (count < 10) return TINT_RED;
+  if (count <= 20) return TINT_YELLOW;
+  return TINT_GREEN;
+}
+
 // A whole stat tile that is clickable when its count is non-zero (there's
 // nothing to show for a zero count, so those tiles stay plain and inert).
 // Renders the same markup/classes as a plain stat card - no button chrome,
 // no underline - just a pointer cursor and an accent highlight while its
 // player list is open, plus keyboard support (Enter/Space) since it's a
-// real interactive control under the hood.
-function DueTile({ label, count, active, onClick, caption }) {
+// real interactive control under the hood. `tint` sets the card's pale
+// traffic-light background.
+function DueTile({ label, count, active, onClick, caption, tint }) {
   const clickable = count > 0;
   return (
     <div
@@ -37,6 +55,7 @@ function DueTile({ label, count, active, onClick, caption }) {
       }
       style={{
         cursor: clickable ? 'pointer' : 'default',
+        backgroundColor: tint,
         boxShadow: active ? 'inset 0 0 0 2px var(--accent, #2563eb)' : undefined,
       }}
     >
@@ -114,7 +133,7 @@ function StatusBox({ status, loading, venueId }) {
         <p>Loading…</p>
       ) : (
         <div className="card-grid">
-          <div className="card">
+          <div className="card" style={{ backgroundColor: registeredPlayersTint(status.registeredPlayers) }}>
             <h3 style={{ marginTop: 0 }}>Registered players</h3>
             <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{status.registeredPlayers}</p>
             <p className="muted" style={{ margin: 0 }}>at this venue</p>
@@ -125,6 +144,7 @@ function StatusBox({ status, loading, venueId }) {
             active={openBucket === 6}
             onClick={() => toggleBucket(6)}
             caption="membership renewal"
+            tint={TINT_GREEN}
           />
           <DueTile
             label="Due in 4 months"
@@ -132,6 +152,7 @@ function StatusBox({ status, loading, venueId }) {
             active={openBucket === 4}
             onClick={() => toggleBucket(4)}
             caption="membership renewal"
+            tint={TINT_YELLOW}
           />
           <DueTile
             label="Due in 2 months"
@@ -139,6 +160,7 @@ function StatusBox({ status, loading, venueId }) {
             active={openBucket === 2}
             onClick={() => toggleBucket(2)}
             caption="membership renewal"
+            tint={TINT_RED}
           />
         </div>
       )}
@@ -146,8 +168,10 @@ function StatusBox({ status, loading, venueId }) {
         <DuePlayersPanel venueId={venueId} months={openBucket} onClose={() => setOpenBucket(null)} />
       )}
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 12 }}>
-        Renewal counts are 0 until a membership renewal date is set against a player - that's not
-        built yet, so this is expected for now. Click a non-zero tile to see who it is.
+        Each "Due in N months" tile now counts only players whose renewal falls in that specific
+        window (2 months: within the next 2 months; 4 months: more than 2 but within 4; 6 months:
+        more than 4 but within 6) - a player only ever appears in one tile, not every tile up to
+        their actual renewal window.
       </p>
     </section>
   );
@@ -198,6 +222,57 @@ function PlayerSearchBox({ venueId }) {
             </thead>
             <tbody>
               {results.map((p) => (
+                <tr key={p.id}>
+                  <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
+                  <td style={{ textAlign: 'left' }}>{p.email}</td>
+                  <td>{p.status}</td>
+                  <td>{p.membershipRenewalDate || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+    </section>
+  );
+}
+
+// New card, under Search players per Matt's request: every user currently
+// registered to this venue, not just search matches. Reuses the same
+// GET /api/venue-manager/players endpoint the search box calls, just with
+// an empty query (the server already returns everyone at the venue when
+// `q` is blank), so no server change was needed for this list itself.
+function RegisteredPlayersList({ venueId }) {
+  const [players, setPlayers] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setPlayers(null);
+    setError('');
+    api.searchVenuePlayers(venueId, '')
+      .then((p) => { if (!cancelled) setPlayers(p); })
+      .catch((e) => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [venueId]);
+
+  return (
+    <section className="card">
+      <h2>Registered players</h2>
+      <p className="muted">Everyone currently registered to this venue.</p>
+      {error && <p className="error">{error}</p>}
+      {!players && !error ? (
+        <p>Loading…</p>
+      ) : players && (
+        players.length === 0 ? (
+          <p className="muted">No players are registered to this venue yet.</p>
+        ) : (
+          <table className="standings-table">
+            <thead>
+              <tr><th>Name</th><th>Email</th><th>Status</th><th>Renewal due</th></tr>
+            </thead>
+            <tbody>
+              {players.map((p) => (
                 <tr key={p.id}>
                   <td style={{ textAlign: 'left' }}>{p.firstName} {p.lastName}</td>
                   <td style={{ textAlign: 'left' }}>{p.email}</td>
@@ -273,6 +348,7 @@ export default function VenueManagerPortal() {
           )}
           <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
           {selectedVenueId && <PlayerSearchBox venueId={selectedVenueId} />}
+          {selectedVenueId && <RegisteredPlayersList venueId={selectedVenueId} />}
         </>
       )}
     </div>
