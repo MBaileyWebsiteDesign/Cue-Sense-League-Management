@@ -177,11 +177,38 @@ function StatusBox({ status, loading, venueId }) {
   );
 }
 
+// The three quick-renew buttons at the end of each Search players row.
+// Each extends that player's membershipRenewalDate by the given number of
+// months (from their existing date if they have one, otherwise from today -
+// see the server route's own comment). `busy` disables all three while a
+// request for this row is in flight, so a double-click can't fire two
+// renewals at once.
+function RenewButtons({ player, busy, onRenew }) {
+  return (
+    <span style={{ display: 'inline-flex', gap: 6 }}>
+      {[1, 6, 12].map((months) => (
+        <button
+          key={months}
+          className="btn"
+          type="button"
+          disabled={busy}
+          onClick={() => onRenew(player, months)}
+          title={`Extend ${player.firstName} ${player.lastName}'s membership by ${months} month${months === 1 ? '' : 's'}`}
+        >
+          {busy ? '…' : `Renew ${months}mo`}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 function PlayerSearchBox({ venueId }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
+  const [renewingId, setRenewingId] = useState(null);
+  const [renewError, setRenewError] = useState('');
 
   const onSearch = async (e) => {
     e.preventDefault();
@@ -194,6 +221,19 @@ function PlayerSearchBox({ venueId }) {
       setError(err.message);
     } finally {
       setSearching(false);
+    }
+  };
+
+  const onRenew = async (player, months) => {
+    setRenewingId(player.id);
+    setRenewError('');
+    try {
+      const updated = await api.renewVenuePlayer(venueId, player.id, months);
+      setResults((prev) => prev && prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+    } catch (err) {
+      setRenewError(err.message);
+    } finally {
+      setRenewingId(null);
     }
   };
 
@@ -212,13 +252,14 @@ function PlayerSearchBox({ venueId }) {
         </button>
       </form>
       {error && <p className="error">{error}</p>}
+      {renewError && <p className="error">{renewError}</p>}
       {results && (
         results.length === 0 ? (
           <p className="muted">No players at this venue match that search.</p>
         ) : (
           <table className="standings-table">
             <thead>
-              <tr><th>Name</th><th>Email</th><th>Status</th><th>Renewal due</th></tr>
+              <tr><th>Name</th><th>Email</th><th>Status</th><th>Renewal due</th><th>Renew</th></tr>
             </thead>
             <tbody>
               {results.map((p) => (
@@ -227,6 +268,9 @@ function PlayerSearchBox({ venueId }) {
                   <td style={{ textAlign: 'left' }}>{p.email}</td>
                   <td>{p.status}</td>
                   <td>{p.membershipRenewalDate || '—'}</td>
+                  <td>
+                    <RenewButtons player={p} busy={renewingId === p.id} onRenew={onRenew} />
+                  </td>
                 </tr>
               ))}
             </tbody>

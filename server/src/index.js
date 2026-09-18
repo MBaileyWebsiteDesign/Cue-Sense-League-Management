@@ -1052,6 +1052,53 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
   })));
 }));
 
+// Quick-renew buttons on the Search players results (client/src/pages/
+// VenueManagerPortal.jsx's PlayerSearchBox) - 1/6/12 months. Extends
+// (doesn't replace) the player's existing membershipRenewalDate by the
+// chosen number of months; if they don't have one set yet, extends from
+// today instead (there's nothing to extend from otherwise). Scoped to the
+// player's own venue, same assertVenueAccess check as every other
+// Venue Manager Portal route, plus an explicit check that the player
+// actually belongs to the venue being renewed against (a Venue Manager
+// could otherwise pass any player id alongside a venue they do manage).
+app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, months } = req.body || {};
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const monthsNum = Number(months);
+  if (![1, 6, 12].includes(monthsNum)) throw new ApiError(400, 'months must be one of: 1, 6, 12');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (player.venueId !== venue.id) throw new ApiError(403, 'Player is not registered to this venue');
+
+  const existing = player.membershipRenewalDate ? new Date(player.membershipRenewalDate) : null;
+  const base = existing && !Number.isNaN(existing.getTime()) ? existing : new Date();
+  const nextDateStr = addMonths(base, monthsNum).toISOString().slice(0, 10);
+  const previous = player.membershipRenewalDate;
+  player.membershipRenewalDate = nextDateStr;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.membershipRenewal',
+    targetType: 'user',
+    targetId: player.id,
+    details: `Renewed ${player.firstName} ${player.lastName}'s membership by ${monthsNum} month(s): ${previous || 'none'} -> ${nextDateStr}`,
+  });
+  writeDb(db);
+
+  res.json({
+    id: player.id,
+    firstName: player.firstName,
+    lastName: player.lastName,
+    email: player.email,
+    status: player.status,
+    membershipRenewalDate: player.membershipRenewalDate,
+  });
+}));
+
 // ---------- League payments (manual confirmation) ----------
 // A league can require players to have a confirmed (or waived) payment
 // before being added as an entrant to any of its divisions - see

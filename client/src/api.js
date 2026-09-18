@@ -97,6 +97,12 @@ const networkApi = {
     request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
   searchVenuePlayers: (venueId, q = '') =>
     request(`/venue-manager/players?venueId=${encodeURIComponent(venueId)}&q=${encodeURIComponent(q)}`),
+  // Quick-renew buttons on Search players' results - months must be 1, 6, or 12.
+  renewVenuePlayer: (venueId, playerId, months) =>
+    request(`/venue-manager/players/${playerId}/renew`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId, months }),
+    }),
 
   // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
   // - visible to every logged-in account, not just admins.
