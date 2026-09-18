@@ -11,34 +11,48 @@ import { api } from '../api.js';
 // search box. Every count in the Status box is expected to read 0 today -
 // there's no UI yet to set a player's membership renewal date, so nobody
 // has one; that's a follow-up step, not a bug in this page.
-// A stat tile's number as a clickable control, styled to look exactly like
-// the plain text it replaces (no button chrome). Disabled (and not
-// clickable) when the count is 0 - nothing to show. Clicking the count
-// that's already open closes it again (see DueTile below).
-function DueCountButton({ count, active, onClick }) {
-  if (count === 0) {
-    return <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{count}</p>;
-  }
+// A whole stat tile that is clickable when its count is non-zero (there's
+// nothing to show for a zero count, so those tiles stay plain and inert).
+// Renders the same markup/classes as a plain stat card - no button chrome,
+// no underline - just a pointer cursor and an accent highlight while its
+// player list is open, plus keyboard support (Enter/Space) since it's a
+// real interactive control under the hood.
+function DueTile({ label, count, active, onClick, caption }) {
+  const clickable = count > 0;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="link-reset"
+    <div
+      className="card"
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? onClick : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       style={{
-        fontSize: '2rem',
-        fontWeight: 700,
-        margin: 0,
-        padding: 0,
-        border: 'none',
-        background: 'none',
-        cursor: 'pointer',
-        color: active ? 'var(--accent, #2563eb)' : 'inherit',
-        textDecoration: 'underline',
-        textUnderlineOffset: '4px',
+        cursor: clickable ? 'pointer' : 'default',
+        boxShadow: active ? 'inset 0 0 0 2px var(--accent, #2563eb)' : undefined,
       }}
     >
-      {count}
-    </button>
+      <h3 style={{ marginTop: 0 }}>{label}</h3>
+      <p
+        style={{
+          fontSize: '2rem',
+          fontWeight: 700,
+          margin: 0,
+          color: active ? 'var(--accent, #2563eb)' : 'inherit',
+        }}
+      >
+        {count}
+      </p>
+      <p className="muted" style={{ margin: 0 }}>{caption}</p>
+    </div>
   );
 }
 
@@ -105,21 +119,27 @@ function StatusBox({ status, loading, venueId }) {
             <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{status.registeredPlayers}</p>
             <p className="muted" style={{ margin: 0 }}>at this venue</p>
           </div>
-          <div className="card">
-            <h3 style={{ marginTop: 0 }}>Due in 6 months</h3>
-            <DueCountButton count={status.dueIn6Months} active={openBucket === 6} onClick={() => toggleBucket(6)} />
-            <p className="muted" style={{ margin: 0 }}>membership renewal</p>
-          </div>
-          <div className="card">
-            <h3 style={{ marginTop: 0 }}>Due in 4 months</h3>
-            <DueCountButton count={status.dueIn4Months} active={openBucket === 4} onClick={() => toggleBucket(4)} />
-            <p className="muted" style={{ margin: 0 }}>membership renewal</p>
-          </div>
-          <div className="card">
-            <h3 style={{ marginTop: 0 }}>Due in 2 months</h3>
-            <DueCountButton count={status.dueIn2Months} active={openBucket === 2} onClick={() => toggleBucket(2)} />
-            <p className="muted" style={{ margin: 0 }}>membership renewal</p>
-          </div>
+          <DueTile
+            label="Due in 6 months"
+            count={status.dueIn6Months}
+            active={openBucket === 6}
+            onClick={() => toggleBucket(6)}
+            caption="membership renewal"
+          />
+          <DueTile
+            label="Due in 4 months"
+            count={status.dueIn4Months}
+            active={openBucket === 4}
+            onClick={() => toggleBucket(4)}
+            caption="membership renewal"
+          />
+          <DueTile
+            label="Due in 2 months"
+            count={status.dueIn2Months}
+            active={openBucket === 2}
+            onClick={() => toggleBucket(2)}
+            caption="membership renewal"
+          />
         </div>
       )}
       {openBucket && (
@@ -127,7 +147,7 @@ function StatusBox({ status, loading, venueId }) {
       )}
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 12 }}>
         Renewal counts are 0 until a membership renewal date is set against a player - that's not
-        built yet, so this is expected for now. Click a non-zero count to see who it is.
+        built yet, so this is expected for now. Click a non-zero tile to see who it is.
       </p>
     </section>
   );
