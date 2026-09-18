@@ -1,13 +1,24 @@
-ewogICJuYW1lIjogImN1ZS1zZW5zZS1jbGllbnQiLAogICJ2ZXJzaW9uIjog
-IjEuMC4wIiwKICAicHJpdmF0ZSI6IHRydWUsCiAgInR5cGUiOiAibW9kdWxl
-IiwKICAic2NyaXB0cyI6IHsKICAgICJkZXYiOiAidml0ZSIsCiAgICAiYnVp
-bGQiOiAidml0ZSBidWlsZCIsCiAgICAiYnVpbGQ6ZGVtbyI6ICJWSVRFX0RF
-TU9fTU9ERT10cnVlIHZpdGUgYnVpbGQgLS1vdXREaXIgZGlzdC1kZW1vIiwK
-ICAgICJwcmV2aWV3IjogInZpdGUgcHJldmlldyIKICB9LAogICJkZXBlbmRl
-bmNpZXMiOiB7CiAgICAicGFwYXBhcnNlIjogIl41LjQuMSIsCiAgICAicmVh
-Y3QiOiAiXjE4LjMuMSIsCiAgICAicmVhY3QtZG9tIjogIl4xOC4zLjEiLAog
-ICAgInJlYWN0LXJvdXRlci1kb20iOiAiXjYuMjYuMCIsCiAgICAieGxzeCI6
-ICJeMC4xOC41IgogIH0sCiAgImRldkRlcGVuZGVuY2llcyI6IHsKICAgICJA
-dml0ZWpzL3BsdWdpbi1yZWFjdCI6ICJeNC4zLjEiLAogICAgInZpdGUiOiAi
-XjUuNC4wIiwKICAgICJ2aXRlLXBsdWdpbi1wd2EiOiAiXjEuMy4wIgogIH0K
-fQo=
+{
+  "name": "cue-sense-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:demo": "VITE_DEMO_MODE=true vite build --outDir dist-demo",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "papaparse": "^5.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0",
+    "vite-plugin-pwa": "^1.3.0"
+  }
+}
