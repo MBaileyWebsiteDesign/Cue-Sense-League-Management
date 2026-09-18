@@ -13,16 +13,31 @@ const BASE = '/api';
 
 async function request(path, options = {}) {
   const token = getStoredToken();
-  const res = await fetch(`${BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...options,
+    });
+  } catch (err) {
+    // fetch() itself throws for network-level failures (offline, DNS,
+    // dropped connection, CORS) - the request never reached the server at
+    // all. Tagged so callers like the scoring retry queue (scoringQueue.js)
+    // can tell "definitely didn't get through" apart from a definite
+    // rejection the server sent back (see the status tag below).
+    const networkErr = new Error('Network error - request did not reach the server');
+    networkErr.isNetworkError = true;
+    networkErr.cause = err;
+    throw networkErr;
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    const err = new Error(body.error || `Request failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
   return body;
 }
@@ -371,8 +386,11 @@ const networkApi = {
   wipeAllData: () => request('/admin/wipe', { method: 'POST' }),
   setAlternativeBreaking: (fixtureId, enabled) =>
     request(`/fixtures/${fixtureId}/alternative-breaking`, { method: 'POST', body: JSON.stringify({ enabled }) }),
-  recordFrame: (fixtureId, winnerPlayerId, method, breaker) =>
-    request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId, method, breaker }) }),
+  // clientRequestId is an optional client-generated id (see scoringQueue.js)
+  // that lets a retried call after a dropped connection be recognised as a
+  // no-op replay by the server instead of double-recording the frame.
+  recordFrame: (fixtureId, winnerPlayerId, method, breaker, clientRequestId) =>
+    request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId, method, breaker, clientRequestId }) }),
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),
   submitResult: (fixtureId) => request(`/fixtures/${fixtureId}/submit-result`, { method: 'POST' }),
   confirmResult: (fixtureId) => request(`/fixtures/${fixtureId}/confirm-result`, { method: 'POST' }),
@@ -411,10 +429,11 @@ const networkApi = {
     }),
   setLegAlternativeBreaking: (fixtureId, legNumber, enabled) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/alternative-breaking`, { method: 'POST', body: JSON.stringify({ enabled }) }),
-  recordLegFrame: (fixtureId, legNumber, winnerPlayerId, method, breaker) =>
+  // See recordFrame above for what clientRequestId does.
+  recordLegFrame: (fixtureId, legNumber, winnerPlayerId, method, breaker, clientRequestId) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/frames`, {
       method: 'POST',
-      body: JSON.stringify({ winnerPlayerId, method, breaker }),
+      body: JSON.stringify({ winnerPlayerId, method, breaker, clientRequestId }),
     }),
   undoLastLegFrame: (fixtureId, legNumber) =>
     request(`/fixtures/${fixtureId}/legs/${legNumber}/frames/last`, { method: 'DELETE' }),
