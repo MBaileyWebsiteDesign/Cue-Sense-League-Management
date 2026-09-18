@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
@@ -79,6 +80,10 @@ const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
 
 const app = express();
 app.use(cors());
+// Gzip/brotli-compress every response (JSON API payloads, and the built
+// client's JS/CSS/HTML if served from here) - cuts payload size roughly
+// 70-80% for JSON/text, which matters most on slow mobile connections.
+app.use(compression());
 app.use(express.json({ limit: '20mb' })); // season CSV/Excel imports can be a few hundred rows; a full-system backup restore (see POST /api/admin/restore) can be larger still
 
 const asyncRoute = (fn) => (req, res, next) => {
@@ -7938,6 +7943,14 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 // local development, run the Vite dev server separately instead - see
 // README - so you get hot reload.)
 if (existsSync(CLIENT_DIST)) {
+  // Vite fingerprints every JS/CSS filename under dist/assets/ with a
+  // content hash, so those specific files never change under a given
+  // filename - safe to tell the browser to cache them for a full year.
+  // This is a separate, more specific static mount so it doesn't affect
+  // index.html or the other unhashed files (favicon.png, logo.png) served
+  // by the general static mount below, which keep the normal short/no
+  // caching so a new deploy is always picked up.
+  app.use('/assets', express.static(path.join(CLIENT_DIST, 'assets'), { maxAge: '1y', immutable: true }));
   app.use(express.static(CLIENT_DIST));
   app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(path.join(CLIENT_DIST, 'index.html'));
