@@ -1,60 +1,66 @@
-aW1wb3J0IHsgZGVmaW5lQ29uZmlnIH0gZnJvbSAndml0ZSc7CmltcG9ydCBy
-ZWFjdCBmcm9tICdAdml0ZWpzL3BsdWdpbi1yZWFjdCc7CmltcG9ydCB7IFZp
-dGVQV0EgfSBmcm9tICd2aXRlLXBsdWdpbi1wd2EnOwoKLy8gVGhlIHN0YXRp
-YyBkZW1vIGJ1aWxkIChucG0gcnVuIGJ1aWxkOmRlbW8sIHNlZSBwYWNrYWdl
-Lmpzb24gLyBSRUFETUUpIGlzCi8vIHB1Ymxpc2hlZCB0byBHaXRIdWIgUGFn
-ZXMgYXQgYSByZXBvLW5hbWUgc3VicGF0aCByYXRoZXIgdGhhbiBhIGRvbWFp
-bgovLyByb290LCBzbyBldmVyeSBhc3NldCBVUkwgbmVlZHMgdGhhdCBwcmVm
-aXggYmFrZWQgaW4gLSBhIG5vcm1hbCBidWlsZAovLyAobnBtIHJ1biBidWls
-ZCwgc2VydmVkIGJ5IHRoZSBFeHByZXNzIHNlcnZlciBpdHNlbGYgYXQgIi8i
-KSBzdGF5cyBhdCAiLyIuCmNvbnN0IGlzRGVtb0J1aWxkID0gcHJvY2Vzcy5l
-bnYuVklURV9ERU1PX01PREUgPT09ICd0cnVlJzsKCmV4cG9ydCBkZWZhdWx0
-IGRlZmluZUNvbmZpZyh7CiAgcGx1Z2luczogWwogICAgcmVhY3QoKSwKICAg
-IC8vIFNlcnZpY2Ugd29ya2VyOiBwcmVjYWNoZXMgdGhlIGJ1aWx0IGFwcCBz
-aGVsbCAoSlMvQ1NTL2luZGV4Lmh0bWwpIHNvCiAgICAvLyByZW9wZW5pbmcg
-dGhlIGFwcCBvbiBhIHNsb3cvcGF0Y2h5IG1vYmlsZSBjb25uZWN0aW9uIHNo
-b3dzIHRoZSBVSQogICAgLy8gaW5zdGFudGx5IGluc3RlYWQgb2YgcmUtZG93
-bmxvYWRpbmcgZXZlcnl0aGluZywgYW5kCiAgICAvLyBzdGFsZS13aGlsZS1y
-ZXZhbGlkYXRlLWNhY2hlcyB0aGUgcHVibGljLCB1bmF1dGhlbnRpY2F0ZWQg
-ZW1iZWQKICAgIC8vIGVuZHBvaW50cyAob3ZlcmxheS9hcmVuYSwgYW5kIHRo
-ZSBwdWJsaWMgbGVhZ3VlL2RpdmlzaW9uIHRhYmxlLAogICAgLy8gZml4dHVy
-ZXMgJiBicmFja2V0IHBhZ2VzIC0gc2VlIHRoZSAiUHVibGljLCB1bmF1dGhl
-bnRpY2F0ZWQiIGNvbW1lbnRzCiAgICAvLyBpbiBzcmMvYXBpLmpzKSBzbyB0
-aG9zZSBzY3JlZW5zIGFsc28gcmVuZGVyIGltbWVkaWF0ZWx5IGZyb20gY2Fj
-aGUKICAgIC8vIHdoaWxlIHF1aWV0bHkgcmVmcmVzaGluZyBpbiB0aGUgYmFj
-a2dyb3VuZC4KICAgIC8vCiAgICAvLyBEZWxpYmVyYXRlbHkgTk9UIGNhY2hp
-bmcgYW55IGF1dGhlbnRpY2F0ZWQgL2FwaS8qIEdFVCByZXNwb25zZTogdGhp
-cwogICAgLy8gYXBwIHJ1bnMgb24gc2hhcmVkIHZlbnVlIGRldmljZXMgd2hl
-cmUgZGlmZmVyZW50IHBsYXllcnMgbG9nIGluIG9uCiAgICAvLyB0aGUgc2Ft
-ZSBicm93c2VyIChzZWUgdGhlIHdhbGstaW4gLyBhZC1ob2MgZ2FtZSBmZWF0
-dXJlcyksIGFuZCBhCiAgICAvLyBzZXJ2aWNlIHdvcmtlciBjYWNoZSBrZXll
-ZCBieSBVUkwgYWxvbmUgKG5vdCBieSBBdXRob3JpemF0aW9uIGhlYWRlcikK
-ICAgIC8vIGNvdWxkIHNob3cgb25lIHBsYXllcidzIGNhY2hlZCBkYXRhIHRv
-IHRoZSBuZXh0IHBlcnNvbiBvbiB0aGF0CiAgICAvLyBkZXZpY2UuIFNraXBw
-ZWQgZW50aXJlbHkgZm9yIHRoZSBkZW1vIGJ1aWxkIChHaXRIdWIgUGFnZXMs
-IHN1YnBhdGgKICAgIC8vIGJhc2UsIG5vIHJlYWwgQVBJIHRvIHRhbGsgdG8p
-LgogICAgIWlzRGVtb0J1aWxkICYmCiAgICAgIFZpdGVQV0EoewogICAgICAg
-IHJlZ2lzdGVyVHlwZTogJ2F1dG9VcGRhdGUnLAogICAgICAgIG1hbmlmZXN0
-OiB7CiAgICAgICAgICBuYW1lOiAnQ3VlIFNlbnNlIC0gTGVhZ3VlIE1hbmFn
-ZW1lbnQnLAogICAgICAgICAgc2hvcnRfbmFtZTogJ0N1ZSBTZW5zZScsCiAg
-ICAgICAgICBzdGFydF91cmw6ICcvJywKICAgICAgICAgIGRpc3BsYXk6ICdz
-dGFuZGFsb25lJywKICAgICAgICAgIGJhY2tncm91bmRfY29sb3I6ICcjZmZm
-ZmZmJywKICAgICAgICAgIHRoZW1lX2NvbG9yOiAnI2ZmZmZmZicsCiAgICAg
-ICAgICBpY29uczogWwogICAgICAgICAgICB7IHNyYzogJ2Zhdmljb24ucG5n
-Jywgc2l6ZXM6ICc2NHg2NCcsIHR5cGU6ICdpbWFnZS9wbmcnIH0sCiAgICAg
-ICAgICAgIHsgc3JjOiAnbG9nby5wbmcnLCBzaXplczogJzg4eDg4JywgdHlw
-ZTogJ2ltYWdlL3BuZycgfSwKICAgICAgICAgIF0sCiAgICAgICAgfSwKICAg
-ICAgICB3b3JrYm94OiB7CiAgICAgICAgICBuYXZpZ2F0ZUZhbGxiYWNrOiAn
-L2luZGV4Lmh0bWwnLAogICAgICAgICAgcnVudGltZUNhY2hpbmc6IFsKICAg
-ICAgICAgICAgewogICAgICAgICAgICAgIHVybFBhdHRlcm46IC9eXC9hcGlc
-LyhwdWJsaWN8b3ZlcmxheSlcLy8sCiAgICAgICAgICAgICAgaGFuZGxlcjog
-J1N0YWxlV2hpbGVSZXZhbGlkYXRlJywKICAgICAgICAgICAgICBvcHRpb25z
-OiB7CiAgICAgICAgICAgICAgICBjYWNoZU5hbWU6ICdjdWUtc2Vuc2UtcHVi
-bGljLWFwaScsCiAgICAgICAgICAgICAgICBleHBpcmF0aW9uOiB7IG1heEVu
-dHJpZXM6IDEwMCwgbWF4QWdlU2Vjb25kczogNjAgKiA2MCAqIDI0IH0sCiAg
-ICAgICAgICAgICAgfSwKICAgICAgICAgICAgfSwKICAgICAgICAgIF0sCiAg
-ICAgICAgfSwKICAgICAgfSksCiAgXS5maWx0ZXIoQm9vbGVhbiksCiAgYmFz
-ZTogaXNEZW1vQnVpbGQgPyAnL0N1ZS1TZW5zZS1MZWFndWUtTWFuYWdlbWVu
-dC8nIDogJy8nLAogIHNlcnZlcjogewogICAgcHJveHk6IHsKICAgICAgJy9h
-cGknOiAnaHR0cDovL2xvY2FsaG9zdDo0MDAwJywKICAgIH0sCiAgfSwKfSk7
-Cg==
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+
+// The static demo build (npm run build:demo, see package.json / README) is
+// published to GitHub Pages at a repo-name subpath rather than a domain
+// root, so every asset URL needs that prefix baked in - a normal build
+// (npm run build, served by the Express server itself at "/") stays at "/".
+const isDemoBuild = process.env.VITE_DEMO_MODE === 'true';
+
+export default defineConfig({
+  plugins: [
+    react(),
+    // Service worker: precaches the built app shell (JS/CSS/index.html) so
+    // reopening the app on a slow/patchy mobile connection shows the UI
+    // instantly instead of re-downloading everything, and
+    // stale-while-revalidate-caches the public, unauthenticated embed
+    // endpoints (overlay/arena, and the public league/division table,
+    // fixtures & bracket pages - see the "Public, unauthenticated" comments
+    // in src/api.js) so those screens also render immediately from cache
+    // while quietly refreshing in the background.
+    //
+    // Deliberately NOT caching any authenticated /api/* GET response: this
+    // app runs on shared venue devices where different players log in on
+    // the same browser (see the walk-in / ad-hoc game features), and a
+    // service worker cache keyed by URL alone (not by Authorization header)
+    // could show one player's cached data to the next person on that
+    // device. Skipped entirely for the demo build (GitHub Pages, subpath
+    // base, no real API to talk to).
+    !isDemoBuild &&
+      VitePWA({
+        registerType: 'autoUpdate',
+        manifest: {
+          name: 'Cue Sense - League Management',
+          short_name: 'Cue Sense',
+          start_url: '/',
+          display: 'standalone',
+          background_color: '#ffffff',
+          theme_color: '#ffffff',
+          icons: [
+            { src: 'favicon.png', sizes: '64x64', type: 'image/png' },
+            { src: 'logo.png', sizes: '88x88', type: 'image/png' },
+          ],
+        },
+        workbox: {
+          navigateFallback: '/index.html',
+          runtimeCaching: [
+            {
+              urlPattern: /^\/api\/(public|overlay)\//,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'cue-sense-public-api',
+                expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
+              },
+            },
+          ],
+        },
+      }),
+  ].filter(Boolean),
+  base: isDemoBuild ? '/Cue-Sense-League-Management/' : '/',
+  server: {
+    proxy: {
+      '/api': 'http://localhost:4000',
+    },
+  },
+});
