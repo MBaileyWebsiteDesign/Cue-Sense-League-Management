@@ -2233,13 +2233,18 @@ app.get('/api/game-formats/pcdek/:playerCount', requireAuth, asyncRoute((req, re
 // admin-only. Includes every status (not just upcoming) since an admin might
 // specifically be looking for a `disputed` or `pending_confirmation` match to
 // resolve.
-app.get('/api/admin/players/:playerId/fixtures', requireAdmin, asyncRoute((req, res) => {
+app.get('/api/admin/players/:playerId/fixtures', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const playerId = req.params.playerId;
+  // League Managers (not just Overall Admins) can use Game Adjustments, but
+  // only ever see fixtures from leagues they're assigned to manage.
+  const gaUser = req.auth.user;
+  const canSeeLeague = (league) => gaUser.isAdmin || (!!league && Array.isArray(league.managerUserIds) && league.managerUserIds.includes(gaUser.id));
   const myTeamIds = db.teams.filter((t) => t.playerIds.includes(playerId)).map((t) => t.id);
   const myPairingIds = db.pairings.filter((p) => p.playerIds.includes(playerId)).map((p) => p.id);
 
   const fixtures = db.fixtures.filter((f) => {
+    if (!canSeeLeague(db.leagues.find((l) => l.id === f.leagueId))) return false;
     if (f.homePlayerId === playerId || f.awayPlayerId === playerId) return true;
     if (myTeamIds.includes(f.homeTeamId) || myTeamIds.includes(f.awayTeamId)) return true;
     if (myPairingIds.includes(f.homePlayerId) || myPairingIds.includes(f.awayPlayerId)) return true;
@@ -2284,14 +2289,17 @@ app.get('/api/admin/players/:playerId/fixtures', requireAdmin, asyncRoute((req, 
 // which player it involves. Scans both fixture-level status (singles/
 // doubles) and leg-level status (team fixtures, since an individual leg can
 // be disputed while the overall team match is still in_progress).
-app.get('/api/admin/fixtures/needs-attention', requireAdmin, asyncRoute((req, res) => {
+app.get('/api/admin/fixtures/needs-attention', requireAnyAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const NEEDS_ATTENTION = ['pending_confirmation', 'disputed'];
   const results = [];
+  // League Managers only see results from leagues they're assigned to manage.
+  const gaUser = req.auth.user;
 
   for (const f of db.fixtures) {
     const division = db.divisions.find((d) => d.id === f.divisionId);
     const league = db.leagues.find((l) => l.id === f.leagueId);
+    if (!gaUser.isAdmin && !(league && Array.isArray(league.managerUserIds) && league.managerUserIds.includes(gaUser.id))) continue;
 
     if (f.legs) {
       const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
