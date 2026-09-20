@@ -396,6 +396,10 @@ const networkApi = {
   confirmResult: (fixtureId) => request(`/fixtures/${fixtureId}/confirm-result`, { method: 'POST' }),
   disputeResult: (fixtureId, reason) =>
     request(`/fixtures/${fixtureId}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  addFixtureReferee: (fixtureId, email) =>
+    request(`/fixtures/${fixtureId}/referee`, { method: 'POST', body: JSON.stringify({ email }) }),
+  removeFixtureReferee: (fixtureId, userId) =>
+    request(`/fixtures/${fixtureId}/referee/${userId}`, { method: 'DELETE' }),
   claimNoShow: (fixtureId, legNumber) =>
     request(`/fixtures/${fixtureId}/no-show`, { method: 'POST', body: JSON.stringify({ legNumber: legNumber ?? undefined }) }),
   authorizeNoShow: (fixtureId, legNumber) =>

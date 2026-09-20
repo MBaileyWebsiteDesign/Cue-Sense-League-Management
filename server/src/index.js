@@ -5402,19 +5402,90 @@ app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
       homePlayer: leg.homePlayerId ? db.players.find((p) => p.id === leg.homePlayerId) : null,
       awayPlayer: leg.awayPlayerId ? db.players.find((p) => p.id === leg.awayPlayerId) : null,
     }));
-    return res.json({ ...fixture, divisionName, legs, homeTeam, awayTeam, bothEntrantsKnown: !!(fixture.homeTeamId && fixture.awayTeamId) });
+    return res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, legs, homeTeam, awayTeam, bothEntrantsKnown: !!(fixture.homeTeamId && fixture.awayTeamId) });
   }
 
   if (division.entryType === 'doubles') {
     const withPlayers = (pairing) => (pairing ? { ...pairing, players: db.players.filter((p) => pairing.playerIds.includes(p.id)) } : null);
     const homePairing = withPlayers(db.pairings.find((p) => p.id === fixture.homePlayerId));
     const awayPairing = withPlayers(db.pairings.find((p) => p.id === fixture.awayPlayerId));
-    return res.json({ ...fixture, divisionName, homePairing, awayPairing, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
+    return res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, homePairing, awayPairing, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
   }
 
   const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
   const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
-  res.json({ ...fixture, divisionName, homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
+  res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
+}));
+
+// ---------- Who may control a fixture ----------
+// Scoring, timers, shot clock, table info, alternative breaking, undo,
+// leg nominations and submitting a result are limited to: an Overall Admin,
+// a League Manager of the fixture's league, a player/team member actually in
+// the fixture, the creator of an Ad Hoc game, or an account the fixture's
+// participants (or an admin) have named as its referee (fixture.refereeUserIds).
+// Everyone else is view-only - enforced here, not just hidden in the UI.
+function canControlFixture(db, user, fixture, { allowReferee = true } = {}) {
+  if (!user || !fixture) return false;
+  if (user.isAdmin) return true;
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === (fixture.leagueId || division?.leagueId));
+  if (user.isLeagueManager && league && Array.isArray(league.managerUserIds) && league.managerUserIds.includes(user.id)) return true;
+  if (allowReferee && Array.isArray(fixture.refereeUserIds) && fixture.refereeUserIds.includes(user.id)) return true;
+  if (league?.isAdHocPool && division?.createdByUserId && division.createdByUserId === user.id) return true;
+  if (!user.playerId || !division) return false;
+  if (division.entryType === 'teams') {
+    const home = fixture.homeTeamId ? db.teams.find((t) => t.id === fixture.homeTeamId) : null;
+    const away = fixture.awayTeamId ? db.teams.find((t) => t.id === fixture.awayTeamId) : null;
+    return !!((home && home.playerIds.includes(user.playerId)) || (away && away.playerIds.includes(user.playerId)));
+  }
+  return isHomeEntrant(db, division, fixture, user.playerId) || isAwayEntrant(db, division, fixture, user.playerId);
+}
+
+function assertCanControlFixture(req, db, fixture) {
+  if (!canControlFixture(db, req.auth.user, fixture)) {
+    throw new ApiError(403, 'Only a player in this fixture, its referee, or an admin/league manager can control this match');
+  }
+}
+
+function fixtureAccessInfo(db, user, fixture) {
+  const refereeUsers = (fixture.refereeUserIds || [])
+    .map((id) => db.users.find((u) => u.id === id))
+    .filter(Boolean)
+    .map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() }));
+  return {
+    canControl: canControlFixture(db, user, fixture),
+    canManageReferees: canControlFixture(db, user, fixture, { allowReferee: false }),
+    refereeUsers,
+  };
+}
+
+app.post('/api/fixtures/:id/referee', requireAuth, asyncRoute((req, res) => {
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!email) throw new ApiError(400, 'email is required');
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  if (!canControlFixture(db, req.auth.user, fixture, { allowReferee: false })) {
+    throw new ApiError(403, 'Only a player in this fixture, or an admin/league manager, can name a referee');
+  }
+  const target = db.users.find((u) => u.email.toLowerCase() === email && u.status !== 'suspended');
+  if (!target) throw new ApiError(404, 'No active account with that email');
+  fixture.refereeUserIds = Array.isArray(fixture.refereeUserIds) ? fixture.refereeUserIds : [];
+  if (!fixture.refereeUserIds.includes(target.id)) fixture.refereeUserIds.push(target.id);
+  writeDb(db);
+  res.json({ ...fixtureAccessInfo(db, req.auth.user, fixture) });
+}));
+
+app.delete('/api/fixtures/:id/referee/:userId', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  if (!canControlFixture(db, req.auth.user, fixture, { allowReferee: false })) {
+    throw new ApiError(403, 'Only a player in this fixture, or an admin/league manager, can remove a referee');
+  }
+  fixture.refereeUserIds = (fixture.refereeUserIds || []).filter((id) => id !== req.params.userId);
+  writeDb(db);
+  res.json({ ...fixtureAccessInfo(db, req.auth.user, fixture) });
 }));
 
 app.post('/api/fixtures/:id/schedule', requireAnyAdmin, asyncRoute((req, res) => {
@@ -5471,6 +5542,7 @@ app.post('/api/fixtures/:id/timer/start', requireAuth, asyncRoute((req, res) => 
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   if (!fixture.timer.running) {
     fixture.timer.running = true;
     fixture.timer.startedAt = new Date().toISOString();
@@ -5483,6 +5555,7 @@ app.post('/api/fixtures/:id/timer/pause', requireAuth, asyncRoute((req, res) => 
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   if (fixture.timer.running && fixture.timer.startedAt) {
     const elapsed = (Date.now() - new Date(fixture.timer.startedAt).getTime()) / 1000;
     fixture.timer.elapsedSeconds += Math.max(0, elapsed);
@@ -5497,6 +5570,7 @@ app.post('/api/fixtures/:id/timer/reset', requireAuth, asyncRoute((req, res) => 
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   fixture.timer = { startedAt: null, elapsedSeconds: 0, running: false };
   writeDb(db);
   res.json(fixture);
@@ -5507,6 +5581,7 @@ app.post('/api/fixtures/:id/shot-clock/start', requireAuth, asyncRoute((req, res
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   if (durationSeconds !== undefined) {
     if (!Number.isInteger(Number(durationSeconds)) || Number(durationSeconds) < 5) {
       throw new ApiError(400, 'durationSeconds must be a whole number of at least 5 seconds');
@@ -5523,6 +5598,7 @@ app.post('/api/fixtures/:id/shot-clock/stop', requireAuth, asyncRoute((req, res)
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   fixture.shotClock.running = false;
   fixture.shotClock.startedAt = null;
   writeDb(db);
@@ -5542,6 +5618,7 @@ app.post('/api/fixtures/:id/alternative-breaking', requireAuth, asyncRoute((req,
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   // Toggles whether the breaker for each frame from here on is derived
   // automatically (alternating from whoever broke last) rather than left to
   // a manual Break click - see POST .../frames below for the alternation
@@ -5562,6 +5639,7 @@ app.post('/api/fixtures/:id/table-info', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   fixture.table = typeof table === 'string' ? (table.trim().slice(0, 60) || undefined) : undefined;
   fixture.venue = typeof venue === 'string' ? (venue.trim().slice(0, 80) || undefined) : undefined;
   writeDb(db);
@@ -5586,6 +5664,7 @@ app.post('/api/fixtures/:id/frames', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   // Idempotency: a retried request (the client's connection dropped before
   // it saw the original response, so it doesn't know whether the frame was
   // actually recorded) carries the same clientRequestId as the attempt that
@@ -5667,6 +5746,7 @@ app.delete('/api/fixtures/:id/frames/last', requireAuth, asyncRoute((req, res) =
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
@@ -5726,6 +5806,7 @@ app.post('/api/fixtures/:id/submit-result', requireAuth, asyncRoute((req, res) =
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertCanControlFixture(req, db, fixture);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
@@ -6028,6 +6109,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/nominate', requireAuth, asyncRoute((
   const { homePlayerId, awayPlayerId } = req.body;
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  assertCanControlFixture(req, db, fixture);
   const nominateDivision = db.divisions.find((d) => d.id === fixture.divisionId);
   if (!req.auth.user.isAdmin && !isRoundVisible(nominateDivision, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
@@ -6055,6 +6137,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/alternative-breaking', requireAuth, 
   const { enabled } = req.body || {};
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  assertCanControlFixture(req, db, fixture);
   // See the matching singles-fixture route above for what this does.
   leg.alternativeBreaking = !!enabled;
   writeDb(db);
@@ -6073,6 +6156,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((re
   }
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  assertCanControlFixture(req, db, fixture);
   // Idempotency: see the matching check in the singles frames route above -
   // same reasoning, scoped to this leg's own frames.
   if (clientRequestId) {
@@ -6135,6 +6219,7 @@ app.post('/api/fixtures/:id/legs/:legNumber/frames', requireAuth, asyncRoute((re
 app.delete('/api/fixtures/:id/legs/:legNumber/frames/last', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  assertCanControlFixture(req, db, fixture);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
   if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
@@ -6170,6 +6255,7 @@ app.delete('/api/fixtures/:id/legs/:legNumber/frames/last', requireAuth, asyncRo
 app.post('/api/fixtures/:id/legs/:legNumber/submit-result', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
+  assertCanControlFixture(req, db, fixture);
   const submitDivision = db.divisions.find((d) => d.id === fixture.divisionId);
   if (!req.auth.user.isAdmin && !isRoundVisible(submitDivision, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
