@@ -179,7 +179,7 @@ export default function ManageFixtures() {
 
   useSetBreadcrumbs([
     { label: 'Home', to: '/' },
-    { label: 'Admin Portal', to: '/admin' },
+    isAdmin ? { label: 'Admin Portal', to: '/admin' } : { label: 'League Manager Portal', to: '/league-manager' },
     { label: 'Manage Fixtures' },
   ]);
 
