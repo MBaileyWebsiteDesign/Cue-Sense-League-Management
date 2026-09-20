@@ -296,7 +296,7 @@ function LegNominationForm({ fixture, leg, onChange, setError }) {
 function LegRow({ fixture, leg, onChange, setError, onOptimisticLegFrame, onRollbackLegFrame }) {
   const { user, isAdmin } = useAuth();
   const complete = leg.status === 'completed';
-  const locked = complete || leg.status === 'pending_confirmation' || leg.status === 'disputed';
+  const locked = complete || leg.status === 'pending_confirmation' || leg.status === 'disputed' || !fixture.canControl;
   const raceTargetReached = leg.status === 'in_progress' && (leg.homeFrameScore >= leg.raceTo || leg.awayFrameScore >= leg.raceTo);
   const isHomeNominee = !!user?.playerId && user.playerId === leg.homePlayerId;
   const isAwayNominee = !!user?.playerId && user.playerId === leg.awayPlayerId;
@@ -401,7 +401,9 @@ function LegRow({ fixture, leg, onChange, setError, onOptimisticLegFrame, onRoll
       </div>
 
       {leg.status === 'pending' ? (
-        <LegNominationForm fixture={fixture} leg={leg} onChange={onChange} setError={setError} />
+        fixture.canControl
+          ? <LegNominationForm fixture={fixture} leg={leg} onChange={onChange} setError={setError} />
+          : <p className="muted">Waiting for a player in this fixture to nominate players for this leg.</p>
       ) : (
         <>
           {framePending && (
@@ -513,7 +515,7 @@ function LegRow({ fixture, leg, onChange, setError, onOptimisticLegFrame, onRoll
             </div>
           )}
 
-          {raceTargetReached && (
+          {raceTargetReached && fixture.canControl && (
             <p className="banner" style={{ background: '#dbeafe', color: '#1e40af', textAlign: 'center' }}>
               Race to {leg.raceTo} reached ({leg.homeFrameScore}-{leg.awayFrameScore}).
               <br />
@@ -631,7 +633,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
   // Scoring is locked once a result has been submitted (pending_confirmation)
   // or disputed - only "Submit for Confirmation" / Confirm / Dispute /
   // Reopen apply from that point on, not more frames.
-  const locked = complete || fixture.status === 'pending_confirmation' || fixture.status === 'disputed';
+  const locked = complete || fixture.status === 'pending_confirmation' || fixture.status === 'disputed' || !fixture.canControl;
   // fixture.raceTo is null for Free Play (no frame count target) - there's
   // no target to "reach", so that match instead becomes finishable the
   // moment it's in progress and the scores aren't level (see
@@ -847,7 +849,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         </div>
       </section>
 
-      {raceTargetReached && (
+      {raceTargetReached && fixture.canControl && (
         <p className="banner" style={{ background: '#dbeafe', color: '#1e40af', textAlign: 'center' }}>
           Race to {fixture.raceTo} reached ({fixture.homeFrameScore}-{fixture.awayFrameScore}).
           <br />
@@ -857,7 +859,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         </p>
       )}
 
-      {freePlayReadyToFinish && (
+      {freePlayReadyToFinish && fixture.canControl && (
         <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
           {fixture.homeFrameScore > fixture.awayFrameScore ? homeEntrant.name : awayEntrant.name} is ahead
           ({fixture.homeFrameScore}-{fixture.awayFrameScore}). Free Play has no frame count target - finish the
@@ -1097,6 +1099,37 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
 // Admin-only: assign this fixture to a table plus a date/time - see
 // server/src/index.js's POST /api/fixtures/:id/schedule (rejects a
 // double-booking on the same table at the same date+time).
+function RefereePanel({ fixture, onChange, setError }) {
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const run = async (fn) => {
+    setBusy(true);
+    setError('');
+    try { await fn(); onChange(); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  return (
+    <section className="card card-center">
+      <h2>Referee</h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Only the players in this match (and admins) can score it. To let someone else referee, enter the email of their Cue Sense account.
+      </p>
+      {(fixture.refereeUsers || []).map((u) => (
+        <p key={u.id}>
+          {u.name}{' '}
+          <button className="btn" disabled={busy} onClick={() => run(() => api.removeFixtureReferee(fixture.id, u.id))}>Remove</button>
+        </p>
+      ))}
+      <form
+        className="inline-form inline-form-center"
+        onSubmit={(e) => { e.preventDefault(); if (email.trim()) run(async () => { await api.addFixtureReferee(fixture.id, email.trim()); setEmail(''); }); }}
+      >
+        <input type="email" placeholder="Referee's account email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <button className="btn btn-primary" type="submit" disabled={busy || !email.trim()}>Add referee</button>
+      </form>
+    </section>
+  );
+}
+
 function ScheduleFixturePanel({ fixture, onChange, setError }) {
   const [tables, setTables] = useState([]);
   const [tableId, setTableId] = useState(fixture.tableId || '');
@@ -1252,8 +1285,15 @@ export default function FixtureDetail() {
       {isAdminSession && <StreamOverlayLink fixtureId={fixture.id} />}
       {error && <p className="error">{error}</p>}
 
+      {!fixture.canControl && fixture.status !== 'completed' && (
+        <p className="banner" style={{ textAlign: 'center' }}>
+          View only - only the players in this match, its referee, or an admin/league manager can score or control it.
+        </p>
+      )}
+      {fixture.canManageReferees && fixture.status !== 'completed' && <RefereePanel fixture={fixture} onChange={load} setError={setError} />}
+
       {isAdminSession && <ScheduleFixturePanel fixture={fixture} onChange={load} setError={setError} />}
-      {fixture.status !== 'completed' && <LiveMatchControls fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} setError={setError} />}
+      {fixture.status !== 'completed' && fixture.canControl && <LiveMatchControls fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} setError={setError} />}
 
       {isTeams ? (
         <TeamFixtureView
