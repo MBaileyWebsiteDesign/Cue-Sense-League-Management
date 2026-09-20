@@ -22,7 +22,7 @@ import { useAuth } from '../AuthContext.jsx';
 // currently stands.
 function ResultConfirmationPanel({
   status, isAdmin, isHomeEntrant, isAwayEntrant, homeConfirmed, awayConfirmed,
-  onConfirm, onDispute, onReopen, homeLabel, awayLabel, disputeReason,
+  onConfirm, onDispute, onReopen, homeLabel, awayLabel, disputeReason, leagueManagers,
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -103,7 +103,16 @@ function ResultConfirmationPanel({
       <section className="card">
         <p className="banner" style={{ background: '#fee2e2', color: '#991b1b' }}>
           This result is disputed - an admin needs to resolve it, either by overriding the
-          score directly or reopening it for further scoring. See <Link to="/admin/game-adjustments">Game Adjustments</Link>.
+          score directly or reopening it for further scoring. Please contact{' '}
+          {leagueManagers && leagueManagers.length > 0
+            ? leagueManagers.map((m, i) => (
+                <span key={m.email}>
+                  {i > 0 && (i === leagueManagers.length - 1 ? ' or ' : ', ')}
+                  <a href={`mailto:${m.email}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{m.name}</a>
+                </span>
+              ))
+            : 'your League Manager'}{' '}
+          if this hasn't been actioned after 7 days.
         </p>
         {disputeReason && (
           <p className="muted"><strong>Reason given:</strong> {disputeReason}</p>
@@ -541,6 +550,7 @@ function LegRow({ fixture, leg, onChange, setError, onOptimisticLegFrame, onRoll
             homeLabel={leg.homePlayer.name}
             awayLabel={leg.awayPlayer.name}
             disputeReason={leg.disputeReason}
+            leagueManagers={fixture.leagueManagers}
             onConfirm={async () => { await api.confirmLegResult(fixture.id, leg.legNumber); onChange(); }}
             onDispute={async (reason) => { await api.disputeLegResult(fixture.id, leg.legNumber, reason); onChange(); }}
             onReopen={async () => { await api.adminReopenLeg(fixture.id, leg.legNumber); onChange(); }}
@@ -893,6 +903,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         homeLabel={homeEntrant.name}
         awayLabel={awayEntrant.name}
         disputeReason={fixture.disputeReason}
+        leagueManagers={fixture.leagueManagers}
         onConfirm={async () => { await api.confirmResult(fixture.id); onChange(); }}
         onDispute={async (reason) => { await api.disputeResult(fixture.id, reason); onChange(); }}
         onReopen={async () => { await api.adminReopenFixture(fixture.id); onChange(); }}
