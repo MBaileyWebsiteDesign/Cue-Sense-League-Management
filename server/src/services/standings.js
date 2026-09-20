@@ -28,6 +28,10 @@ export function computeStandings(division, fixtures, players) {
       // Informational only - doesn't affect points/ranking.
       bnd: 0,
       rnd: 0,
+      // Authorised no-shows against this entrant - see the noShowClaim block
+      // in the fixtures loop below. Informational only; the walkover win for
+      // the opponent already flows through the normal won/lost/points logic.
+      noShows: 0,
     });
   }
 
@@ -46,6 +50,17 @@ export function computeStandings(division, fixtures, players) {
     home.framesAgainst += fixture.awayFrameScore;
     away.framesFor += fixture.awayFrameScore;
     away.framesAgainst += fixture.homeFrameScore;
+
+    // No-show: a player reported their opponent (POST /api/fixtures/:id/no-show)
+    // and an admin/League Manager authorised it (.../no-show/authorize), which
+    // completes the fixture with the claimant as winner. The claim marker is
+    // kept on the fixture, so it's counted only while the result still stands
+    // as the claimant's win (an admin later overriding it to something else
+    // drops the no-show). The absent entrant is the non-claimant.
+    const nsClaim = fixture.noShowClaim;
+    if (nsClaim && fixture.winnerPlayerId && fixture.winnerPlayerId === nsClaim.winnerPlayerId) {
+      (fixture.winnerPlayerId === fixture.homePlayerId ? away : home).noShows += 1;
+    }
 
     for (const frame of fixture.frames || []) {
       const winner = table.get(frame.winnerPlayerId);
