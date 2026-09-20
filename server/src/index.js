@@ -5379,6 +5379,18 @@ app.post('/api/divisions/:id/hide-all-rounds', requireAnyAdmin, asyncRoute((req,
 
 // ---------- Fixtures / frame scoring (singles) ----------
 
+// League Manager contact details for a fixture's league (name + email), used by
+// the client's "result disputed" banner so a player knows who to contact.
+function leagueManagerContacts(db, fixture) {
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === (fixture.leagueId || division?.leagueId));
+  if (!league || !Array.isArray(league.managerUserIds)) return [];
+  return league.managerUserIds
+    .map((id) => db.users.find((u) => u.id === id))
+    .filter((u) => u && u.email)
+    .map((u) => ({ name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email, email: u.email }));
+}
+
 app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
@@ -5402,19 +5414,19 @@ app.get('/api/fixtures/:id', requireAuth, asyncRoute((req, res) => {
       homePlayer: leg.homePlayerId ? db.players.find((p) => p.id === leg.homePlayerId) : null,
       awayPlayer: leg.awayPlayerId ? db.players.find((p) => p.id === leg.awayPlayerId) : null,
     }));
-    return res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, legs, homeTeam, awayTeam, bothEntrantsKnown: !!(fixture.homeTeamId && fixture.awayTeamId) });
+    return res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, leagueManagers: leagueManagerContacts(db, fixture), legs, homeTeam, awayTeam, bothEntrantsKnown: !!(fixture.homeTeamId && fixture.awayTeamId) });
   }
 
   if (division.entryType === 'doubles') {
     const withPlayers = (pairing) => (pairing ? { ...pairing, players: db.players.filter((p) => pairing.playerIds.includes(p.id)) } : null);
     const homePairing = withPlayers(db.pairings.find((p) => p.id === fixture.homePlayerId));
     const awayPairing = withPlayers(db.pairings.find((p) => p.id === fixture.awayPlayerId));
-    return res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, homePairing, awayPairing, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
+    return res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, leagueManagers: leagueManagerContacts(db, fixture), homePairing, awayPairing, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
   }
 
   const homePlayer = fixture.homePlayerId ? db.players.find((p) => p.id === fixture.homePlayerId) : null;
   const awayPlayer = fixture.awayPlayerId ? db.players.find((p) => p.id === fixture.awayPlayerId) : null;
-  res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
+  res.json({ ...fixture, ...fixtureAccessInfo(db, req.auth.user, fixture), divisionName, leagueManagers: leagueManagerContacts(db, fixture), homePlayer, awayPlayer, bothEntrantsKnown: !!(fixture.homePlayerId && fixture.awayPlayerId) });
 }));
 
 // ---------- Who may control a fixture ----------
