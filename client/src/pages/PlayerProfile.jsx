@@ -168,6 +168,7 @@ export default function PlayerProfile() {
   const { playerId } = useParams();
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
+  const [h2hVisible, setH2hVisible] = useState(5);
   const isAdmin = useIsAdminSession();
   const { isCaptain, isLeagueManager } = useAuth();
   const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
@@ -280,7 +281,7 @@ export default function PlayerProfile() {
       )}
 
       <section className="card">
-        <h2>Head-to-head</h2>
+        <h2>Games Played</h2>
         {profile.headToHead.length === 0 ? (
           <p className="muted">No completed matches yet.</p>
         ) : (
@@ -289,7 +290,7 @@ export default function PlayerProfile() {
               <tr><th>Opponent</th><th>P</th><th>W</th><th>L</th></tr>
             </thead>
             <tbody>
-              {profile.headToHead.map((h) => (
+              {profile.headToHead.slice(0, h2hVisible).map((h) => (
                 <tr key={h.opponentId}>
                   <td style={{ textAlign: 'left' }}>{h.opponentName}</td>
                   <td>{h.played}</td>
@@ -299,6 +300,16 @@ export default function PlayerProfile() {
               ))}
             </tbody>
           </table>
+        )}
+        {profile.headToHead.length > h2hVisible && (
+          <button
+            type="button"
+            className="btn"
+            style={{ marginTop: 12 }}
+            onClick={() => setH2hVisible((n) => n + 5)}
+          >
+            View more
+          </button>
         )}
       </section>
 
