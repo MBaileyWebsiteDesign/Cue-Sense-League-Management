@@ -15,11 +15,18 @@ export default function LeagueManagerPortal() {
   const { user, canManageLeague } = useAuth();
   const [leagues, setLeagues] = useState(null);
   const [error, setError] = useState('');
+  // Number of disputed results waiting on this manager (same source as the
+  // "Games disputed" list on Game Adjustments, already scoped server-side to
+  // the leagues they manage) - turns the Game Adjustments card pale red.
+  const [disputeCount, setDisputeCount] = useState(0);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'League Manager Portal' }]);
 
   useEffect(() => {
     api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
+    api.adminGetFixturesNeedingAttention()
+      .then((items) => setDisputeCount((items || []).filter((item) => item.status === 'disputed').length))
+      .catch(() => {});
   }, []);
 
   const managed = (leagues || []).filter((l) => canManageLeague(l));
@@ -45,12 +52,21 @@ export default function LeagueManagerPortal() {
           </p>
         </Link>
 
-        <Link to="/admin/game-adjustments" className="card card-link">
+        <Link
+          to="/admin/game-adjustments"
+          className="card card-link"
+          style={disputeCount > 0 ? { background: '#fee2e2' } : undefined}
+        >
           <h2>Game Adjustments</h2>
           <p className="muted">
             Resolve disputed results, or search for a player to override or reopen one of their
             fixtures - limited to the leagues you manage.
           </p>
+          {disputeCount > 0 && (
+            <p style={{ color: '#991b1b', fontWeight: 600 }}>
+              {disputeCount} disputed result{disputeCount === 1 ? '' : 's'} to resolve
+            </p>
+          )}
         </Link>
       </div>
 
