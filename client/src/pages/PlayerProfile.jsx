@@ -214,6 +214,7 @@ export default function PlayerProfile() {
           <div><strong>{career.rnd || 0}</strong><div className="muted" title="Reverse Break and Dish - the breaker misses, then this player clears the whole rack including the black on their first visit without missing">RND</div></div>
           <div><strong>{career.breakWins || 0}</strong><div className="muted" title="Frames this player won on their own break">Break + Win</div></div>
           <div><strong>{career.nonBreakWins || 0}</strong><div className="muted" title="Frames this player won without having the break">Non-Breaking + Win</div></div>
+          <div><strong>{career.noShows || 0}</strong><div className="muted" title="Games this player didn't turn up for, reported by their opponent and authorised by an admin or League Manager">No-shows</div></div>
         </div>
         {breakTrackedTotal > 0 && (
           <div className="break-win-chart">

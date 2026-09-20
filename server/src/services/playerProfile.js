@@ -6,7 +6,7 @@ export function buildPlayerProfile(db, playerId) {
   const player = db.players.find((p) => p.id === playerId);
   if (!player) return null;
 
-  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0 };
+  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0, noShows: 0 };
   const headToHeadMap = new Map();
   const results = [];
   // Table record: how this player fares on each physical table they've
@@ -90,6 +90,12 @@ export function buildPlayerProfile(db, playerId) {
       scheduledDate: fixture.scheduledDate,
       round: fixture.round,
     });
+    // No-show against this player: an opponent reported them and an admin/
+    // League Manager authorised it (fixture.noShowClaim is kept after
+    // authorising; counted only while the claimant's win still stands).
+    if (fixture.noShowClaim && fixture.winnerPlayerId && fixture.winnerPlayerId === fixture.noShowClaim.winnerPlayerId && fixture.winnerPlayerId !== playerId) {
+      career.noShows += 1;
+    }
     // BND (Break and Dish) / RND (Reverse Break and Dish) - frames this
     // player personally won that way, tallied from the frame-level `method`
     // tag (see POST /fixtures/:id/frames). Purely informational - doesn't
@@ -135,6 +141,10 @@ export function buildPlayerProfile(db, playerId) {
         scheduledDate: fixture.scheduledDate,
         round: fixture.round,
       });
+      // No-show against this player on this leg - see the singles loop above.
+      if (leg.noShowClaim && leg.winnerPlayerId && leg.winnerPlayerId === leg.noShowClaim.winnerPlayerId && leg.winnerPlayerId !== playerId) {
+        career.noShows += 1;
+      }
       // BND/RND tally for this leg - see the matching comment in the
       // singles loop above.
       for (const frame of leg.frames || []) {
