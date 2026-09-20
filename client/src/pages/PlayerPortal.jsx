@@ -358,8 +358,8 @@ function MyLeaguesAndDivisions({ leagues }) {
   if (!leagues || leagues.length === 0) {
     return (
       <section className="card">
-        <h2>My Leagues, Divisions &amp; Ad Hoc/Quick Games</h2>
-        <p className="muted">You're not registered in any leagues, divisions, or ad hoc/quick games yet.</p>
+        <h2>My Leagues, Divisions &amp; Ad Hoc/Head-to-Head Games</h2>
+        <p className="muted">You're not registered in any leagues, divisions, or ad hoc/head-to-head games yet.</p>
       </section>
     );
   }
@@ -378,7 +378,7 @@ function MyLeaguesAndDivisions({ leagues }) {
 
   return (
     <section className="card">
-      <h2>My Leagues, Divisions &amp; Ad Hoc/Quick Games</h2>
+      <h2>My Leagues, Divisions &amp; Ad Hoc/Head-to-Head Games</h2>
 
       <h3 style={{ fontSize: '1rem', color: 'var(--muted)' }}>My Leagues</h3>
       {myLeagues.length === 0 ? (
@@ -411,9 +411,9 @@ function MyLeaguesAndDivisions({ leagues }) {
         </ul>
       )}
 
-      <h3 style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem' }}>Ad Hoc/Quick Games</h3>
+      <h3 style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem' }}>Ad Hoc/Head-to-Head Games</h3>
       {adHocGames.length === 0 ? (
-        <p className="muted">You haven't created or played in any Ad Hoc or Quick Games yet.</p>
+        <p className="muted">You haven't created or played in any Ad Hoc or Head-to-Head Games yet.</p>
       ) : (
         <ul className="plain-list">
           {adHocGames.map((l, i) => (
@@ -474,7 +474,7 @@ export default function PlayerPortal() {
         {/* Skips the Ad Hoc Game wizard entirely - straight to a Free Play,
             2-player game pre-named "<Player Name> - <Date Created>" (see
             AdHocGame.jsx's quickStart prop / /adhoc-game/quick route). */}
-        <Link className="btn btn-primary" to="/adhoc-game/quick">Quick Game</Link>
+        <Link className="btn btn-primary" to="/adhoc-game/quick">Head-to-Head</Link>
         <Link className="btn btn-primary" to="/open-leagues">Leagues I can Join</Link>
       </div>
 
