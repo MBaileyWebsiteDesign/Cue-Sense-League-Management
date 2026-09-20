@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 // Admin tool for finding and directly correcting a specific result: search
@@ -79,7 +80,12 @@ function OverrideForm({ fixture, isTeams, onChange, setBanner }) {
 }
 
 export default function GameAdjustments() {
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Game Adjustments' }]);
+  const { isAdmin } = useAuth();
+  useSetBreadcrumbs([
+    { label: 'Home', to: '/' },
+    isAdmin ? { label: 'Admin', to: '/admin' } : { label: 'League Manager Portal', to: '/league-manager' },
+    { label: 'Game Adjustments' },
+  ]);
 
   const [players, setPlayers] = useState([]);
   const [query, setQuery] = useState('');
