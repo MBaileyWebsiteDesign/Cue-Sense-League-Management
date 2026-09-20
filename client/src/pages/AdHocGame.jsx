@@ -689,7 +689,7 @@ export default function AdHocGame({ quickStart = false }) {
   // straight to their own portal instead of the general leagues list.
   const { user, isAdmin, isCaptain, isLeagueManager } = useAuth();
   const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
-  const pageTitle = quickStart ? 'Quick Game' : 'Ad Hoc Game';
+  const pageTitle = quickStart ? 'Head-to-Head' : 'Ad Hoc Game';
   useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'My Account', to: '/account' }, { label: pageTitle }]);
 
   useEffect(() => {
