@@ -294,7 +294,7 @@ function AppShell() {
             <Route path="/admin/issues" element={<Navigate to="/issues-bugs-features" replace />} />
             <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
             <Route path="/admin/backup" element={<RequireAdmin><AdminBackup /></RequireAdmin>} />
-            <Route path="/admin/game-adjustments" element={<RequireAdmin><GameAdjustments /></RequireAdmin>} />
+            <Route path="/admin/game-adjustments" element={<RequireAnyAdmin><GameAdjustments /></RequireAnyAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
             <Route path="/admin/manage-fixtures" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />
             <Route path="/admin/manage-fixtures/:divisionId" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />
