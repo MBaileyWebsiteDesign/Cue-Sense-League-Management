@@ -36,6 +36,22 @@ export default function LeagueManagerPortal() {
           <h2>Guides</h2>
           <p className="muted">Reference documents an admin has made available to League Managers.</p>
         </Link>
+
+        <Link to="/admin/manage-fixtures" className="card card-link">
+          <h2>Manage Fixtures</h2>
+          <p className="muted">
+            Pick one of your leagues and a division, then release each round to players week by
+            week - players only see the rounds you've released.
+          </p>
+        </Link>
+
+        <Link to="/admin/game-adjustments" className="card card-link">
+          <h2>Game Adjustments</h2>
+          <p className="muted">
+            Resolve disputed results, or search for a player to override or reopen one of their
+            fixtures - limited to the leagues you manage.
+          </p>
+        </Link>
       </div>
 
       <section className="card">
