@@ -46,6 +46,14 @@ const EMPTY_STATE = {
   users: [],
   auditLog: [],
   venues: [],
+  // Player messaging (see the "Player messaging" section of index.js):
+  // { id, fromUserId, toUserId, body, createdAt, readAt, suppressed }.
+  messages: [],
+  // { id, blockerUserId, blockedUserId, createdAt }.
+  userBlocks: [],
+  // Abuse reports on a conversation - { id, reporterUserId, reportedUserId,
+  // reason, snapshot[], leagueIds[], status, createdAt, handledAt, handledBy, note }.
+  messageReports: [],
   passwordResets: [],
   tours: [],
   rollOfHonour: [],
@@ -122,6 +130,9 @@ export function readDb() {
   if (!state.users) state.users = [];
   if (!state.auditLog) state.auditLog = [];
   if (!state.venues) state.venues = [];
+  if (!state.messages) state.messages = [];
+  if (!state.userBlocks) state.userBlocks = [];
+  if (!state.messageReports) state.messageReports = [];
   if (!state.passwordResets) state.passwordResets = [];
   if (!state.divisions) state.divisions = [];
   if (!state.fixtures) state.fixtures = [];
