@@ -370,6 +370,13 @@ export default function App() {
           </Suspense>
         }
       />
+      {/* Friendly short link for the Top Spin Singles registration page
+          (shared on Facebook etc.) - just redirects to the League Interests
+          page below for that league. */}
+      <Route
+        path="/public/TopSpinSingles-Registered"
+        element={<Navigate to="/public/leagues/8d551aab-dc68-4a7f-b7f2-f23a73a63f15/interests" replace />}
+      />
       {/* Standalone, unauthenticated route for the embeddable "League
           Interests" page - who has registered interest in a league and
           whether they've paid, read-only (no decline/assign controls). Same
