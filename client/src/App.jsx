@@ -12,6 +12,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import RegisterWix from './pages/RegisterWix.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
 import OpenLeagues from './pages/OpenLeagues.jsx';
 import { AuthProvider, useAuth } from './AuthContext.jsx';
@@ -271,6 +272,7 @@ function AppShell() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
             <Route path="/adhoc-game/new" element={<RequireLogin><AdHocGame /></RequireLogin>} />
             {/* "Quick Game" button on the Player Portal - same AdHocGame

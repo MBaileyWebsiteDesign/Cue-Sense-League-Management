@@ -203,8 +203,8 @@ app.post('/api/auth/reset-password/:token', asyncRoute((req, res) => {
   const db = readDb();
   const reset = db.passwordResets.find((r) => r.token === req.params.token);
   if (!reset) throw new ApiError(404, 'This reset link is invalid');
-  if (reset.usedAt) throw new ApiError(400, 'This reset link has already been used - ask an admin to send a new one');
-  if (Date.now() > reset.expiresAt) throw new ApiError(400, 'This reset link has expired - ask an admin to send a new one');
+  if (reset.usedAt) throw new ApiError(400, 'This reset link has already been used - request a new one from the Log In page, or ask an admin');
+  if (Date.now() > reset.expiresAt) throw new ApiError(400, 'This reset link has expired - request a new one from the Log In page, or ask an admin');
 
   const user = db.users.find((u) => u.id === reset.userId);
   if (!user) throw new ApiError(404, 'Account not found');
@@ -213,6 +213,86 @@ app.post('/api/auth/reset-password/:token', asyncRoute((req, res) => {
   reset.usedAt = new Date().toISOString();
   writeDb(db);
   res.json({ ok: true });
+}));
+
+// Self-service "Forgot password": a logged-out player asks for a reset link to
+// be emailed to them. Public/unauthenticated, so it is deliberately careful:
+//  * Always answers the same generic 200, whether or not the email matches an
+//    account (no account enumeration), and answers BEFORE any email is sent so
+//    response time doesn't reveal it either.
+//  * Rate limited in memory (resets on deploy/restart): 5 requests per IP per
+//    15 min (429), and at most 3 emails per address per hour (silently skipped).
+//  * Suspended and synthetic walk-in (@no-login.cuesense) accounts get nothing.
+//  * Only one link is live per account: asking again voids any earlier unused one.
+// The link is the same single-use, 1-hour token the admin flow creates, consumed
+// by POST /api/auth/reset-password/:token.
+const FORGOT_IP_LIMIT = 5;
+const FORGOT_IP_WINDOW_MS = 15 * 60 * 1000;
+const FORGOT_EMAIL_LIMIT = 3;
+const FORGOT_EMAIL_WINDOW_MS = 60 * 60 * 1000;
+const forgotHitsByIp = new Map();
+const forgotHitsByEmail = new Map();
+
+function recentHits(map, key, windowMs) {
+  const now = Date.now();
+  const hits = (map.get(key) || []).filter((t) => now - t < windowMs);
+  map.set(key, hits);
+  if (map.size > 5000) {
+    for (const [k, v] of map) if (!v.some((t) => now - t < windowMs)) map.delete(k);
+  }
+  return hits;
+}
+
+app.post('/api/auth/forgot-password', asyncRoute((req, res) => {
+  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+$/.test(email)) {
+    throw new ApiError(400, 'Please enter a valid email address');
+  }
+  const ip = String(req.headers['fly-client-ip'] || req.ip || 'unknown');
+  const ipHits = recentHits(forgotHitsByIp, ip, FORGOT_IP_WINDOW_MS);
+  if (ipHits.length >= FORGOT_IP_LIMIT) {
+    throw new ApiError(429, 'Too many requests - please wait a few minutes and try again');
+  }
+  ipHits.push(Date.now());
+
+  const generic = { ok: true, message: 'If an account exists for that email, a reset link is on its way. It works once and expires in 1 hour.' };
+
+  const emailHits = recentHits(forgotHitsByEmail, email, FORGOT_EMAIL_WINDOW_MS);
+  if (emailHits.length >= FORGOT_EMAIL_LIMIT) return res.json(generic);
+  emailHits.push(Date.now());
+
+  const db = readDb();
+  const user = db.users.find((u) => (u.email || '').toLowerCase() === email);
+  if (!user || user.status === 'suspended' || /@no-login\.cuesense$/.test(user.email || '')) {
+    return res.json(generic);
+  }
+
+  const nowIso = new Date().toISOString();
+  db.passwordResets.forEach((r) => { if (r.userId === user.id && !r.usedAt) r.usedAt = nowIso; });
+  // Housekeeping: drop links that expired more than a day ago.
+  db.passwordResets = db.passwordResets.filter((r) => Date.now() - r.expiresAt < 24 * 60 * 60 * 1000);
+  const token = crypto.randomBytes(32).toString('hex');
+  db.passwordResets.push({
+    id: uuid(),
+    userId: user.id,
+    token,
+    createdAt: nowIso,
+    expiresAt: Date.now() + 60 * 60 * 1000, // 1 hour
+    usedAt: null,
+    requestedBy: 'self',
+  });
+  writeDb(db);
+
+  const resetLink = `${baseUrlFor(req)}/reset-password?token=${token}`;
+  const first = user.firstName || 'there';
+  res.json(generic);
+  sendMail({
+    to: user.email,
+    toName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
+    subject: 'Reset your Cue Sense password',
+    text: `Hi ${first},\n\nSomeone (hopefully you) asked to reset the password for your Cue Sense account. Use this link to choose a new one:\n${resetLink}\n\nThe link works once and expires in 1 hour. If you didn't ask for this, you can ignore this email - your password won't change.`,
+    html: emailHtml('Reset your password', `<p>Hi ${escapeHtml(first)},</p><p>Someone (hopefully you) asked to reset the password for your Cue Sense account.</p><p><a href="${escapeHtml(resetLink)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Choose a new password</a></p><p style="color:#555;font-size:13px">The link works once and expires in 1 hour. If you didn't ask for this, you can ignore this email - your password won't change.</p>`),
+  });
 }));
 
 app.post('/api/users/register', asyncRoute((req, res) => {

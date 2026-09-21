@@ -58,6 +58,7 @@ export default function Login() {
         <button className="btn btn-primary" type="submit" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Sign In'}
         </button>
+        <p><Link to="/forgot-password">Forgot your password?</Link></p>
       </form>
     </div>
   );
