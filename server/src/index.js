@@ -223,7 +223,8 @@ app.post('/api/auth/reset-password/:token', asyncRoute((req, res) => {
 //  * Rate limited in memory (resets on deploy/restart): 5 requests per IP per
 //    15 min (429), and at most 3 emails per address per hour (silently skipped).
 //  * Suspended and synthetic walk-in (@no-login.cuesense) accounts get nothing.
-//  * Only one link is live per account: asking again voids any earlier unused one.
+//  * Earlier links stay valid until they expire or are used (so opening an older
+//    email still works); at most 5 unused links are kept live per account.
 // The link is the same single-use, 1-hour token the admin flow creates, consumed
 // by POST /api/auth/reset-password/:token.
 const FORGOT_IP_LIMIT = 5;
@@ -268,9 +269,14 @@ app.post('/api/auth/forgot-password', asyncRoute((req, res) => {
   }
 
   const nowIso = new Date().toISOString();
-  db.passwordResets.forEach((r) => { if (r.userId === user.id && !r.usedAt) r.usedAt = nowIso; });
-  // Housekeeping: drop links that expired more than a day ago.
+  // Housekeeping: drop links that expired more than a day ago, and keep at most
+  // the 4 newest still-unused links for this account (the new one makes 5).
   db.passwordResets = db.passwordResets.filter((r) => Date.now() - r.expiresAt < 24 * 60 * 60 * 1000);
+  const liveForUser = db.passwordResets
+    .filter((r) => r.userId === user.id && !r.usedAt && r.expiresAt > Date.now())
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const dropIds = new Set(liveForUser.slice(4).map((r) => r.id));
+  if (dropIds.size) db.passwordResets = db.passwordResets.filter((r) => !dropIds.has(r.id));
   const token = crypto.randomBytes(32).toString('hex');
   db.passwordResets.push({
     id: uuid(),
