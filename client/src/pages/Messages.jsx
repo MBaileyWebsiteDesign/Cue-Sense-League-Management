@@ -104,10 +104,10 @@ function Inbox() {
             <tbody>
               {shownContacts.slice(0, 50).map((c) => (
                 <tr key={c.userId}>
-                  <td><strong>{c.name}</strong></td>
-                  <td className="muted">{c.via}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <Link className="btn btn-primary" to={`/messages/${c.userId}`}>Message</Link>
+                  <td style={{ padding: '0.6rem 0.75rem', verticalAlign: 'middle' }}><strong>{c.name}</strong></td>
+                  <td className="muted" style={{ padding: '0.6rem 0.75rem', verticalAlign: 'middle' }}>{c.via}</td>
+                  <td style={{ textAlign: 'right', padding: '0.6rem 0.75rem', verticalAlign: 'middle' }}>
+                    <Link className="btn btn-primary" style={{ display: 'inline-block' }} to={`/messages/${c.userId}`}>Message</Link>
                   </td>
                 </tr>
               ))}
