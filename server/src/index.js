@@ -8076,6 +8076,350 @@ app.post('/api/admin/wipe', requireAdmin, asyncRoute((req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// ---------- Player messaging: private 1-to-1 chat, blocking, abuse reports ----------
+// Lets players arrange games inside the app instead of on Facebook.
+//
+// * Who can message whom: only players who share a real league (through a
+//   division roster, a team or a pairing) or are registered to the same
+//   venue (user.venueId). The hidden "Ad Hoc Games" pool league is
+//   deliberately NOT counted - any player can be dropped into an ad hoc
+//   game, so counting it would let anyone message anyone. Suspended
+//   accounts and synthetic walk-in accounts can't be messaged.
+// * Blocking: a blocked player is never told. Messages they send are still
+//   stored (marked `suppressed`, so a report can show them) and still look
+//   "sent" to them, but are never delivered to or counted for the blocker.
+// * Reports: a player can report a conversation. The report stores a
+//   snapshot of the thread and is routed to the League Manager(s) of every
+//   real league the two players share, plus Overall Admins (who see every
+//   report). If the pair shares no league, only Overall Admins see it.
+// Collections (db.js): messages, userBlocks, messageReports.
+const MESSAGE_MAX_LENGTH = 1000;
+const MESSAGE_KEEP_PER_PAIR = 300;
+const MESSAGE_RATE_LIMIT = 30; // messages per sender per window
+const MESSAGE_RATE_WINDOW_MS = 10 * 60 * 1000;
+const REPORT_SNAPSHOT_MAX = 50;
+
+function messageDisplayName(u) {
+  return `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Player';
+}
+
+function isMessageableUser(u) {
+  return !!u && u.status !== 'suspended' && !/@no-login\.cuesense$/.test(u.email || '');
+}
+
+// playerId -> Set(leagueId) across every real (non ad hoc) league.
+function buildPlayerLeagueMap(db) {
+  const adHocLeagueIds = new Set(db.leagues.filter((l) => l.isAdHocPool).map((l) => l.id));
+  const teamsById = new Map(db.teams.map((t) => [t.id, t]));
+  const pairingsById = new Map(db.pairings.map((p) => [p.id, p]));
+  const map = new Map();
+  const add = (playerId, leagueId) => {
+    if (!map.has(playerId)) map.set(playerId, new Set());
+    map.get(playerId).add(leagueId);
+  };
+  for (const d of db.divisions) {
+    if (!d.leagueId || adHocLeagueIds.has(d.leagueId)) continue;
+    for (const pid of d.playerIds || []) add(pid, d.leagueId);
+    for (const tid of d.teamIds || []) {
+      for (const pid of teamsById.get(tid)?.playerIds || []) add(pid, d.leagueId);
+    }
+    for (const pid2 of d.pairingIds || []) {
+      for (const pid of pairingsById.get(pid2)?.playerIds || []) add(pid, d.leagueId);
+    }
+  }
+  return map;
+}
+
+function sharedRealLeagueIds(leagueMap, a, b) {
+  if (!a.playerId || !b.playerId) return [];
+  const mine = leagueMap.get(a.playerId);
+  const theirs = leagueMap.get(b.playerId);
+  if (!mine || !theirs) return [];
+  return [...mine].filter((id) => theirs.has(id));
+}
+
+function canMessageUser(leagueMap, me, other) {
+  if (!other || me.id === other.id || !isMessageableUser(other)) return false;
+  if (me.venueId && me.venueId === other.venueId) return true;
+  return sharedRealLeagueIds(leagueMap, me, other).length > 0;
+}
+
+const isUserBlocked = (db, blockerId, blockedId) =>
+  db.userBlocks.some((b) => b.blockerUserId === blockerId && b.blockedUserId === blockedId);
+
+const messagesBetween = (db, a, b) =>
+  db.messages.filter(
+    (m) => (m.fromUserId === a && m.toUserId === b) || (m.fromUserId === b && m.toUserId === a)
+  );
+
+// What `viewerId` may see: everything they sent, plus anything sent to them
+// that wasn't suppressed by a block.
+const visibleToViewer = (m, viewerId) => m.fromUserId === viewerId || !m.suppressed;
+
+function findMessageTarget(db, userId) {
+  const other = db.users.find((u) => u.id === userId);
+  if (!other) throw new ApiError(404, 'Player not found');
+  return other;
+}
+
+app.get('/api/messages/summary', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  const blocked = new Set(db.userBlocks.filter((b) => b.blockerUserId === me.id).map((b) => b.blockedUserId));
+  const unread = db.messages.filter(
+    (m) => m.toUserId === me.id && !m.readAt && !m.suppressed && !blocked.has(m.fromUserId)
+  ).length;
+  res.json({ unread });
+}));
+
+app.get('/api/messages/threads', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  const blocked = new Set(db.userBlocks.filter((b) => b.blockerUserId === me.id).map((b) => b.blockedUserId));
+  const byOther = new Map();
+  for (const m of db.messages) {
+    if (m.fromUserId !== me.id && m.toUserId !== me.id) continue;
+    if (!visibleToViewer(m, me.id)) continue;
+    const otherId = m.fromUserId === me.id ? m.toUserId : m.fromUserId;
+    let t = byOther.get(otherId);
+    if (!t) {
+      t = { userId: otherId, last: null, unread: 0 };
+      byOther.set(otherId, t);
+    }
+    if (!t.last || m.createdAt > t.last.createdAt) t.last = m;
+    if (m.toUserId === me.id && !m.readAt && !blocked.has(otherId)) t.unread += 1;
+  }
+  const threads = [...byOther.values()]
+    .map((t) => {
+      const other = db.users.find((u) => u.id === t.userId);
+      return {
+        userId: t.userId,
+        name: other ? messageDisplayName(other) : 'Former player',
+        lastMessage: t.last.body.slice(0, 120),
+        lastMessageAt: t.last.createdAt,
+        lastFromMe: t.last.fromUserId === me.id,
+        unread: t.unread,
+        blockedByMe: blocked.has(t.userId),
+      };
+    })
+    .sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1));
+  res.json(threads);
+}));
+
+// Players the caller is allowed to start a conversation with.
+app.get('/api/messages/contacts', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const leagueMap = buildPlayerLeagueMap(db);
+  const leagueNames = new Map(db.leagues.map((l) => [l.id, l.name]));
+  const blocked = new Set(db.userBlocks.filter((b) => b.blockerUserId === me.id).map((b) => b.blockedUserId));
+  const venue = me.venueId ? db.venues.find((v) => v.id === me.venueId) : null;
+  const contacts = [];
+  for (const u of db.users) {
+    if (blocked.has(u.id) || !canMessageUser(leagueMap, me, u)) continue;
+    const name = messageDisplayName(u);
+    if (q && !name.toLowerCase().includes(q)) continue;
+    const shared = sharedRealLeagueIds(leagueMap, me, u).map((id) => leagueNames.get(id)).filter(Boolean);
+    const sameVenue = !!(me.venueId && me.venueId === u.venueId);
+    contacts.push({
+      userId: u.id,
+      name,
+      via: [...shared, ...(sameVenue && venue ? [venue.name] : [])].join(', '),
+    });
+  }
+  contacts.sort((a, b) => a.name.localeCompare(b.name));
+  res.json(contacts.slice(0, 200));
+}));
+
+app.get('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  const other = findMessageTarget(db, req.params.userId);
+  const leagueMap = buildPlayerLeagueMap(db);
+  const blockedByMe = isUserBlocked(db, me.id, other.id);
+  const visible = messagesBetween(db, me.id, other.id).filter((m) => visibleToViewer(m, me.id));
+  const now = new Date().toISOString();
+  let changed = false;
+  for (const m of visible) {
+    if (m.toUserId === me.id && !m.readAt) {
+      const stored = db.messages.find((x) => x.id === m.id);
+      stored.readAt = now;
+      changed = true;
+    }
+  }
+  if (changed) writeDb(db);
+  res.json({
+    other: { userId: other.id, name: messageDisplayName(other) },
+    blockedByMe,
+    canSend: !blockedByMe && canMessageUser(leagueMap, me, other),
+    messages: visible
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+      .map((m) => ({ id: m.id, mine: m.fromUserId === me.id, body: m.body, createdAt: m.createdAt })),
+  });
+}));
+
+app.post('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  const other = findMessageTarget(db, req.params.userId);
+  const body = String(req.body?.body ?? '').trim();
+  if (!body) throw new ApiError(400, 'Message cannot be empty');
+  if (body.length > MESSAGE_MAX_LENGTH) {
+    throw new ApiError(400, `Message is too long (max ${MESSAGE_MAX_LENGTH} characters)`);
+  }
+  const leagueMap = buildPlayerLeagueMap(db);
+  if (!canMessageUser(leagueMap, me, other)) {
+    throw new ApiError(403, 'You can only message players you share a league or venue with');
+  }
+  if (isUserBlocked(db, me.id, other.id)) {
+    throw new ApiError(403, 'You have blocked this player - unblock them to send a message');
+  }
+  const windowStart = Date.now() - MESSAGE_RATE_WINDOW_MS;
+  const recent = db.messages.filter((m) => m.fromUserId === me.id && Date.parse(m.createdAt) > windowStart).length;
+  if (recent >= MESSAGE_RATE_LIMIT) {
+    throw new ApiError(429, 'You are sending messages too quickly - please wait a few minutes');
+  }
+  const message = {
+    id: uuid(),
+    fromUserId: me.id,
+    toUserId: other.id,
+    body,
+    createdAt: new Date().toISOString(),
+    readAt: null,
+    // Recipient has blocked the sender: kept (for reports) but never delivered.
+    suppressed: isUserBlocked(db, other.id, me.id),
+  };
+  db.messages.push(message);
+  // Keep the single JSON file from growing without bound: only the most
+  // recent MESSAGE_KEEP_PER_PAIR messages per pair are retained.
+  const pair = messagesBetween(db, me.id, other.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  if (pair.length > MESSAGE_KEEP_PER_PAIR) {
+    const drop = new Set(pair.slice(MESSAGE_KEEP_PER_PAIR).map((m) => m.id));
+    db.messages = db.messages.filter((m) => !drop.has(m.id));
+  }
+  writeDb(db);
+  res.status(201).json({ id: message.id, mine: true, body: message.body, createdAt: message.createdAt });
+}));
+
+app.get('/api/messages/blocks', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  res.json(
+    db.userBlocks
+      .filter((b) => b.blockerUserId === me.id)
+      .map((b) => {
+        const u = db.users.find((x) => x.id === b.blockedUserId);
+        return { userId: b.blockedUserId, name: u ? messageDisplayName(u) : 'Former player', createdAt: b.createdAt };
+      })
+  );
+}));
+
+app.post('/api/messages/blocks/:userId', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  const other = findMessageTarget(db, req.params.userId);
+  if (other.id === me.id) throw new ApiError(400, 'You cannot block yourself');
+  if (!isUserBlocked(db, me.id, other.id)) {
+    db.userBlocks.push({ id: uuid(), blockerUserId: me.id, blockedUserId: other.id, createdAt: new Date().toISOString() });
+    writeDb(db);
+  }
+  res.json({ ok: true });
+}));
+
+app.delete('/api/messages/blocks/:userId', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  db.userBlocks = db.userBlocks.filter((b) => !(b.blockerUserId === me.id && b.blockedUserId === req.params.userId));
+  writeDb(db);
+  res.json({ ok: true });
+}));
+
+// Report abuse - see the section comment at the top for who receives it.
+app.post('/api/messages/reports', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const me = req.auth.user;
+  const other = findMessageTarget(db, String(req.body?.userId || ''));
+  if (other.id === me.id) throw new ApiError(400, 'You cannot report yourself');
+  const reason = String(req.body?.reason ?? '').trim();
+  if (!reason) throw new ApiError(400, 'Please describe what happened');
+  if (reason.length > MESSAGE_MAX_LENGTH) throw new ApiError(400, `Reason is too long (max ${MESSAGE_MAX_LENGTH} characters)`);
+  const leagueMap = buildPlayerLeagueMap(db);
+  const leagueIds = sharedRealLeagueIds(leagueMap, me, other);
+  const leagueNames = new Map(db.leagues.map((l) => [l.id, l.name]));
+  const snapshot = messagesBetween(db, me.id, other.id)
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    .slice(-REPORT_SNAPSHOT_MAX)
+    .map((m) => ({
+      fromUserId: m.fromUserId,
+      fromName: messageDisplayName(db.users.find((u) => u.id === m.fromUserId) || {}),
+      body: m.body,
+      createdAt: m.createdAt,
+    }));
+  const report = {
+    id: uuid(),
+    reporterUserId: me.id,
+    reporterName: messageDisplayName(me),
+    reportedUserId: other.id,
+    reportedName: messageDisplayName(other),
+    reason,
+    snapshot,
+    leagueIds,
+    leagueNames: leagueIds.map((id) => leagueNames.get(id)).filter(Boolean),
+    status: 'open',
+    createdAt: new Date().toISOString(),
+    handledAt: null,
+    handledBy: null,
+    note: '',
+  };
+  db.messageReports.push(report);
+  writeDb(db);
+  res.status(201).json({ id: report.id });
+}));
+
+// Reports a given League Manager / Admin may see: Overall Admins see all;
+// a League Manager only sees reports tagged with a league they manage.
+function reportsVisibleTo(db, user) {
+  if (user.isAdmin) return db.messageReports;
+  const managed = new Set(db.leagues.filter((l) => (l.managerUserIds || []).includes(user.id)).map((l) => l.id));
+  return db.messageReports.filter((r) => (r.leagueIds || []).some((id) => managed.has(id)));
+}
+
+app.get('/api/message-reports/summary', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json({ open: reportsVisibleTo(db, req.auth.user).filter((r) => r.status === 'open').length });
+}));
+
+app.get('/api/message-reports', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json(
+    reportsVisibleTo(db, req.auth.user)
+      .slice()
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  );
+}));
+
+app.post('/api/message-reports/:id/handle', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const report = reportsVisibleTo(db, req.auth.user).find((r) => r.id === req.params.id);
+  if (!report) throw new ApiError(404, 'Report not found');
+  const stored = db.messageReports.find((r) => r.id === report.id);
+  const reopen = req.body?.status === 'open';
+  stored.status = reopen ? 'open' : 'handled';
+  stored.note = String(req.body?.note ?? stored.note ?? '').slice(0, MESSAGE_MAX_LENGTH);
+  stored.handledAt = reopen ? null : new Date().toISOString();
+  stored.handledBy = reopen ? null : req.adminSession.label;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: reopen ? 'messageReport.reopen' : 'messageReport.handle',
+    targetType: 'messageReport',
+    targetId: stored.id,
+    details: `${reopen ? 'Reopened' : 'Marked handled'} message report about ${stored.reportedName}`,
+  });
+  writeDb(db);
+  res.json(stored);
+}));
+
 // ---------- Serve the built React client, if present ----------
 // (`npm run build` in /client produces /client/dist; when present we serve
 // it here so the whole app runs from a single `npm start` on one port. In
