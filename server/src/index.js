@@ -1520,6 +1520,15 @@ function hydrateDivision(db, division) {
   // So DivisionDetail.jsx can compute canManageLeague(...) for a League
   // Manager without a second round-trip to GET /api/leagues/:id.
   hydrated.leagueManagerUserIds = league && Array.isArray(league.managerUserIds) ? league.managerUserIds : [];
+  // Ad Hoc / Head-to-Head games only: the creator's display name, so
+  // DivisionDetail.jsx can show a "Created by ..." note under the game's
+  // description. Left off regular league divisions entirely.
+  if (league?.isAdHocPool && division.createdByUserId) {
+    const creator = db.users.find((u) => u.id === division.createdByUserId);
+    hydrated.createdByName = creator
+      ? `${creator.firstName || ''} ${creator.lastName || ''}`.replace(/\s+/g, ' ').trim() || null
+      : null;
+  }
 
   // Roll of Honour: rather than hooking every single fixture-completion code
   // path (confirm-result, no-show walkovers, admin overrides, team leg
