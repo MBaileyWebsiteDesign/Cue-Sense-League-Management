@@ -38,7 +38,7 @@ function ProfileForm({ player, onSaved }) {
   };
 
   return (
-    <form className="card form" onSubmit={onSubmit}>
+    <form className="card form portal-card" onSubmit={onSubmit}>
       <h2>Your Details</h2>
       <label>
         First name
@@ -109,7 +109,7 @@ function ChangePasswordForm() {
   };
 
   return (
-    <form className="card form" onSubmit={onSubmit}>
+    <form className="card form portal-card" onSubmit={onSubmit}>
       <h2>Change Password</h2>
       <label>
         Current password
@@ -225,7 +225,7 @@ function MySubmissions() {
   if (!items || items.length === 0) return null;
 
   return (
-    <section className="card">
+    <section className="card portal-card">
       <h2>My Submissions</h2>
       <p className="muted">
         This is a list of played games waiting for confirmation of the score.
@@ -267,7 +267,7 @@ function MyFixtures() {
   const recent = fixtures.filter((f) => f.status === 'completed').slice(-10).reverse();
 
   return (
-    <section className="card">
+    <section className="card portal-card">
       <h2>My Fixtures</h2>
       {fixtures.length === 0 && (
         <p className="muted">You're not registered in any division or team yet - an admin or captain can add you from Manage Users / a division's roster.</p>
@@ -357,7 +357,7 @@ function MyFixtures() {
 function MyLeaguesAndDivisions({ leagues }) {
   if (!leagues || leagues.length === 0) {
     return (
-      <section className="card">
+      <section className="card portal-card">
         <h2>My Leagues, Divisions &amp; Ad Hoc/Head-to-Head Games</h2>
         <p className="muted">You're not registered in any leagues, divisions, or ad hoc/head-to-head games yet.</p>
       </section>
@@ -377,7 +377,7 @@ function MyLeaguesAndDivisions({ leagues }) {
   });
 
   return (
-    <section className="card">
+    <section className="card portal-card">
       <h2>My Leagues, Divisions &amp; Ad Hoc/Head-to-Head Games</h2>
 
       <h3 style={{ fontSize: '1rem', color: 'var(--muted)' }}>My Leagues</h3>
