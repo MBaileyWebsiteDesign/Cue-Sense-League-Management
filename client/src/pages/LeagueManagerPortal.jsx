@@ -19,6 +19,9 @@ export default function LeagueManagerPortal() {
   // "Games disputed" list on Game Adjustments, already scoped server-side to
   // the leagues they manage) - turns the Game Adjustments card pale red.
   const [disputeCount, setDisputeCount] = useState(0);
+  // Open abuse reports from Player Messages (already scoped server-side to the
+  // leagues this manager runs) - turns the Message Reports card pale red.
+  const [openReports, setOpenReports] = useState(0);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'League Manager Portal' }]);
 
@@ -27,6 +30,7 @@ export default function LeagueManagerPortal() {
     api.adminGetFixturesNeedingAttention()
       .then((items) => setDisputeCount((items || []).filter((item) => item.status === 'disputed').length))
       .catch(() => {});
+    api.getMessageReportSummary().then((r) => setOpenReports(r.open || 0)).catch(() => {});
   }, []);
 
   const managed = (leagues || []).filter((l) => canManageLeague(l));
@@ -65,6 +69,23 @@ export default function LeagueManagerPortal() {
           {disputeCount > 0 && (
             <p style={{ color: '#991b1b', fontWeight: 600 }}>
               {disputeCount} disputed result{disputeCount === 1 ? '' : 's'} to resolve
+            </p>
+          )}
+        </Link>
+
+        <Link
+          to="/message-reports"
+          className="card card-link"
+          style={openReports > 0 ? { background: '#fee2e2' } : undefined}
+        >
+          <h2>Message Reports</h2>
+          <p className="muted">
+            Abuse reports raised by players in your leagues from their private messages -
+            review the conversation, add a note and mark each one handled.
+          </p>
+          {openReports > 0 && (
+            <p style={{ color: '#991b1b', fontWeight: 600 }}>
+              {openReports} open report{openReports === 1 ? '' : 's'} to review
             </p>
           )}
         </Link>
