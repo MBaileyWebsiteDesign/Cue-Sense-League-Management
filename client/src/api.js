@@ -449,6 +449,26 @@ const networkApi = {
     request(`/fixtures/${fixtureId}/legs/${legNumber}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
   getPlayerProfile: (playerId) => request(`/players/${playerId}`),
+
+  // Player messaging (1-to-1 chat, blocking, abuse reports) - see the
+  // "Player messaging" section of server/src/index.js. Not mirrored in the
+  // static demo build (demoApi), so callers use optional chaining on
+  // api.getMessageSummary where the demo build must not break.
+  getMessageSummary: () => request('/messages/summary'),
+  getMessageThreads: () => request('/messages/threads'),
+  getMessageContacts: (q = '') => request(`/messages/contacts?q=${encodeURIComponent(q)}`),
+  getMessageThread: (userId) => request(`/messages/with/${userId}`),
+  sendMessage: (userId, body) =>
+    request(`/messages/with/${userId}`, { method: 'POST', body: JSON.stringify({ body }) }),
+  getMessageBlocks: () => request('/messages/blocks'),
+  blockUser: (userId) => request(`/messages/blocks/${userId}`, { method: 'POST' }),
+  unblockUser: (userId) => request(`/messages/blocks/${userId}`, { method: 'DELETE' }),
+  reportMessageUser: (userId, reason) =>
+    request('/messages/reports', { method: 'POST', body: JSON.stringify({ userId, reason }) }),
+  getMessageReportSummary: () => request('/message-reports/summary'),
+  getMessageReports: () => request('/message-reports'),
+  handleMessageReport: (id, data) =>
+    request(`/message-reports/${id}/handle`, { method: 'POST', body: JSON.stringify(data) }),
 };
 
 export const api = DEMO_MODE ? demoApi : networkApi;
