@@ -21,6 +21,7 @@ function Inbox() {
   const [blocks, setBlocks] = useState([]);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
+  const [emailAlerts, setEmailAlerts] = useState(null);
 
   const load = useCallback(() => {
     api.getMessageThreads().then(setThreads).catch((e) => setError(e.message));
@@ -30,6 +31,7 @@ function Inbox() {
   useEffect(() => {
     load();
     api.getMessageContacts('').then(setContacts).catch(() => setContacts([]));
+    api.getMessageEmailPreference().then((p) => setEmailAlerts(p.emailMessageAlerts)).catch(() => setEmailAlerts(null));
     const t = setInterval(load, POLL_MS);
     return () => clearInterval(t);
   }, [load]);
@@ -39,6 +41,18 @@ function Inbox() {
       await api.unblockUser(userId);
       load();
     } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const toggleEmailAlerts = async (value) => {
+    const previous = emailAlerts;
+    setEmailAlerts(value);
+    try {
+      const p = await api.setMessageEmailPreference(value);
+      setEmailAlerts(p.emailMessageAlerts);
+    } catch (e) {
+      setEmailAlerts(previous);
       setError(e.message);
     }
   };
@@ -116,6 +130,15 @@ function Inbox() {
         )}
         {shownContacts.length > 50 && <p className="muted">Showing the first 50 - refine your search to see more.</p>}
       </section>
+
+      {emailAlerts !== null && (
+        <section className="card">
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input type="checkbox" checked={emailAlerts} onChange={(e) => toggleEmailAlerts(e.target.checked)} />
+            Email me when I get a new message
+          </label>
+        </section>
+      )}
 
       {blocks.length > 0 && (
         <section className="card">

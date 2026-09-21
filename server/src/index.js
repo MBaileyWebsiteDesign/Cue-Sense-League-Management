@@ -8,6 +8,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { readDb, writeDb, resetDb, restoreDb, DATA_DIR } from './db.js';
+import { sendMail, baseUrlFor, escapeHtml, emailHtml } from './mailer.js';
 import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
 import { nextRound as adaptiveNextRound } from './services/adaptiveDoubleElim.js';
@@ -7392,7 +7393,7 @@ app.post('/api/admin/users/:id/send-reset-link', requireAdmin, asyncRoute((req, 
     usedAt: null,
   });
 
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = baseUrlFor(req);
   const resetLink = `${origin}/reset-password?token=${token}`;
 
   recordAudit(db, {
@@ -7409,7 +7410,18 @@ app.post('/api/admin/users/:id/send-reset-link', requireAdmin, asyncRoute((req, 
   // if the admin closes the tab before copying it.
   console.log(`[password reset] ${user.email}: ${resetLink}`);
 
-  res.json({ resetLink, expiresAt, email: user.email });
+  // Also email the link to the player (MailerSend). The link is still returned
+  // so the admin can relay it manually if the email is skipped or fails.
+  const first = user.firstName || 'there';
+  sendMail({
+    to: user.email,
+    toName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
+    subject: 'Reset your Cue Sense password',
+    text: `Hi ${first},\n\nAn administrator has sent you a link to reset your Cue Sense password:\n${resetLink}\n\nThe link works once and expires in 1 hour. If you weren't expecting this, you can ignore this email.`,
+    html: emailHtml('Reset your password', `<p>Hi ${escapeHtml(first)},</p><p>An administrator has sent you a link to reset your Cue Sense password.</p><p><a href="${escapeHtml(resetLink)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Reset password</a></p><p style="color:#555;font-size:13px">The link works once and expires in 1 hour. If you weren't expecting this, you can ignore this email.</p>`),
+  }).then((mail) => {
+    res.json({ resetLink, expiresAt, email: user.email, emailed: mail.sent, emailError: mail.sent ? undefined : (mail.skipped ? 'Email sending is not configured' : mail.error) });
+  });
 }));
 
 // Whether a user account has ever actually been used anywhere in the data -
@@ -8290,6 +8302,12 @@ app.post('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
     // Recipient has blocked the sender: kept (for reports) but never delivered.
     suppressed: isUserBlocked(db, other.id, me.id),
   };
+  // Email alert: only if not blocked, recipient hasn't opted out, and the sender
+  // has no earlier unread message to them (so a burst of messages = one email).
+  const alreadyAlerted = db.messages.some(
+    (m) => m.fromUserId === me.id && m.toUserId === other.id && !m.readAt && !m.suppressed
+  );
+  const notifyByEmail = !message.suppressed && other.emailMessageAlerts !== false && !alreadyAlerted;
   db.messages.push(message);
   // Keep the single JSON file from growing without bound: only the most
   // recent MESSAGE_KEEP_PER_PAIR messages per pair are retained.
@@ -8299,7 +8317,34 @@ app.post('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
     db.messages = db.messages.filter((m) => !drop.has(m.id));
   }
   writeDb(db);
+  if (notifyByEmail) {
+    const link = `${baseUrlFor(req)}/messages/${me.id}`;
+    const from = messageDisplayName(me);
+    sendMail({
+      to: other.email,
+      toName: messageDisplayName(other),
+      subject: `${from} sent you a message on Cue Sense`,
+      text: `Hi ${other.firstName || 'there'},\n\n${from} sent you a message on Cue Sense. Read and reply here:\n${link}\n\nYou can turn these emails off on the Messages page.`,
+      html: emailHtml('New message', `<p>Hi ${escapeHtml(other.firstName || 'there')},</p><p><strong>${escapeHtml(from)}</strong> sent you a message on Cue Sense.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Read and reply</a></p><p style="color:#555;font-size:13px">You can turn these emails off on the Messages page.</p>`),
+    });
+  }
   res.status(201).json({ id: message.id, mine: true, body: message.body, createdAt: message.createdAt });
+}));
+
+// Per-player switch for the new-message emails (default on).
+app.get('/api/messages/email-preference', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const u = db.users.find((x) => x.id === req.auth.user.id);
+  res.json({ emailMessageAlerts: u?.emailMessageAlerts !== false });
+}));
+
+app.post('/api/messages/email-preference', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const u = db.users.find((x) => x.id === req.auth.user.id);
+  if (!u) throw new ApiError(404, 'User not found');
+  u.emailMessageAlerts = !!req.body?.emailMessageAlerts;
+  writeDb(db);
+  res.json({ emailMessageAlerts: u.emailMessageAlerts });
 }));
 
 app.get('/api/messages/blocks', requireAuth, asyncRoute((req, res) => {
@@ -8374,6 +8419,24 @@ app.post('/api/messages/reports', requireAuth, asyncRoute((req, res) => {
   };
   db.messageReports.push(report);
   writeDb(db);
+  // Email every Overall Admin and the League Manager(s) of the shared leagues.
+  const recipientIds = new Set();
+  db.users.forEach((u) => { if (u.isAdmin) recipientIds.add(u.id); });
+  db.leagues.filter((l) => leagueIds.includes(l.id)).forEach((l) => (l.managerUserIds || []).forEach((id) => recipientIds.add(id)));
+  recipientIds.delete(me.id);
+  const reportsLink = `${baseUrlFor(req)}/message-reports`;
+  const shortReason = reason.length > 300 ? `${reason.slice(0, 300)}...` : reason;
+  for (const id of recipientIds) {
+    const r = db.users.find((u) => u.id === id);
+    if (!r || r.status === 'suspended' || !isMessageableUser(r)) continue;
+    sendMail({
+      to: r.email,
+      toName: messageDisplayName(r),
+      subject: 'A player has reported a conversation on Cue Sense',
+      text: `${report.reporterName} reported a conversation with ${report.reportedName}${report.leagueNames.length ? ` (${report.leagueNames.join(', ')})` : ''}.\n\nReason: ${shortReason}\n\nReview it here:\n${reportsLink}`,
+      html: emailHtml('Conversation reported', `<p><strong>${escapeHtml(report.reporterName)}</strong> reported a conversation with <strong>${escapeHtml(report.reportedName)}</strong>${report.leagueNames.length ? ` (${escapeHtml(report.leagueNames.join(', '))})` : ''}.</p><p style="background:#f3f4f6;padding:10px;border-radius:6px;white-space:pre-wrap">${escapeHtml(shortReason)}</p><p><a href="${escapeHtml(reportsLink)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Review report</a></p>`),
+    });
+  }
   res.status(201).json({ id: report.id });
 }));
 
