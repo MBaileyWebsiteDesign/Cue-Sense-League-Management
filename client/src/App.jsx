@@ -50,6 +50,8 @@ const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
 const Help = lazy(() => import('./pages/Help.jsx'));
+const Messages = lazy(() => import('./pages/Messages.jsx'));
+const MessageReports = lazy(() => import('./pages/MessageReports.jsx'));
 const Guides = lazy(() => import('./pages/Guides.jsx'));
 const AdHocGame = lazy(() => import('./pages/AdHocGame.jsx'));
 
@@ -306,6 +308,9 @@ function AppShell() {
             <Route path="/tours/:tourId" element={<RequireLogin><TourDetail /></RequireLogin>} />
             <Route path="/roll-of-honour" element={<RequireLogin><RollOfHonour /></RequireLogin>} />
             <Route path="/help" element={<RequireLogin><Help /></RequireLogin>} />
+            <Route path="/messages" element={<RequireLogin><Messages /></RequireLogin>} />
+            <Route path="/messages/:userId" element={<RequireLogin><Messages /></RequireLogin>} />
+            <Route path="/message-reports" element={<RequireAnyAdmin><MessageReports /></RequireAnyAdmin>} />
             <Route path="/guides" element={<RequireLogin><Guides /></RequireLogin>} />
           </Routes>
         </Suspense>
