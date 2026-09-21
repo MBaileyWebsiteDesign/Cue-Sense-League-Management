@@ -38,7 +38,7 @@ export default function ResetPassword() {
       <div className="auth-page">
         <div className="card form">
           <h1>Reset Password</h1>
-          <p className="error">This link is missing its reset token - ask an admin to send a new one.</p>
+          <p className="error">This link is missing its reset token - <Link to="/forgot-password">request a new one</Link> or ask an admin.</p>
         </div>
       </div>
     );

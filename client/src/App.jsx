@@ -12,6 +12,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import RegisterWix from './pages/RegisterWix.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
 import OpenLeagues from './pages/OpenLeagues.jsx';
 import { AuthProvider, useAuth } from './AuthContext.jsx';
@@ -49,6 +50,7 @@ const PublicDivisionTable = lazy(() => import('./pages/PublicDivisionTable.jsx')
 const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures.jsx'));
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
+const AdminEmail = lazy(() => import('./pages/AdminEmail.jsx'));
 const Help = lazy(() => import('./pages/Help.jsx'));
 const Messages = lazy(() => import('./pages/Messages.jsx'));
 const MessageReports = lazy(() => import('./pages/MessageReports.jsx'));
@@ -271,6 +273,7 @@ function AppShell() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
             <Route path="/adhoc-game/new" element={<RequireLogin><AdHocGame /></RequireLogin>} />
             {/* "Quick Game" button on the Player Portal - same AdHocGame
@@ -296,6 +299,7 @@ function AppShell() {
             <Route path="/admin/issues" element={<Navigate to="/issues-bugs-features" replace />} />
             <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
             <Route path="/admin/backup" element={<RequireAdmin><AdminBackup /></RequireAdmin>} />
+            <Route path="/admin/email" element={<RequireAdmin><AdminEmail /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAnyAdmin><GameAdjustments /></RequireAnyAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
             <Route path="/admin/manage-fixtures" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />

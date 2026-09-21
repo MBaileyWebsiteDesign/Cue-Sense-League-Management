@@ -51,6 +51,10 @@ const networkApi = {
     request('/users/register', { method: 'POST', body: JSON.stringify(data) }),
   // Public - consumes an admin-generated password reset link (see
   // adminSendResetLink below).
+  // Public - asks for a reset link to be emailed to the given address. The
+  // server always answers the same generic message (no account enumeration).
+  forgotPassword: (email) =>
+    request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
   resetPassword: (token, newPassword) =>
     request(`/auth/reset-password/${token}`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
   getMe: () => request('/users/me'),
@@ -461,6 +465,11 @@ const networkApi = {
   sendMessage: (userId, body) =>
     request(`/messages/with/${userId}`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMessageBlocks: () => request('/messages/blocks'),
+  getMailStatus: () => request('/admin/mail/status'),
+  sendTestEmail: () => request('/admin/mail/test', { method: 'POST' }),
+  getMessageEmailPreference: () => request('/messages/email-preference'),
+  setMessageEmailPreference: (emailMessageAlerts) =>
+    request('/messages/email-preference', { method: 'POST', body: JSON.stringify({ emailMessageAlerts }) }),
   blockUser: (userId) => request(`/messages/blocks/${userId}`, { method: 'POST' }),
   unblockUser: (userId) => request(`/messages/blocks/${userId}`, { method: 'DELETE' }),
   reportMessageUser: (userId, reason) =>

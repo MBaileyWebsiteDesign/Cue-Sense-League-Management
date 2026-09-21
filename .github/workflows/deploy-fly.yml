@@ -25,6 +25,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Push the MailerSend API key (GitHub Actions secret) to the Fly app as a runtime
+      # secret. Staged, so it applies with the deploy below. Skipped if the GitHub secret
+      # isn't set. Not fatal: a failure here only means email stays off; check the log.
+      - name: Sync MailerSend secrets to Fly
+        run: |
+          if [ -n "$MAILERSEND_API_KEY" ]; then
+            flyctl secrets set --stage MAILERSEND_API_KEY="$MAILERSEND_API_KEY" \
+              || echo "::warning::Could not set MAILERSEND_API_KEY on Fly - email will stay disabled"
+          else
+            echo "::warning::MAILERSEND_API_KEY GitHub secret not set - email disabled"
+          fi
+        env:
+          FLY_API_TOKEN: ${{ secrets.CUESENSELEAGUEMANAGEMENT }}
+          MAILERSEND_API_KEY: ${{ secrets.MAILERSEND_API_KEY }}
       - run: flyctl deploy --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.CUESENSELEAGUEMANAGEMENT }}

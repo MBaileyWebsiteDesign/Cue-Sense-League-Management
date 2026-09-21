@@ -8,6 +8,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { readDb, writeDb, resetDb, restoreDb, DATA_DIR } from './db.js';
+import { sendMail, baseUrlFor, escapeHtml, emailHtml, getMailLog, mailSettings } from './mailer.js';
 import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
 import { nextRound as adaptiveNextRound } from './services/adaptiveDoubleElim.js';
@@ -202,8 +203,8 @@ app.post('/api/auth/reset-password/:token', asyncRoute((req, res) => {
   const db = readDb();
   const reset = db.passwordResets.find((r) => r.token === req.params.token);
   if (!reset) throw new ApiError(404, 'This reset link is invalid');
-  if (reset.usedAt) throw new ApiError(400, 'This reset link has already been used - ask an admin to send a new one');
-  if (Date.now() > reset.expiresAt) throw new ApiError(400, 'This reset link has expired - ask an admin to send a new one');
+  if (reset.usedAt) throw new ApiError(400, 'This reset link has already been used - request a new one from the Log In page, or ask an admin');
+  if (Date.now() > reset.expiresAt) throw new ApiError(400, 'This reset link has expired - request a new one from the Log In page, or ask an admin');
 
   const user = db.users.find((u) => u.id === reset.userId);
   if (!user) throw new ApiError(404, 'Account not found');
@@ -212,6 +213,112 @@ app.post('/api/auth/reset-password/:token', asyncRoute((req, res) => {
   reset.usedAt = new Date().toISOString();
   writeDb(db);
   res.json({ ok: true });
+}));
+
+// Self-service "Forgot password": a logged-out player asks for a reset link to
+// be emailed to them. Public/unauthenticated, so it is deliberately careful:
+//  * Always answers the same generic 200, whether or not the email matches an
+//    account (no account enumeration), and answers BEFORE any email is sent so
+//    response time doesn't reveal it either.
+//  * Rate limited in memory (resets on deploy/restart): 5 requests per IP per
+//    15 min (429), and at most 3 emails per address per hour (silently skipped).
+//  * Suspended and synthetic walk-in (@no-login.cuesense) accounts get nothing.
+//  * Earlier links stay valid until they expire or are used (so opening an older
+//    email still works); at most 5 unused links are kept live per account.
+// The link is the same single-use, 1-hour token the admin flow creates, consumed
+// by POST /api/auth/reset-password/:token.
+const FORGOT_IP_LIMIT = 5;
+const FORGOT_IP_WINDOW_MS = 15 * 60 * 1000;
+const FORGOT_EMAIL_LIMIT = 3;
+const FORGOT_EMAIL_WINDOW_MS = 60 * 60 * 1000;
+const forgotHitsByIp = new Map();
+const forgotHitsByEmail = new Map();
+
+function recentHits(map, key, windowMs) {
+  const now = Date.now();
+  const hits = (map.get(key) || []).filter((t) => now - t < windowMs);
+  map.set(key, hits);
+  if (map.size > 5000) {
+    for (const [k, v] of map) if (!v.some((t) => now - t < windowMs)) map.delete(k);
+  }
+  return hits;
+}
+
+app.post('/api/auth/forgot-password', asyncRoute((req, res) => {
+  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+$/.test(email)) {
+    throw new ApiError(400, 'Please enter a valid email address');
+  }
+  const ip = String(req.headers['fly-client-ip'] || req.ip || 'unknown');
+  const ipHits = recentHits(forgotHitsByIp, ip, FORGOT_IP_WINDOW_MS);
+  if (ipHits.length >= FORGOT_IP_LIMIT) {
+    throw new ApiError(429, 'Too many requests - please wait a few minutes and try again');
+  }
+  ipHits.push(Date.now());
+
+  const generic = { ok: true, message: 'If an account exists for that email, a reset link is on its way. It works once and expires in 1 hour.' };
+
+  const emailHits = recentHits(forgotHitsByEmail, email, FORGOT_EMAIL_WINDOW_MS);
+  if (emailHits.length >= FORGOT_EMAIL_LIMIT) return res.json(generic);
+  emailHits.push(Date.now());
+
+  const db = readDb();
+  const user = db.users.find((u) => (u.email || '').toLowerCase() === email);
+  if (!user || user.status === 'suspended' || /@no-login\.cuesense$/.test(user.email || '')) {
+    return res.json(generic);
+  }
+
+  const nowIso = new Date().toISOString();
+  // Housekeeping: drop links that expired more than a day ago, and keep at most
+  // the 4 newest still-unused links for this account (the new one makes 5).
+  db.passwordResets = db.passwordResets.filter((r) => Date.now() - r.expiresAt < 24 * 60 * 60 * 1000);
+  const liveForUser = db.passwordResets
+    .filter((r) => r.userId === user.id && !r.usedAt && r.expiresAt > Date.now())
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const dropIds = new Set(liveForUser.slice(4).map((r) => r.id));
+  if (dropIds.size) db.passwordResets = db.passwordResets.filter((r) => !dropIds.has(r.id));
+  const token = crypto.randomBytes(32).toString('hex');
+  db.passwordResets.push({
+    id: uuid(),
+    userId: user.id,
+    token,
+    createdAt: nowIso,
+    expiresAt: Date.now() + 60 * 60 * 1000, // 1 hour
+    usedAt: null,
+    requestedBy: 'self',
+  });
+  writeDb(db);
+
+  const resetLink = `${baseUrlFor(req)}/reset-password?token=${token}`;
+  const first = user.firstName || 'there';
+  res.json(generic);
+  sendMail({
+    to: user.email,
+    toName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
+    subject: 'Reset your Cue Sense password',
+    text: `Hi ${first},\n\nSomeone (hopefully you) asked to reset the password for your Cue Sense account. Use this link to choose a new one:\n${resetLink}\n\nThe link works once and expires in 1 hour. If you didn't ask for this, you can ignore this email - your password won't change.`,
+    html: emailHtml('Reset your password', `<p>Hi ${escapeHtml(first)},</p><p>Someone (hopefully you) asked to reset the password for your Cue Sense account.</p><p><a href="${escapeHtml(resetLink)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Choose a new password</a></p><p style="color:#555;font-size:13px">The link works once and expires in 1 hour. If you didn't ask for this, you can ignore this email - your password won't change.</p>`),
+  });
+}));
+
+// Admin-only email diagnostics: whether MailerSend is configured on this server,
+// the last few send outcomes (in memory, addresses masked), and a test send to
+// the calling admin's own address that reports MailerSend's actual answer.
+app.get('/api/admin/mail/status', requireAdmin, asyncRoute((req, res) => {
+  res.json({ ...mailSettings(), recent: getMailLog() });
+}));
+
+app.post('/api/admin/mail/test', requireAdmin, asyncRoute((req, res) => {
+  const to = req.auth.user.email;
+  sendMail({
+    to,
+    toName: `${req.auth.user.firstName || ''} ${req.auth.user.lastName || ''}`.trim() || undefined,
+    subject: 'Cue Sense test email',
+    text: 'This is a test email from Cue Sense League Management. If you can read this, email sending works.',
+    html: emailHtml('Test email', '<p>This is a test email from Cue Sense League Management. If you can read this, email sending works.</p>'),
+  }).then((result) => {
+    res.json({ ...result, sentTo: to, ...mailSettings(), recent: getMailLog() });
+  });
 }));
 
 app.post('/api/users/register', asyncRoute((req, res) => {
@@ -7392,7 +7499,7 @@ app.post('/api/admin/users/:id/send-reset-link', requireAdmin, asyncRoute((req, 
     usedAt: null,
   });
 
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = baseUrlFor(req);
   const resetLink = `${origin}/reset-password?token=${token}`;
 
   recordAudit(db, {
@@ -7409,7 +7516,18 @@ app.post('/api/admin/users/:id/send-reset-link', requireAdmin, asyncRoute((req, 
   // if the admin closes the tab before copying it.
   console.log(`[password reset] ${user.email}: ${resetLink}`);
 
-  res.json({ resetLink, expiresAt, email: user.email });
+  // Also email the link to the player (MailerSend). The link is still returned
+  // so the admin can relay it manually if the email is skipped or fails.
+  const first = user.firstName || 'there';
+  sendMail({
+    to: user.email,
+    toName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
+    subject: 'Reset your Cue Sense password',
+    text: `Hi ${first},\n\nAn administrator has sent you a link to reset your Cue Sense password:\n${resetLink}\n\nThe link works once and expires in 1 hour. If you weren't expecting this, you can ignore this email.`,
+    html: emailHtml('Reset your password', `<p>Hi ${escapeHtml(first)},</p><p>An administrator has sent you a link to reset your Cue Sense password.</p><p><a href="${escapeHtml(resetLink)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Reset password</a></p><p style="color:#555;font-size:13px">The link works once and expires in 1 hour. If you weren't expecting this, you can ignore this email.</p>`),
+  }).then((mail) => {
+    res.json({ resetLink, expiresAt, email: user.email, emailed: mail.sent, emailError: mail.sent ? undefined : (mail.skipped ? 'Email sending is not configured' : mail.error) });
+  });
 }));
 
 // Whether a user account has ever actually been used anywhere in the data -
@@ -8290,6 +8408,12 @@ app.post('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
     // Recipient has blocked the sender: kept (for reports) but never delivered.
     suppressed: isUserBlocked(db, other.id, me.id),
   };
+  // Email alert: only if not blocked, recipient hasn't opted out, and the sender
+  // has no earlier unread message to them (so a burst of messages = one email).
+  const alreadyAlerted = db.messages.some(
+    (m) => m.fromUserId === me.id && m.toUserId === other.id && !m.readAt && !m.suppressed
+  );
+  const notifyByEmail = !message.suppressed && other.emailMessageAlerts !== false && !alreadyAlerted;
   db.messages.push(message);
   // Keep the single JSON file from growing without bound: only the most
   // recent MESSAGE_KEEP_PER_PAIR messages per pair are retained.
@@ -8299,7 +8423,34 @@ app.post('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
     db.messages = db.messages.filter((m) => !drop.has(m.id));
   }
   writeDb(db);
+  if (notifyByEmail) {
+    const link = `${baseUrlFor(req)}/messages/${me.id}`;
+    const from = messageDisplayName(me);
+    sendMail({
+      to: other.email,
+      toName: messageDisplayName(other),
+      subject: `${from} sent you a message on Cue Sense`,
+      text: `Hi ${other.firstName || 'there'},\n\n${from} sent you a message on Cue Sense. Read and reply here:\n${link}\n\nYou can turn these emails off on the Messages page.`,
+      html: emailHtml('New message', `<p>Hi ${escapeHtml(other.firstName || 'there')},</p><p><strong>${escapeHtml(from)}</strong> sent you a message on Cue Sense.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Read and reply</a></p><p style="color:#555;font-size:13px">You can turn these emails off on the Messages page.</p>`),
+    });
+  }
   res.status(201).json({ id: message.id, mine: true, body: message.body, createdAt: message.createdAt });
+}));
+
+// Per-player switch for the new-message emails (default on).
+app.get('/api/messages/email-preference', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const u = db.users.find((x) => x.id === req.auth.user.id);
+  res.json({ emailMessageAlerts: u?.emailMessageAlerts !== false });
+}));
+
+app.post('/api/messages/email-preference', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const u = db.users.find((x) => x.id === req.auth.user.id);
+  if (!u) throw new ApiError(404, 'User not found');
+  u.emailMessageAlerts = !!req.body?.emailMessageAlerts;
+  writeDb(db);
+  res.json({ emailMessageAlerts: u.emailMessageAlerts });
 }));
 
 app.get('/api/messages/blocks', requireAuth, asyncRoute((req, res) => {
@@ -8374,6 +8525,24 @@ app.post('/api/messages/reports', requireAuth, asyncRoute((req, res) => {
   };
   db.messageReports.push(report);
   writeDb(db);
+  // Email every Overall Admin and the League Manager(s) of the shared leagues.
+  const recipientIds = new Set();
+  db.users.forEach((u) => { if (u.isAdmin) recipientIds.add(u.id); });
+  db.leagues.filter((l) => leagueIds.includes(l.id)).forEach((l) => (l.managerUserIds || []).forEach((id) => recipientIds.add(id)));
+  recipientIds.delete(me.id);
+  const reportsLink = `${baseUrlFor(req)}/message-reports`;
+  const shortReason = reason.length > 300 ? `${reason.slice(0, 300)}...` : reason;
+  for (const id of recipientIds) {
+    const r = db.users.find((u) => u.id === id);
+    if (!r || r.status === 'suspended' || !isMessageableUser(r)) continue;
+    sendMail({
+      to: r.email,
+      toName: messageDisplayName(r),
+      subject: 'A player has reported a conversation on Cue Sense',
+      text: `${report.reporterName} reported a conversation with ${report.reportedName}${report.leagueNames.length ? ` (${report.leagueNames.join(', ')})` : ''}.\n\nReason: ${shortReason}\n\nReview it here:\n${reportsLink}`,
+      html: emailHtml('Conversation reported', `<p><strong>${escapeHtml(report.reporterName)}</strong> reported a conversation with <strong>${escapeHtml(report.reportedName)}</strong>${report.leagueNames.length ? ` (${escapeHtml(report.leagueNames.join(', '))})` : ''}.</p><p style="background:#f3f4f6;padding:10px;border-radius:6px;white-space:pre-wrap">${escapeHtml(shortReason)}</p><p><a href="${escapeHtml(reportsLink)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Review report</a></p>`),
+    });
+  }
   res.status(201).json({ id: report.id });
 }));
 
