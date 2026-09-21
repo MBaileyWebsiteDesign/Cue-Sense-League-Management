@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 // The Admin Management Portal - the single landing page for everything an
@@ -9,6 +11,13 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 // FixtureDetail.jsx's AdminOverridePanel).
 export default function AdminPortal() {
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin Portal' }]);
+
+  // Open abuse reports from Player Messages - turns the Message Reports card
+  // pale red (same pattern as the League Manager Portal's dispute card).
+  const [openReports, setOpenReports] = useState(0);
+  useEffect(() => {
+    api.getMessageReportSummary().then((r) => setOpenReports(r.open || 0)).catch(() => {});
+  }, []);
 
   return (
     <div>
@@ -50,6 +59,23 @@ export default function AdminPortal() {
             Search for a player, pick one of their fixtures, and directly override or reopen
             the result - the tool a "Result disputed" banner points you at.
           </p>
+        </Link>
+
+        <Link
+          to="/message-reports"
+          className="card card-link"
+          style={openReports > 0 ? { background: '#fee2e2' } : undefined}
+        >
+          <h2>Message Reports</h2>
+          <p className="muted">
+            Abuse reports raised by players from their private messages - review the
+            conversation, add a note and mark each one handled.
+          </p>
+          {openReports > 0 && (
+            <p style={{ color: '#991b1b', fontWeight: 600 }}>
+              {openReports} open report{openReports === 1 ? '' : 's'} to review
+            </p>
+          )}
         </Link>
 
         <Link to="/admin/manage-fixtures" className="card card-link">
