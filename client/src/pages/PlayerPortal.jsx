@@ -438,6 +438,63 @@ function MyLeaguesAndDivisions({ leagues }) {
 // too via "My Account" in the header; their extra Admin/Captain Portal links
 // sit alongside this rather than replacing it, since every account is a
 // player account first.
+// Messages card: pale green when nothing is unread, pale red when there is
+// at least one unread message - the same pale traffic-light shades as the
+// Venue Manager Portal tiles (#d1fae5 green / #fee2e2 red). Polls once a
+// minute while the portal is open. Quietly hides itself if the messaging
+// API isn't available (static demo build).
+const MESSAGES_TINT_NONE = '#d1fae5';
+const MESSAGES_TINT_UNREAD = '#fee2e2';
+
+function MessagesCard() {
+  const [unread, setUnread] = useState(null);
+
+  useEffect(() => {
+    if (!api.getMessageSummary) return undefined;
+    let cancelled = false;
+    const load = () => api.getMessageSummary().then((r) => { if (!cancelled) setUnread(r.unread); }).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  if (unread === null) return null;
+  const hasUnread = unread > 0;
+  return (
+    <Link
+      to="/messages"
+      className="card"
+      style={{
+        display: 'block',
+        textDecoration: 'none',
+        color: '#1f2937',
+        background: hasUnread ? MESSAGES_TINT_UNREAD : MESSAGES_TINT_NONE,
+        textAlign: 'center',
+      }}
+    >
+      <h2 style={{ margin: 0 }}>Messages</h2>
+      <p style={{ margin: '0.25rem 0 0' }}>
+        {hasUnread ? `${unread} new message${unread === 1 ? '' : 's'}` : 'No new messages'}
+      </p>
+    </Link>
+  );
+}
+
+// League Managers / Overall Admins: link to abuse reports raised from
+// player messages, with the open count (server already scopes it to the
+// leagues they manage).
+function MessageReportsLink() {
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    api.getMessageReportSummary?.().then((r) => setOpen(r.open)).catch(() => {});
+  }, []);
+  return (
+    <Link className="btn btn-primary" to="/message-reports">
+      Message Reports{open ? ` (${open} open)` : ''}
+    </Link>
+  );
+}
+
 export default function PlayerPortal() {
   const { user, updateUser, isAdmin, isCaptain, isLeagueManager } = useAuth();
   const [leagues, setLeagues] = useState([]);
@@ -466,6 +523,8 @@ export default function PlayerPortal() {
 
       <MySubmissions />
 
+      <MessagesCard />
+
       <div className="inline-form account-quick-actions" style={{ justifyContent: 'center', margin: '1rem 0' }}>
         {user.playerId && (
           <Link className="btn btn-primary" to={`/players/${user.playerId}`}>View my stats &amp; match history</Link>
@@ -476,6 +535,7 @@ export default function PlayerPortal() {
             AdHocGame.jsx's quickStart prop / /adhoc-game/quick route). */}
         <Link className="btn btn-primary" to="/adhoc-game/quick">Head-to-Head</Link>
         <Link className="btn btn-primary" to="/open-leagues">Leagues I can Join</Link>
+        {(isAdmin || isLeagueManager) && <MessageReportsLink />}
       </div>
 
       <MyFixtures />
