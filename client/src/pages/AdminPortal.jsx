@@ -128,6 +128,13 @@ export default function AdminPortal() {
           </p>
         </Link>
 
+        <Link to="/admin/email" className="card card-link">
+          <h2>Email</h2>
+          <p className="muted">
+            Check that email sending (MailerSend) is working - send yourself a test and see recent send results.
+          </p>
+        </Link>
+
         <Link to="/admin/backup" className="card card-link">
           <h2>Backup &amp; Restore</h2>
           <p className="muted">

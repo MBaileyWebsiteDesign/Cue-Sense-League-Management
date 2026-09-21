@@ -8,7 +8,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { readDb, writeDb, resetDb, restoreDb, DATA_DIR } from './db.js';
-import { sendMail, baseUrlFor, escapeHtml, emailHtml } from './mailer.js';
+import { sendMail, baseUrlFor, escapeHtml, emailHtml, getMailLog, mailSettings } from './mailer.js';
 import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
 import { nextRound as adaptiveNextRound } from './services/adaptiveDoubleElim.js';
@@ -292,6 +292,26 @@ app.post('/api/auth/forgot-password', asyncRoute((req, res) => {
     subject: 'Reset your Cue Sense password',
     text: `Hi ${first},\n\nSomeone (hopefully you) asked to reset the password for your Cue Sense account. Use this link to choose a new one:\n${resetLink}\n\nThe link works once and expires in 1 hour. If you didn't ask for this, you can ignore this email - your password won't change.`,
     html: emailHtml('Reset your password', `<p>Hi ${escapeHtml(first)},</p><p>Someone (hopefully you) asked to reset the password for your Cue Sense account.</p><p><a href="${escapeHtml(resetLink)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Choose a new password</a></p><p style="color:#555;font-size:13px">The link works once and expires in 1 hour. If you didn't ask for this, you can ignore this email - your password won't change.</p>`),
+  });
+}));
+
+// Admin-only email diagnostics: whether MailerSend is configured on this server,
+// the last few send outcomes (in memory, addresses masked), and a test send to
+// the calling admin's own address that reports MailerSend's actual answer.
+app.get('/api/admin/mail/status', requireAdmin, asyncRoute((req, res) => {
+  res.json({ ...mailSettings(), recent: getMailLog() });
+}));
+
+app.post('/api/admin/mail/test', requireAdmin, asyncRoute((req, res) => {
+  const to = req.auth.user.email;
+  sendMail({
+    to,
+    toName: `${req.auth.user.firstName || ''} ${req.auth.user.lastName || ''}`.trim() || undefined,
+    subject: 'Cue Sense test email',
+    text: 'This is a test email from Cue Sense League Management. If you can read this, email sending works.',
+    html: emailHtml('Test email', '<p>This is a test email from Cue Sense League Management. If you can read this, email sending works.</p>'),
+  }).then((result) => {
+    res.json({ ...result, sentTo: to, ...mailSettings(), recent: getMailLog() });
   });
 }));
 

@@ -465,6 +465,8 @@ const networkApi = {
   sendMessage: (userId, body) =>
     request(`/messages/with/${userId}`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMessageBlocks: () => request('/messages/blocks'),
+  getMailStatus: () => request('/admin/mail/status'),
+  sendTestEmail: () => request('/admin/mail/test', { method: 'POST' }),
   getMessageEmailPreference: () => request('/messages/email-preference'),
   setMessageEmailPreference: (emailMessageAlerts) =>
     request('/messages/email-preference', { method: 'POST', body: JSON.stringify({ emailMessageAlerts }) }),

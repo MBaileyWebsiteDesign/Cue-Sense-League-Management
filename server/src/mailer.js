@@ -15,6 +15,31 @@
 const API_URL = 'https://api.mailersend.com/v1/email';
 const TIMEOUT_MS = 10000;
 
+// In-memory record of the last sends (newest first) so an admin can see why an
+// email didn't arrive without needing server logs. Resets on restart/redeploy.
+// Recipient addresses are masked; no message content is kept.
+const recentMail = [];
+function maskEmail(e) {
+  const [u, d] = String(e || '').split('@');
+  return d ? `${u.slice(0, 1)}***@${d}` : '(none)';
+}
+function record(to, subject, outcome) {
+  recentMail.unshift({ at: new Date().toISOString(), to: maskEmail(to), subject, ...outcome });
+  if (recentMail.length > 30) recentMail.length = 30;
+  return outcome;
+}
+export function getMailLog() {
+  return recentMail.slice();
+}
+export function mailSettings() {
+  return {
+    configured: !!process.env.MAILERSEND_API_KEY,
+    fromEmail: process.env.MAILERSEND_FROM_EMAIL || 'noreply@cuesense.co.uk',
+    fromName: process.env.MAILERSEND_FROM_NAME || 'Cue Sense',
+    baseUrlOverride: process.env.APP_BASE_URL || null,
+  };
+}
+
 export function mailConfigured() {
   return !!process.env.MAILERSEND_API_KEY;
 }
@@ -47,9 +72,9 @@ export async function sendMail({ to, toName, subject, text, html }) {
   const apiKey = process.env.MAILERSEND_API_KEY;
   if (!apiKey) {
     console.warn(`[mail] MAILERSEND_API_KEY not set - skipped "${subject}" to ${to}`);
-    return { sent: false, skipped: true };
+    return record(to, subject, { sent: false, skipped: true, error: 'MAILERSEND_API_KEY is not set on this server' });
   }
-  if (!to || !/^[^@\s]+@[^@\s]+$/.test(to)) return { sent: false, skipped: true, error: 'no valid recipient address' };
+  if (!to || !/^[^@\s]+@[^@\s]+$/.test(to)) return record(to, subject, { sent: false, skipped: true, error: 'no valid recipient address' });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -72,14 +97,16 @@ export async function sendMail({ to, toName, subject, text, html }) {
         html,
       }),
     });
-    if (res.ok) return { sent: true };
+    if (res.ok) return record(to, subject, { sent: true, status: res.status });
     let detail = '';
     try { detail = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+    let message = detail;
+    try { message = JSON.parse(detail).message || detail; } catch { /* keep raw */ }
     console.error(`[mail] MailerSend rejected "${subject}" to ${to}: HTTP ${res.status} ${detail}`);
-    return { sent: false, error: `MailerSend HTTP ${res.status}` };
+    return record(to, subject, { sent: false, status: res.status, error: `MailerSend HTTP ${res.status}: ${message}`.slice(0, 300) });
   } catch (err) {
     console.error(`[mail] send failed for "${subject}" to ${to}:`, err?.message || err);
-    return { sent: false, error: err?.name === 'AbortError' ? 'MailerSend timed out' : String(err?.message || err) };
+    return record(to, subject, { sent: false, error: err?.name === 'AbortError' ? 'MailerSend timed out' : `Could not reach MailerSend: ${String(err?.message || err)}`.slice(0, 300) });
   } finally {
     clearTimeout(timer);
   }
