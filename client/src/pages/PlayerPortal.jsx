@@ -446,9 +446,7 @@ function MyLeaguesAndDivisions({ leagues }) {
 const MESSAGES_TINT_NONE = '#d1fae5';
 const MESSAGES_TINT_UNREAD = '#fee2e2';
 
-// Unread message count, polled once a minute. null = not loaded yet (or the
-// messaging API isn't available), so callers can hide themselves.
-function useUnreadMessages() {
+function MessagesCard() {
   const [unread, setUnread] = useState(null);
 
   useEffect(() => {
@@ -459,31 +457,6 @@ function useUnreadMessages() {
     const t = setInterval(load, 60000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
-
-  return unread;
-}
-
-// "Chat" button in the quick-actions row: same pale green / pale red as the
-// Messages card above it, linking to the same /messages page.
-function ChatButton() {
-  const unread = useUnreadMessages();
-  if (unread === null) return null;
-  return (
-    <Link
-      className="btn"
-      to="/messages"
-      style={{
-        background: unread > 0 ? MESSAGES_TINT_UNREAD : MESSAGES_TINT_NONE,
-        color: '#1f2937',
-      }}
-    >
-      Chat
-    </Link>
-  );
-}
-
-function MessagesCard() {
-  const unread = useUnreadMessages();
 
   if (unread === null) return null;
   const hasUnread = unread > 0;
@@ -562,7 +535,6 @@ export default function PlayerPortal() {
             AdHocGame.jsx's quickStart prop / /adhoc-game/quick route). */}
         <Link className="btn btn-primary" to="/adhoc-game/quick">Head-to-Head</Link>
         <Link className="btn btn-primary" to="/open-leagues">Leagues I can Join</Link>
-        <ChatButton />
         {(isAdmin || isLeagueManager) && <MessageReportsLink />}
       </div>
 
