@@ -1784,6 +1784,9 @@ export default function DivisionDetail() {
                 ? 'Free Play · 2 player free style, no frame count target'
                 : 'Singles league'}
       </p>
+      {division.createdByName && (
+        <p className="muted" style={{ marginTop: -8 }}>Created by {division.createdByName}</p>
+      )}
       {error && <p className="error">{error}</p>}
 
       {division.status === 'completed' && (
