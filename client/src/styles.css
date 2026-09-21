@@ -963,6 +963,28 @@ h3 { font-size: 1.05rem; font-weight: 700; }
     row-gap: 4px;
   }
 
+  /* Player Portal / My Account cards (PlayerPortal.jsx): centre the card
+     content on phones - headings, list rows, form labels and buttons. Input
+     boxes stay full width with left-aligned typed text. Desktop is
+     unchanged. */
+  .portal-card { text-align: center; }
+
+  .portal-card .fixture-list li {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .portal-card .fixture-info { align-items: center; }
+
+  /* My Submissions rows set their inner flex row inline, so !important. */
+  .portal-card .fixture-list li > div { justify-content: center !important; }
+
+  .portal-card .inline-form { justify-content: center; }
+
+  .portal-card input,
+  .portal-card select { text-align: left; }
+
   .tab-label-full { display: none; }
   .tab-label-short { display: inline; }
 }
