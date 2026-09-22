@@ -557,6 +557,19 @@ app.get('/api/users/me/fixtures', requireAuth, asyncRoute((req, res) => {
       : isDoubles
         ? db.pairings.find((p) => p.id === opponentId)?.name
         : db.players.find((p) => p.id === opponentId)?.name;
+    // Singles only: resolve the opponent's own messaging account, so the
+    // client can link their name straight into a conversation (see "Player
+    // messaging" section further down). Team and doubles opponents aren't a
+    // single person, so they're left un-linked for now. Final eligibility
+    // (shared league/venue/ad hoc game, blocks) is still checked live when
+    // the conversation loads - this is just "is there someone to link to".
+    let opponentUserId = null;
+    if (!isTeams && !isDoubles && opponentId) {
+      const opponentUser = db.users.find((u) => u.playerId === opponentId);
+      if (opponentUser && isMessageableUser(opponentUser) && opponentUser.id !== user.id) {
+        opponentUserId = opponentUser.id;
+      }
+    }
     return {
       id: f.id,
       leagueName: league?.name,
@@ -565,6 +578,7 @@ app.get('/api/users/me/fixtures', requireAuth, asyncRoute((req, res) => {
       status: f.status,
       scheduledDate: f.scheduledDate || null,
       opponentName: opponentName || 'TBD',
+      opponentUserId,
     };
   });
 
@@ -8256,10 +8270,49 @@ function sharedRealLeagueIds(leagueMap, a, b) {
   return [...mine].filter((id) => theirs.has(id));
 }
 
-function canMessageUser(leagueMap, me, other) {
+// playerId -> Set(divisionId), but restricted to divisions inside the hidden
+// "Ad Hoc Games" pool. Deliberately division-granular (not league-granular
+// like buildPlayerLeagueMap) - the ad hoc pool is one single shared league
+// for every player on the platform, so counting it at league level would let
+// anyone message anyone who's ever played any ad hoc game. Counting it at
+// division level instead means two players only become eligible via this
+// path if they've actually shared one specific ad hoc/head-to-head game
+// together (as opponents, teammates, or a pairing).
+function buildPlayerAdHocDivisionMap(db) {
+  const adHocLeagueIds = new Set(db.leagues.filter((l) => l.isAdHocPool).map((l) => l.id));
+  const teamsById = new Map(db.teams.map((t) => [t.id, t]));
+  const pairingsById = new Map(db.pairings.map((p) => [p.id, p]));
+  const map = new Map();
+  const add = (playerId, divisionId) => {
+    if (!map.has(playerId)) map.set(playerId, new Set());
+    map.get(playerId).add(divisionId);
+  };
+  for (const d of db.divisions) {
+    if (!d.leagueId || !adHocLeagueIds.has(d.leagueId)) continue;
+    for (const pid of d.playerIds || []) add(pid, d.id);
+    for (const tid of d.teamIds || []) {
+      for (const pid of teamsById.get(tid)?.playerIds || []) add(pid, d.id);
+    }
+    for (const pid2 of d.pairingIds || []) {
+      for (const pid of pairingsById.get(pid2)?.playerIds || []) add(pid, d.id);
+    }
+  }
+  return map;
+}
+
+function sharedAdHocDivisionIds(adHocMap, a, b) {
+  if (!a.playerId || !b.playerId) return [];
+  const mine = adHocMap.get(a.playerId);
+  const theirs = adHocMap.get(b.playerId);
+  if (!mine || !theirs) return [];
+  return [...mine].filter((id) => theirs.has(id));
+}
+
+function canMessageUser(leagueMap, adHocMap, me, other) {
   if (!other || me.id === other.id || !isMessageableUser(other)) return false;
   if (me.venueId && me.venueId === other.venueId) return true;
-  return sharedRealLeagueIds(leagueMap, me, other).length > 0;
+  if (sharedRealLeagueIds(leagueMap, me, other).length > 0) return true;
+  return sharedAdHocDivisionIds(adHocMap, me, other).length > 0;
 }
 
 const isUserBlocked = (db, blockerId, blockedId) =>
@@ -8330,20 +8383,23 @@ app.get('/api/messages/contacts', requireAuth, asyncRoute((req, res) => {
   const me = req.auth.user;
   const q = String(req.query.q || '').trim().toLowerCase();
   const leagueMap = buildPlayerLeagueMap(db);
+  const adHocMap = buildPlayerAdHocDivisionMap(db);
   const leagueNames = new Map(db.leagues.map((l) => [l.id, l.name]));
+  const divisionNames = new Map(db.divisions.map((d) => [d.id, d.name]));
   const blocked = new Set(db.userBlocks.filter((b) => b.blockerUserId === me.id).map((b) => b.blockedUserId));
   const venue = me.venueId ? db.venues.find((v) => v.id === me.venueId) : null;
   const contacts = [];
   for (const u of db.users) {
-    if (blocked.has(u.id) || !canMessageUser(leagueMap, me, u)) continue;
+    if (blocked.has(u.id) || !canMessageUser(leagueMap, adHocMap, me, u)) continue;
     const name = messageDisplayName(u);
     if (q && !name.toLowerCase().includes(q)) continue;
     const shared = sharedRealLeagueIds(leagueMap, me, u).map((id) => leagueNames.get(id)).filter(Boolean);
+    const sharedAdHoc = sharedAdHocDivisionIds(adHocMap, me, u).map((id) => divisionNames.get(id)).filter(Boolean);
     const sameVenue = !!(me.venueId && me.venueId === u.venueId);
     contacts.push({
       userId: u.id,
       name,
-      via: [...shared, ...(sameVenue && venue ? [venue.name] : [])].join(', '),
+      via: [...shared, ...sharedAdHoc, ...(sameVenue && venue ? [venue.name] : [])].join(', '),
     });
   }
   contacts.sort((a, b) => a.name.localeCompare(b.name));
@@ -8355,6 +8411,7 @@ app.get('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
   const me = req.auth.user;
   const other = findMessageTarget(db, req.params.userId);
   const leagueMap = buildPlayerLeagueMap(db);
+  const adHocMap = buildPlayerAdHocDivisionMap(db);
   const blockedByMe = isUserBlocked(db, me.id, other.id);
   const visible = messagesBetween(db, me.id, other.id).filter((m) => visibleToViewer(m, me.id));
   const now = new Date().toISOString();
@@ -8370,7 +8427,7 @@ app.get('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
   res.json({
     other: { userId: other.id, name: messageDisplayName(other) },
     blockedByMe,
-    canSend: !blockedByMe && canMessageUser(leagueMap, me, other),
+    canSend: !blockedByMe && canMessageUser(leagueMap, adHocMap, me, other),
     messages: visible
       .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
       .map((m) => ({ id: m.id, mine: m.fromUserId === me.id, body: m.body, createdAt: m.createdAt })),
@@ -8387,8 +8444,9 @@ app.post('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
     throw new ApiError(400, `Message is too long (max ${MESSAGE_MAX_LENGTH} characters)`);
   }
   const leagueMap = buildPlayerLeagueMap(db);
-  if (!canMessageUser(leagueMap, me, other)) {
-    throw new ApiError(403, 'You can only message players you share a league or venue with');
+  const adHocMap = buildPlayerAdHocDivisionMap(db);
+  if (!canMessageUser(leagueMap, adHocMap, me, other)) {
+    throw new ApiError(403, 'You can only message players you share a league, venue, or ad hoc/head-to-head game with');
   }
   if (isUserBlocked(db, me.id, other.id)) {
     throw new ApiError(403, 'You have blocked this player - unblock them to send a message');

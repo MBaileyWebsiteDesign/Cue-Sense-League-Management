@@ -305,7 +305,7 @@ function Thread({ userId }) {
         <p className="muted">
           {data.blockedByMe
             ? 'You have blocked this player. Unblock them to send a message.'
-            : 'You can no longer message this player (you no longer share a league or venue).'}
+            : 'You can no longer message this player (you no longer share a league, venue, or ad hoc/head-to-head game).'}
         </p>
       )}
     </div>

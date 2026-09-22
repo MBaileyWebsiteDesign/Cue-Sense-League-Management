@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
@@ -251,9 +251,29 @@ function MySubmissions() {
   );
 }
 
+// Opponent name inside a My Fixtures row. Singles fixtures where the
+// opponent has a messaging-eligible account (see opponentUserId, set by
+// GET /api/users/me/fixtures) link straight into a conversation with them,
+// so players can arrange a game without leaving the app. Team/doubles
+// opponents (no single person to message) and opponents with no linkable
+// account just render as plain text, same as before.
+function OpponentName({ f }) {
+  if (!f.opponentUserId) return f.opponentName;
+  return (
+    <Link
+      to={`/messages/${f.opponentUserId}`}
+      onClick={(e) => e.stopPropagation()}
+      title={`Message ${f.opponentName}`}
+    >
+      {f.opponentName}
+    </Link>
+  );
+}
+
 function MyFixtures() {
   const [fixtures, setFixtures] = useState(null);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     api.getMyFixtures().then(setFixtures).catch((e) => setError(e.message));
@@ -279,12 +299,18 @@ function MyFixtures() {
           <ul className="fixture-list">
             {upcoming.map((f) => (
               <li key={f.id}>
-                <Link to={`/fixtures/${f.id}`} className="fixture-info">
+                <div
+                  className="fixture-info fixture-row-link"
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => navigate(`/fixtures/${f.id}`)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/fixtures/${f.id}`); }}
+                >
                   <span className="fixture-line">{f.leagueName}</span>
                   <span className="fixture-line">{f.divisionName}</span>
                   <span className="fixture-line">Round {f.round}</span>
-                  <span className="fixture-line">vs {f.opponentName}</span>
-                </Link>
+                  <span className="fixture-line">vs <OpponentName f={f} /></span>
+                </div>
                 {f.scheduledDate ? (
                   <span className="muted">{f.scheduledDate}</span>
                 ) : (
@@ -302,12 +328,18 @@ function MyFixtures() {
           <ul className="fixture-list">
             {pendingConfirmation.map((f) => (
               <li key={f.id}>
-                <Link to={`/fixtures/${f.id}`} className="fixture-info">
+                <div
+                  className="fixture-info fixture-row-link"
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => navigate(`/fixtures/${f.id}`)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/fixtures/${f.id}`); }}
+                >
                   <span className="fixture-line">{f.leagueName}</span>
                   <span className="fixture-line">{f.divisionName}</span>
                   <span className="fixture-line">Round {f.round}</span>
-                  <span className="fixture-line">vs {f.opponentName}</span>
-                </Link>
+                  <span className="fixture-line">vs <OpponentName f={f} /></span>
+                </div>
                 <span className="btn btn-danger" style={{ cursor: 'default' }}>Waiting Confirmation</span>
               </li>
             ))}
@@ -321,12 +353,18 @@ function MyFixtures() {
           <ul className="fixture-list">
             {recent.map((f) => (
               <li key={f.id}>
-                <Link to={`/fixtures/${f.id}`} className="fixture-info">
+                <div
+                  className="fixture-info fixture-row-link"
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => navigate(`/fixtures/${f.id}`)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/fixtures/${f.id}`); }}
+                >
                   <span className="fixture-line">{f.leagueName}</span>
                   <span className="fixture-line">{f.divisionName}</span>
                   <span className="fixture-line">Round {f.round}</span>
-                  <span className="fixture-line">vs {f.opponentName}</span>
-                </Link>
+                  <span className="fixture-line">vs <OpponentName f={f} /></span>
+                </div>
                 <span className="status status-completed">completed</span>
               </li>
             ))}
