@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useIsAdminSession } from '../useAdminSession.js';
+import { FormStrip, SplitBar, WinRing, StatTiles, ResultBadge, Chevron, formatFixtureDate } from '../components/StatsUI.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
@@ -164,13 +165,134 @@ function AdminAccountPanel({ playerId, divisions }) {
   );
 }
 
+// "Best table" only counts tables with at least this many recorded frames,
+// so one lucky frame can't put a table at the top (Matt, 2026-09-22).
+const BEST_TABLE_MIN_FRAMES = 10;
+// The win-rate trend line unlocks once a player has this many decided
+// (win/loss) results (Matt, 2026-09-22).
+const TREND_MIN_GAMES = 5;
+
+const INFO = {
+  bnd: 'Break and Dish - breaks and clears the whole rack including the black without missing, opponent gets no visit.',
+  rnd: 'Reverse Break and Dish - the breaker misses, then this player clears the whole rack including the black on their first visit without missing.',
+  noShows: "Games this player didn't turn up for, reported by their opponent and authorised by an admin or League Manager.",
+};
+
+// Cumulative win % after each decided result, oldest first.
+function WinTrend({ results }) {
+  const decided = results.filter((r) => r.result === 'win' || r.result === 'loss').slice().reverse();
+  if (decided.length < TREND_MIN_GAMES) {
+    const left = TREND_MIN_GAMES - decided.length;
+    return (
+      <section className="card cs-locked">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 18l5-6 4 3 7-9" /></svg>
+        <strong>Win-rate trend</strong>
+        <span className="muted">Play {left} more game{left === 1 ? '' : 's'} to unlock the trend line.</span>
+      </section>
+    );
+  }
+  let wins = 0;
+  const points = decided.map((r, i) => {
+    if (r.result === 'win') wins += 1;
+    return Math.round((wins / (i + 1)) * 100);
+  });
+  const W = 320;
+  const H = 140;
+  const pad = 12;
+  const x = (i) => pad + (points.length === 1 ? 0 : (i / (points.length - 1)) * (W - pad * 2));
+  const y = (v) => pad + (1 - v / 100) * (H - pad * 2);
+  const d = points.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const last = points[points.length - 1];
+  return (
+    <section className="card">
+      <div className="cs-card-head">
+        <h2>Win-rate trend</h2>
+        <span className="muted">Now {last}% after {points.length} games</span>
+      </div>
+      <svg className="cs-trend" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Win rate over ${points.length} games, now ${last} percent`}>
+        <line x1={pad} x2={W - pad} y1={y(50)} y2={y(50)} className="cs-trend-grid" />
+        <text x={W - pad} y={y(50) - 4} textAnchor="end" className="cs-trend-axis">50%</text>
+        <path d={d} className="cs-trend-line" fill="none" />
+        <circle cx={x(points.length - 1)} cy={y(last)} r="4" className="cs-trend-dot" />
+      </svg>
+      <div className="cs-trend-foot muted"><span>First game</span><span>Latest</span></div>
+    </section>
+  );
+}
+
+function TableRecordCard({ tableRecord, isOwnProfile }) {
+  const [sort, setSort] = useState('played');
+  const rows = tableRecord || [];
+  if (rows.length === 0) {
+    return (
+      <section className="card">
+        <h2 style={{ marginBottom: 2 }}>Table record</h2>
+        <p className="muted cs-sub">Frames won and lost on each table</p>
+        <div className="cs-empty">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="3.5" cy="6.5" r="1" /><circle cx="20.5" cy="6.5" r="1" /><circle cx="3.5" cy="17.5" r="1" /><circle cx="20.5" cy="17.5" r="1" /></svg>
+          <div>
+            <strong>No table data yet</strong>
+            <span>
+              {isOwnProfile
+                ? 'When you score a match, add the table number in Live Match Controls. Your wins and losses on each table will show here, so you can see which tables suit you best.'
+                : 'No frames with a table number have been recorded for this player yet.'}
+            </span>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  const sorted = [...rows].sort((a, b) => (sort === 'best'
+    ? b.winPct - a.winPct || b.played - a.played
+    : b.played - a.played || b.winPct - a.winPct));
+  const eligible = rows.filter((r) => r.played >= BEST_TABLE_MIN_FRAMES);
+  const best = eligible.length > 0 ? [...eligible].sort((a, b) => b.winPct - a.winPct || b.played - a.played)[0] : null;
+  return (
+    <section className="card">
+      <h2 style={{ marginBottom: 2 }}>Table record</h2>
+      <p className="muted cs-sub">Frames won and lost on each table</p>
+      <div className="cs-toggle" role="group" aria-label="Sort tables">
+        <button type="button" className={sort === 'played' ? 'cs-toggle-on' : ''} aria-pressed={sort === 'played'} onClick={() => setSort('played')}>Most played</button>
+        <button type="button" className={sort === 'best' ? 'cs-toggle-on' : ''} aria-pressed={sort === 'best'} onClick={() => setSort('best')}>Best win %</button>
+      </div>
+      {best ? (
+        <div className="cs-best">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" /></svg>
+          <div className="cs-grow">
+            <span className="cs-best-kicker">{isOwnProfile ? 'YOUR BEST TABLE' : 'BEST TABLE'}</span>
+            <strong>{best.table}{best.venue ? ` · ${best.venue}` : ''}</strong>
+          </div>
+          <span className="cs-best-pct">{best.winPct}%</span>
+        </div>
+      ) : (
+        <p className="muted cs-note">A best table appears once a table has at least {BEST_TABLE_MIN_FRAMES} frames recorded.</p>
+      )}
+      <div className="cs-rows">
+        {sorted.map((t) => (
+          <div key={t.table} className="cs-row">
+            <div className="cs-row-top">
+              <div className="cs-row-name">
+                <strong>{t.table}</strong>
+                {t.venue && <span className="muted">{t.venue}</span>}
+              </div>
+              <span className="cs-row-score">{t.winPct}%</span>
+            </div>
+            <SplitBar a={t.wins} b={t.losses} label={`${t.wins} frames won, ${t.losses} lost on ${t.table}`} height={10} />
+            <span className="muted cs-small">{t.played} frame{t.played === 1 ? '' : 's'} · {t.wins} won · {t.losses} lost</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function PlayerProfile() {
   const { playerId } = useParams();
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
   const [h2hVisible, setH2hVisible] = useState(5);
   const isAdmin = useIsAdminSession();
-  const { isCaptain, isLeagueManager } = useAuth();
+  const { user, isCaptain, isLeagueManager } = useAuth();
   const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
 
   useEffect(() => {
@@ -187,73 +309,73 @@ export default function PlayerProfile() {
   if (!profile) return <p>Loading…</p>;
 
   const { career } = profile;
+  const isOwnProfile = !!user?.playerId && user.playerId === profile.id;
   const winPct = career.played > 0 ? Math.round((career.won / career.played) * 100) : 0;
   // Break vs non-break win split - only counts frames that actually have a
   // recorded breaker (see server/src/services/playerProfile.js), so this can
   // be smaller than `career.won` for players with older, unbreaker-tagged history.
   const breakTrackedTotal = (career.breakWins || 0) + (career.nonBreakWins || 0);
-  const breakWinPct = breakTrackedTotal > 0 ? Math.round((career.breakWins / breakTrackedTotal) * 100) : 0;
-  const breakWinDeg = breakTrackedTotal > 0 ? (career.breakWins / breakTrackedTotal) * 360 : 0;
+  const diff = career.frameDifference;
 
   return (
-    <div>
-      <h1>{profile.name}</h1>
-      <p className="muted">Career record across every league and division</p>
+    <div className="cs-profile">
+      <h1 className="cs-title">{profile.name}</h1>
+      <p className="muted" style={{ marginTop: 0 }}>Career record across every league and division</p>
+      <FormStrip form={profile.formGuide} />
 
       {isAdmin && <AdminAccountPanel playerId={profile.id} divisions={profile.divisions || []} />}
 
       <section className="card">
         <h2>Career</h2>
-        <div className="card-grid">
-          <div><strong>{career.played}</strong><div className="muted">Played</div></div>
-          <div><strong>{career.won}</strong><div className="muted">Won</div></div>
-          <div><strong>{career.lost}</strong><div className="muted">Lost</div></div>
-          <div><strong>{winPct}%</strong><div className="muted">Win rate</div></div>
-          <div><strong>{career.framesFor}-{career.framesAgainst}</strong><div className="muted">Frames for/against</div></div>
-          <div><strong>{career.frameDifference > 0 ? '+' : ''}{career.frameDifference}</strong><div className="muted">Frame diff</div></div>
-          <div><strong>{career.bnd || 0}</strong><div className="muted" title="Break and Dish - breaks and clears the whole rack including the black without missing, opponent gets no visit">BND</div></div>
-          <div><strong>{career.rnd || 0}</strong><div className="muted" title="Reverse Break and Dish - the breaker misses, then this player clears the whole rack including the black on their first visit without missing">RND</div></div>
-          <div><strong>{career.breakWins || 0}</strong><div className="muted" title="Frames this player won on their own break">Break + Win</div></div>
-          <div><strong>{career.nonBreakWins || 0}</strong><div className="muted" title="Frames this player won without having the break">Non-Breaking + Win</div></div>
-          <div><strong>{career.noShows || 0}</strong><div className="muted" title="Games this player didn't turn up for, reported by their opponent and authorised by an admin or League Manager">No-shows</div></div>
+        <div className="cs-career-top">
+          <WinRing pct={winPct} />
+          <StatTiles
+            tiles={[
+              { key: 'played', label: 'Played', value: career.played },
+              { key: 'won', label: 'Won', value: career.won, tone: 'win' },
+              { key: 'lost', label: 'Lost', value: career.lost, tone: 'loss' },
+            ]}
+          />
         </div>
-        {breakTrackedTotal > 0 && (
-          <div className="break-win-chart">
-            <div className="muted" style={{ marginBottom: 8 }}>
-              Break + Win vs Non-Breaking + Win ({breakTrackedTotal} frame{breakTrackedTotal === 1 ? '' : 's'} with a recorded breaker)
-            </div>
-            <div className="break-win-chart-row">
-              <div
-                className="break-win-pie"
-                role="img"
-                aria-label={`Break and win: ${career.breakWins || 0} frames (${breakWinPct}%). Non-breaking and win: ${career.nonBreakWins || 0} frames (${100 - breakWinPct}%).`}
-                style={{
-                  background: `conic-gradient(var(--chart-series-1) 0deg ${breakWinDeg}deg, var(--chart-series-2) ${breakWinDeg}deg 360deg)`,
-                }}
-              />
-              <ul className="break-win-legend">
-                <li>
-                  <span className="break-win-swatch break-win-swatch-1" aria-hidden="true" />
-                  Break + Win — <strong>{career.breakWins || 0}</strong> <span className="muted">({breakWinPct}%)</span>
-                </li>
-                <li>
-                  <span className="break-win-swatch break-win-swatch-2" aria-hidden="true" />
-                  Non-Breaking + Win — <strong>{career.nonBreakWins || 0}</strong> <span className="muted">({100 - breakWinPct}%)</span>
-                </li>
-              </ul>
-            </div>
+        <div className="cs-block">
+          <div className="cs-block-head">
+            <strong>Frames</strong>
+            <span className="muted"><strong className="cs-tone-win">{career.framesFor} won</strong> · <strong className="cs-tone-loss">{career.framesAgainst} lost</strong></span>
           </div>
-        )}
-        {profile.formGuide && profile.formGuide.length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <div className="muted" style={{ marginBottom: 4 }}>Form (most recent first)</div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {profile.formGuide.map((g, i) => (
-                <span key={i} className={`status ${g === 'W' ? 'status-completed' : ''}`} style={{ fontWeight: 700 }}>{g}</span>
-              ))}
-            </div>
+          <SplitBar a={career.framesFor} b={career.framesAgainst} label={`${career.framesFor} frames won, ${career.framesAgainst} frames lost`} />
+          <div className="cs-right">
+            <span className={`cs-pill ${diff > 0 ? 'cs-pill-win' : diff < 0 ? 'cs-pill-loss' : ''}`}>Frame diff {diff > 0 ? '+' : diff < 0 ? '−' : ''}{Math.abs(diff)}</span>
           </div>
-        )}
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>Breaking</h2>
+        <div className="cs-block" style={{ marginTop: 0 }}>
+          <div className="cs-block-head muted">
+            <span><span className="cs-swatch cs-fill-s1" aria-hidden="true" /> Break + Win <strong className="cs-ink">{career.breakWins || 0}</strong></span>
+            <span><span className="cs-swatch cs-fill-s2" aria-hidden="true" /> Non-breaking + Win <strong className="cs-ink">{career.nonBreakWins || 0}</strong></span>
+          </div>
+          <SplitBar
+            a={career.breakWins || 0}
+            b={career.nonBreakWins || 0}
+            aClass="cs-fill-s1"
+            bClass="cs-fill-s2"
+            label={`Break and win ${career.breakWins || 0} frames, non-breaking and win ${career.nonBreakWins || 0} frames`}
+          />
+          <span className="muted cs-small">
+            {breakTrackedTotal > 0
+              ? `Based on ${breakTrackedTotal} won frame${breakTrackedTotal === 1 ? '' : 's'} with a recorded breaker.`
+              : 'No break data recorded yet. The bar fills in once frames are scored with the Break button.'}
+          </span>
+        </div>
+        <StatTiles
+          tiles={[
+            { key: 'bnd', label: 'BND', value: career.bnd || 0, info: INFO.bnd, infoTitle: 'Break and Dish (BND)' },
+            { key: 'rnd', label: 'RND', value: career.rnd || 0, info: INFO.rnd, infoTitle: 'Reverse Break and Dish (RND)' },
+            { key: 'ns', label: 'No-shows', value: career.noShows || 0, info: INFO.noShows },
+          ]}
+        />
       </section>
 
       {profile.trophies && profile.trophies.length > 0 && (
@@ -281,82 +403,58 @@ export default function PlayerProfile() {
       )}
 
       <section className="card">
-        <h2>Games Played</h2>
+        <h2>Head to head</h2>
         {profile.headToHead.length === 0 ? (
           <p className="muted">No completed matches yet.</p>
         ) : (
-          <table className="standings-table">
-            <thead>
-              <tr><th>Opponent</th><th>P</th><th>W</th><th>L</th></tr>
-            </thead>
-            <tbody>
-              {profile.headToHead.slice(0, h2hVisible).map((h) => (
-                <tr key={h.opponentId}>
-                  <td style={{ textAlign: 'left' }}>{h.opponentName}</td>
-                  <td>{h.played}</td>
-                  <td>{h.won}</td>
-                  <td>{h.lost}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="cs-rows">
+            {profile.headToHead.slice(0, h2hVisible).map((h) => (
+              <Link key={h.opponentId} to={`/players/${h.opponentId}`} className="cs-row cs-row-link">
+                <div className="cs-row-top">
+                  <strong className="cs-row-name">{h.opponentName}</strong>
+                  <span className="cs-row-score">{h.won}–{h.lost}</span>
+                </div>
+                <SplitBar a={h.won} b={h.lost} height={8} label={`${h.won} won, ${h.lost} lost against ${h.opponentName}`} />
+                <span className="muted cs-small">{h.played} played{h.played - h.won - h.lost > 0 ? ` · ${h.played - h.won - h.lost} void` : ''}</span>
+              </Link>
+            ))}
+          </div>
         )}
         {profile.headToHead.length > h2hVisible && (
-          <button
-            type="button"
-            className="btn"
-            style={{ marginTop: 12 }}
-            onClick={() => setH2hVisible((n) => n + 5)}
-          >
+          <button type="button" className="btn" style={{ marginTop: 12 }} onClick={() => setH2hVisible((n) => n + 5)}>
             View more
           </button>
         )}
       </section>
 
-      {profile.tableRecord && profile.tableRecord.length > 0 && (
-        <section className="card">
-          <h2>Table record</h2>
-          <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
-            Win/loss by table, from the optional table number entered on the Live Match Controls card while playing - see which table you're most likely to win on. Experimental / staging only for now.
-          </p>
-          <table className="standings-table">
-            <thead>
-              <tr><th>Table</th><th>Venue</th><th>P</th><th>W</th><th>L</th><th>Win %</th></tr>
-            </thead>
-            <tbody>
-              {profile.tableRecord.map((t) => (
-                <tr key={t.table}>
-                  <td style={{ textAlign: 'left' }}>{t.table}</td>
-                  <td style={{ textAlign: 'left' }}>{t.venue || '-'}</td>
-                  <td>{t.played}</td>
-                  <td>{t.wins}</td>
-                  <td>{t.losses}</td>
-                  <td>{t.winPct}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
+      <TableRecordCard tableRecord={profile.tableRecord} isOwnProfile={isOwnProfile} />
 
       <section className="card">
         <h2>Match history</h2>
         {profile.results.length === 0 ? (
           <p className="muted">No completed matches yet.</p>
         ) : (
-          <ul className="fixture-list">
-            {profile.results.map((r, i) => (
-              <li key={i}>
-                <Link to={`/fixtures/${r.fixtureId}`}>
-                  vs {r.opponentName} <strong>{r.forScore}-{r.againstScore}</strong>
-                  <span className="muted"> · {r.leagueName} / {r.divisionName} ({r.context})</span>
+          <div className="cs-results">
+            {profile.results.map((r, i) => {
+              const when = formatFixtureDate(r.scheduledDate) || (r.round != null ? `Round ${r.round}` : null);
+              return (
+                <Link key={i} to={`/fixtures/${r.fixtureId}`} className="cs-result">
+                  <ResultBadge result={r.result} />
+                  <div className="cs-result-body">
+                    <strong>vs {r.opponentName}</strong>
+                    <span className="muted">{[r.leagueName, r.divisionName].filter(Boolean).join(' · ')}{r.context && r.context !== 'singles' ? ` · ${r.context}` : ''}</span>
+                    {when && <span className="muted">{when}</span>}
+                  </div>
+                  <span className="cs-result-score">{r.forScore}–{r.againstScore}</span>
+                  <Chevron />
                 </Link>
-                <span className={`status ${r.result === 'win' ? 'status-completed' : ''}`}>{r.result}</span>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         )}
       </section>
+
+      <WinTrend results={profile.results} />
     </div>
   );
 }

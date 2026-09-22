@@ -6,6 +6,7 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import BracketChart from '../components/BracketChart.jsx';
 import DoubleElimBracketChart from '../components/DoubleElimBracketChart.jsx';
 import AdaptiveBracketChart from '../components/AdaptiveBracketChart.jsx';
+import MobileStandings, { standingsRows } from '../components/MobileStandings.jsx';
 
 function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_single_elim') return 'Generate Fixtures (single-elimination knockout)';
@@ -1887,7 +1888,12 @@ export default function DivisionDetail() {
       <>
       <section className="card">
         <h2>Standings</h2>
-        <table className="standings-table">
+        <MobileStandings
+          rows={standingsRows(division.standings, isTeams, { withProfileLinks: true, withBreakStats: true, isDoubles })}
+          diffLabel="+/-"
+          nameLabel={isTeams ? 'Team' : isDoubles ? 'Pairing' : 'Player'}
+        />
+        <table className="standings-table cs-standings-desktop">
           {isTeams ? (
             <>
               <thead>
@@ -1940,7 +1946,7 @@ export default function DivisionDetail() {
             </>
           )}
         </table>
-        <p className="standings-legend">
+        <p className="standings-legend cs-standings-desktop">
           {isTeams
             ? 'P = Played · W = Won · D = Drawn · L = Lost · LF = Legs For · LA = Legs Against · +/- = Leg Difference · Pts = Points'
             : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · BND = Break and Dish · RND = Reverse Break and Dish · NS = No-shows (authorised) · Pts = Points'}

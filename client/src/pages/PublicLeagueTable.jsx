@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import './publicPages.css';
+import MobileStandings, { standingsRows } from '../components/MobileStandings.jsx';
 
 // Standalone, unauthenticated "League Table" board for a whole league - like
 // Arena/StreamOverlay (outside the normal app shell, no login gate), but
@@ -98,7 +99,11 @@ function StandingsTable({ division }) {
 
   return (
     <>
-    <table className="public-table">
+    <MobileStandings
+      rows={standingsRows(division.standings, isTeams, { isDoubles: division.entryType === 'doubles' })}
+      nameLabel={isTeams ? 'Team' : division.entryType === 'doubles' ? 'Pairing' : 'Player'}
+    />
+    <table className="public-table cs-standings-desktop">
       {isTeams ? (
         <>
           <thead>
@@ -148,7 +153,7 @@ function StandingsTable({ division }) {
         </>
       )}
     </table>
-    <p className="public-standings-legend">
+    <p className="public-standings-legend cs-standings-desktop">
       {isTeams
         ? 'P = Played · W = Won · D = Drawn · L = Lost · LF = Legs For · LA = Legs Against · +/- = Leg Difference · Pts = Points'
         : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · Pts = Points'}
