@@ -1268,3 +1268,8 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
   .cs-career-top { flex-direction: column; align-items: stretch; }
   .cs-career-top .cs-ring { align-self: center; }
 }
+
+/* Polish after live check (2026-09-22) */
+.cs-st-head .cs-st-pts { font-size: inherit; }
+.cs-empty > svg, .cs-best > svg { flex-shrink: 0; }
+.cs-block + .cs-tiles { margin-top: 14px; }
