@@ -36,7 +36,7 @@ export default function LeagueManagerPortal() {
   const managed = (leagues || []).filter((l) => canManageLeague(l));
 
   return (
-    <div>
+    <div className="portal-menu-page">
       <h1>League Manager Portal</h1>
       <p className="muted">
         Signed in as <strong>{user.firstName} {user.lastName}</strong> · flagged as a League Manager.

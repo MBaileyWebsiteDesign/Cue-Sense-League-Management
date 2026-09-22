@@ -992,6 +992,19 @@ h3 { font-size: 1.05rem; font-weight: 700; }
      unchanged. */
   .portal-card { text-align: center; }
 
+  /* Centres the Admin/League Manager/Captain Portal menu pages on phones:
+     the page h1, the intro paragraph directly under it, and every card's
+     heading/description/status line inside the .card-grid launcher menu
+     (text-align inherits down into each card's h2/p/span). Deliberately
+     scoped to .card-grid only, so other sections on these same pages
+     (e.g. League Manager's "Leagues you manage" list, Captain's "Coming
+     soon"/"Your upcoming matches" cards) stay left-aligned. */
+  .portal-menu-page > h1,
+  .portal-menu-page > p,
+  .portal-menu-page .card-grid .card {
+    text-align: center;
+  }
+
   .portal-card .fixture-list li {
     flex-direction: column;
     justify-content: center;
