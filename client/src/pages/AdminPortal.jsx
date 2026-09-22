@@ -20,7 +20,7 @@ export default function AdminPortal() {
   }, []);
 
   return (
-    <div>
+    <div className="portal-menu-page">
       <h1>Admin Portal</h1>
       <p className="muted">
         Manage accounts and whole seasons from here. Score corrections for a

@@ -27,7 +27,7 @@ export default function CaptainPortal() {
   const upcoming = (fixtures || []).filter((f) => f.status !== 'completed');
 
   return (
-    <div>
+    <div className="portal-menu-page">
       <h1>Captain Portal</h1>
       <p className="muted">
         Signed in as <strong>{user.firstName} {user.lastName}</strong> · marked as a team captain.
