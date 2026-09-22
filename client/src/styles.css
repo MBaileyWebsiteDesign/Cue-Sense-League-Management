@@ -439,6 +439,22 @@ h3 { font-size: 1.05rem; font-weight: 700; }
   resize: vertical;
 }
 
+/* Messages.jsx conversation compose box - full width of its card, and
+   (via the doubled `rows` prop on the element itself) roughly twice the
+   height a 2-row textarea would give. */
+.message-compose-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 1rem;
+  resize: vertical;
+}
+
 .inline-form {
   display: flex;
   gap: 8px;

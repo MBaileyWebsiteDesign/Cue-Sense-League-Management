@@ -291,7 +291,8 @@ function Thread({ userId }) {
       {data.canSend ? (
         <form className="card form" onSubmit={send}>
           <textarea
-            rows={2}
+            className="message-compose-input"
+            rows={4}
             maxLength={1000}
             placeholder="Type a message…"
             value={text}
