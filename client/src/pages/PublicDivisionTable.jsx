@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import './publicPages.css';
+import MobileStandings, { standingsRows } from '../components/MobileStandings.jsx';
 
 // Standalone, unauthenticated "Division Table" board for a single division -
 // same reasoning/pattern as PublicLeagueTable.jsx (see that file's header
@@ -70,7 +71,11 @@ export default function PublicDivisionTable() {
         <p className="public-empty-state">No entrants registered yet - check back once the roster is set.</p>
       ) : (
         <>
-        <table className="public-table">
+        <MobileStandings
+          rows={standingsRows(data.standings, isTeams, { isDoubles: data.entryType === 'doubles' })}
+          nameLabel={isTeams ? 'Team' : data.entryType === 'doubles' ? 'Pairing' : 'Player'}
+        />
+        <table className="public-table cs-standings-desktop">
           {isTeams ? (
             <>
               <thead>
@@ -120,7 +125,7 @@ export default function PublicDivisionTable() {
             </>
           )}
         </table>
-        <p className="public-standings-legend">
+        <p className="public-standings-legend cs-standings-desktop">
           {isTeams
             ? 'P = Played · W = Won · D = Drawn · L = Lost · LF = Legs For · LA = Legs Against · +/- = Leg Difference · Pts = Points'
             : 'P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · Pts = Points'}

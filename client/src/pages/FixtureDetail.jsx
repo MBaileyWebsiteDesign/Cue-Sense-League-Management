@@ -12,6 +12,7 @@ import {
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useIsAdminSession } from '../useAdminSession.js';
 import { useAuth } from '../AuthContext.jsx';
+import { formatFixtureDate } from '../components/StatsUI.jsx';
 
 // Shared "submitted, awaiting confirmation / disputed" banner + action
 // buttons for a result that's reached the submit -> confirm handshake (see
@@ -637,6 +638,41 @@ function TeamFixtureView({ fixture, onChange, setError, onOptimisticLegFrame, on
 // awayPairing, a named 2-3 player group) - the two are structurally
 // identical (one continuous frame race, no legs), differing only in what
 // the "entrant" is and whether it links to a player profile page.
+// Completed singles/doubles match (mobile redesign, 2026-09-22): the result
+// comes first as a summary card instead of the full scoring panel with
+// every button greyed out - scoring controls only show while a match is live.
+function FinalResultCard({ fixture, homeEntrant, awayEntrant, EntrantName }) {
+  const winnerId = fixture.winnerPlayerId;
+  const date = formatFixtureDate(fixture.scheduledDate);
+  const side = (entrant, id, score) => {
+    const won = winnerId && winnerId === id;
+    const lost = winnerId && winnerId !== id;
+    return (
+      <div className={`cs-final-side${won ? ' cs-final-won' : ''}`}>
+        <span className={`cs-badge ${won ? 'cs-chip-W' : lost ? 'cs-chip-L' : 'cs-chip-V'}`} aria-label={won ? 'Winner' : lost ? 'Loser' : 'No winner'}>
+          {won ? 'W' : lost ? 'L' : '–'}
+        </span>
+        <span className="cs-final-name"><EntrantName entrant={entrant} id={id} /></span>
+        <span className="cs-final-score">{score}</span>
+      </div>
+    );
+  };
+  return (
+    <section className="card cs-final">
+      <div className="cs-card-head">
+        <h2>Final result</h2>
+        {date && <span className="muted">{date}</span>}
+      </div>
+      {side(homeEntrant, fixture.homePlayerId, fixture.homeFrameScore)}
+      {side(awayEntrant, fixture.awayPlayerId, fixture.awayFrameScore)}
+      {fixture.closedEarly && <p className="muted cs-small" style={{ margin: '8px 0 0' }}>Closed early - not played out.</p>}
+      {!fixture.closedEarly && fixture.frames.length === 0 && (
+        <p className="muted cs-small" style={{ margin: '8px 0 0' }}>Marked complete with no frames recorded.</p>
+      )}
+    </section>
+  );
+}
+
 function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimisticFrame, onRollbackFrame }) {
   const { user, isAdmin } = useAuth();
   const complete = fixture.status === 'completed';
@@ -787,6 +823,9 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
             : 'Saving frame\u2026'}
         </p>
       )}
+      {complete ? (
+        <FinalResultCard fixture={fixture} homeEntrant={homeEntrant} awayEntrant={awayEntrant} EntrantName={EntrantName} />
+      ) : (
       <section className="card scoreboard">
         <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === fixture.homePlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
           <h2><EntrantName entrant={homeEntrant} id={fixture.homePlayerId} /></h2>
@@ -858,6 +897,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
           </div>
         </div>
       </section>
+      )}
 
       {raceTargetReached && fixture.canControl && (
         <p className="banner" style={{ background: '#dbeafe', color: '#1e40af', textAlign: 'center' }}>
@@ -909,12 +949,6 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         onReopen={async () => { await api.adminReopenFixture(fixture.id); onChange(); }}
       />
 
-      {complete && (
-        <p className="banner banner-success">
-          Match complete: {homeEntrant.name} {fixture.homeFrameScore} - {fixture.awayFrameScore} {awayEntrant.name}
-          {fixture.closedEarly && ' - closed early, not played out'}
-        </p>
-      )}
 
       {/* Free Play has no division/league to browse back to afterwards (it's
           just the one 2-player match - see AdHocGame.jsx), so once it's
@@ -930,26 +964,43 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
       <section className="card">
         <div className="page-header">
           <h2>Frame history</h2>
-          <button className="btn" disabled={fixture.frames.length === 0 || locked || framePending} onClick={onUndo}>
-            Undo last frame
-          </button>
+          {!complete && (
+            <button className="btn" disabled={fixture.frames.length === 0 || locked || framePending} onClick={onUndo}>
+              Undo last frame
+            </button>
+          )}
         </div>
-        <ol className="frame-history">
-          {fixture.frames.map((f) => (
-            <li key={f.frameNumber}>
-              Frame {f.frameNumber}: Winner: {f.winnerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
-              {f.method === 'bnd' && <strong> (BND)</strong>}
-              {f.method === 'rnd' && <strong> (RND)</strong>}
-              {f.breakerPlayerId && (
-                <span className="muted">
-                  {' '}- Breaking player: {f.breakerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}
-                </span>
-              )}
-              {f.pending && <span className="muted"> - saving…</span>}
-            </li>
-          ))}
-          {fixture.frames.length === 0 && <li className="muted">No frames recorded yet.</li>}
-        </ol>
+        {fixture.frames.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>No frames recorded{complete ? '' : ' yet'}.</p>
+        ) : (
+          <ol className="cs-timeline">
+            {(() => {
+              let h = 0;
+              let a = 0;
+              return fixture.frames.map((f) => {
+                const homeWon = f.winnerPlayerId === fixture.homePlayerId;
+                if (homeWon) h += 1; else a += 1;
+                const winnerName = homeWon ? homeEntrant.name : awayEntrant.name;
+                return (
+                  <li key={f.frameNumber} className={homeWon ? 'cs-tl-home' : 'cs-tl-away'}>
+                    <span className="cs-tl-num">{f.frameNumber}</span>
+                    <span className="cs-tl-body">
+                      <strong>{winnerName}</strong>
+                      {f.method === 'bnd' && <span className="cs-tag">BND</span>}
+                      {f.method === 'rnd' && <span className="cs-tag">RND</span>}
+                      {f.breakerPlayerId && (
+                        <span className="muted cs-small">Broke: {f.breakerPlayerId === fixture.homePlayerId ? homeEntrant.name : awayEntrant.name}</span>
+                      )}
+                      {f.table && <span className="muted cs-small">Table {f.table}</span>}
+                      {f.pending && <span className="muted cs-small">saving…</span>}
+                    </span>
+                    <span className="cs-tl-score">{h}–{a}</span>
+                  </li>
+                );
+              });
+            })()}
+          </ol>
+        )}
       </section>
     </div>
   );
@@ -1207,7 +1258,17 @@ export default function FixtureDetail() {
   // account portal (PlayerPortal.jsx's "My Fixtures" panel, at /account).
   const isPlayerSession = !isAdminSession && !isCaptain;
 
-  const load = () => api.getFixture(fixtureId).then(setFixture).catch((e) => setError(e.message));
+  // notFound: GET /api/fixtures/:id returned 404 - the fixture doesn't exist,
+  // or it's in a round that hasn't been released to players yet (the server
+  // deliberately reports both the same way). Previously this left the page
+  // stuck on "Loading…" forever.
+  const [notFound, setNotFound] = useState(false);
+  const load = () => api.getFixture(fixtureId)
+    .then((f) => { setNotFound(false); setFixture(f); })
+    .catch((e) => {
+      if (e.status === 404) setNotFound(true);
+      setError(e.message);
+    });
 
   useEffect(() => {
     load();
@@ -1267,9 +1328,22 @@ export default function FixtureDetail() {
   useSetBreadcrumbs(
     fixture
       ? [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: fixture.divisionName || 'Division', to: `/divisions/${fixture.divisionId}` }, { label: roundLabel(fixture) }]
-      : [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Loading…' }]
+      : [{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: notFound ? 'Not available' : 'Loading…' }]
   );
 
+  if (!fixture && notFound) {
+    return (
+      <section className="card cs-notfound">
+        <h1 style={{ marginTop: 0 }}>Fixture not available</h1>
+        <p className="muted">
+          This fixture couldn't be found. It may have been removed, or it's in a round that hasn't been
+          released yet.
+        </p>
+        <Link className="btn btn-primary" to={isPlayerSession ? '/account' : '/'}>Back to home</Link>
+      </section>
+    );
+  }
+  if (!fixture && error) return <p className="error">{error}</p>;
   if (!fixture) return <p>Loading…</p>;
 
   // NB: can't detect team fixtures via `homeTeamId` - it's `null` for TBD
