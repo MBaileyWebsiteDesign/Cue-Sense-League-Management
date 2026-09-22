@@ -439,6 +439,22 @@ h3 { font-size: 1.05rem; font-weight: 700; }
   resize: vertical;
 }
 
+/* Messages.jsx conversation compose box - full width of its card, and
+   (via the doubled `rows` prop on the element itself) roughly twice the
+   height a 2-row textarea would give. */
+.message-compose-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 1rem;
+  resize: vertical;
+}
+
 .inline-form {
   display: flex;
   gap: 8px;
@@ -715,6 +731,13 @@ h3 { font-size: 1.05rem; font-weight: 700; }
    their own line, for both Upcoming and Recent results. */
 .fixture-info { display: flex; flex-direction: column; gap: 2px; }
 .fixture-line { display: block; }
+
+/* The fixture row itself navigates to the fixture via onClick (not a real
+   <a>, since the opponent name inside it is now its own real link into
+   Messages - an <a> can't nest another <a>). This keeps the same
+   ink-colour + underline-on-hover look the whole row had before. */
+.fixture-row-link { color: var(--ink); cursor: pointer; }
+.fixture-row-link:hover { text-decoration: underline; }
 
 .status {
   font-size: 0.75rem;
