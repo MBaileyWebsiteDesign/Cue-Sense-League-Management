@@ -39,25 +39,111 @@ function entryTypeLabel(division) {
   return 'Singles';
 }
 
-function DivisionGameStyle({ division }) {
+// One line describing how a division plays, e.g.
+// "Singles · Race to 6 · Standard League - Double Leg".
+function divisionFormat(division) {
   const isKiller = KILLER_SCHEDULING_TYPES.includes(division.scheduling);
+  const parts = [];
+  if (isKiller) {
+    parts.push(`${division.startingLives || 3} lives each`);
+  } else {
+    parts.push(entryTypeLabel(division));
+    if (division.raceTo) parts.push(`Race to ${division.raceTo}`);
+  }
+  parts.push(schedulingLabel(division.scheduling));
+  return parts.join(' · ');
+}
+
+function paymentLabel(payment) {
+  if (!payment || !payment.required) return 'Free to join';
+  const amount = payment.currency === 'GBP' ? `£${payment.amount}` : `${payment.amount} ${payment.currency}`;
+  return `${amount} entry`;
+}
+
+function StatusBadge({ status }) {
+  if (status === 'assigned') return <span className="ol-status ol-status-in">Registered</span>;
+  if (status === 'pending') return <span className="ol-status ol-status-wait">Awaiting placement</span>;
+  return null;
+}
+
+function DivisionsBlock({ divisions }) {
+  if (!divisions || divisions.length === 0) return null;
+  const formats = divisions.map(divisionFormat);
+  const allSame = formats.every((f) => f === formats[0]);
+
+  if (allSame) {
+    return (
+      <div className="ol-divs">
+        <p className="ol-divs-format">
+          <span className="ol-divs-label">{divisions.length === 1 ? 'Format' : 'All divisions'}</span>
+          {formats[0]}
+        </p>
+        <div className="ol-div-chips">
+          {divisions.map((d) => (
+            <span key={d.name} className="ol-div-chip">{d.name}</span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <li>
-      <strong>{division.name}</strong>{' '}
-      <span className="muted">
-        · {isKiller ? `${division.startingLives || 3} lives each` : entryTypeLabel(division)}
-        {!isKiller && ` · race to ${division.raceTo}`} · {schedulingLabel(division.scheduling)}
-      </span>
-    </li>
+    <ul className="ol-div-rows">
+      {divisions.map((d, i) => (
+        <li key={d.name}>
+          <strong>{d.name}</strong>
+          <span className="muted">{formats[i]}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function PaymentSummary({ payment }) {
-  if (!payment || !payment.required) {
-    return <span className="muted">Free to join</span>;
-  }
-  const amount = payment.currency === 'GBP' ? `£${payment.amount}` : `${payment.amount} ${payment.currency}`;
-  return <span className="muted">Entry fee: {amount}</span>;
+function LeagueCard({ league, requesting, onRequest }) {
+  const l = league;
+  const isRequesting = requesting === l.leagueId;
+  return (
+    <li className="ol-card">
+      <div className="ol-card-head">
+        <div className="ol-card-title">
+          <Link to={`/leagues/${l.leagueId}`} className="ol-name">{l.leagueName}</Link>
+          {l.sport && <span className="muted ol-sport">{l.sport}</span>}
+        </div>
+        <StatusBadge status={l.requestStatus} />
+      </div>
+
+      <div className="ol-chips">
+        <span className="ol-chip">
+          {l.divisionCount} division{l.divisionCount === 1 ? '' : 's'}
+        </span>
+        <span className={`ol-chip${l.payment && l.payment.required ? '' : ' ol-chip-free'}`}>
+          {paymentLabel(l.payment)}
+        </span>
+      </div>
+
+      <DivisionsBlock divisions={l.divisions} />
+
+      {l.requestStatus === 'pending' && (
+        <p className="muted ol-note">Interest registered - a League Manager will place you in a division.</p>
+      )}
+
+      <div className="ol-actions">
+        {l.requestStatus !== 'assigned' && l.requestStatus !== 'pending' && (
+          <button
+            className="btn btn-primary cs-btn-block"
+            type="button"
+            disabled={isRequesting}
+            onClick={() => onRequest(l.leagueId)}
+          >
+            {isRequesting ? 'Registering…' : 'Register interest'}
+          </button>
+        )}
+        <Link to={`/leagues/${l.leagueId}`} className="btn cs-btn-block ol-view">
+          View league
+        </Link>
+      </div>
+    </li>
+  );
 }
 
 export default function OpenLeagues() {
@@ -66,8 +152,9 @@ export default function OpenLeagues() {
   const [requesting, setRequesting] = useState(null);
   const { isAdmin, isCaptain, isLeagueManager } = useAuth();
   const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  const homePath = isPlayerSession ? '/account' : '/';
 
-  useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Open Leagues' }]);
+  useSetBreadcrumbs([{ label: 'Home', to: homePath }, { label: 'Open Leagues' }]);
 
   const load = () => api.getOpenLeagues().then(setLeagues).catch((e) => setError(e.message));
 
@@ -89,54 +176,29 @@ export default function OpenLeagues() {
   };
 
   return (
-    <div>
+    <div className="ol-page">
       <h1>Open Leagues</h1>
-      <p className="muted">
-        Leagues here are open for any registered player to register interest in. A League Manager will
-        place you into a division once they're ready.
-      </p>
+      <ol className="ol-how" aria-label="How it works">
+        <li><span className="ol-how-num">1</span>Register your interest in a league</li>
+        <li><span className="ol-how-num">2</span>A League Manager places you in a division</li>
+      </ol>
 
       {error && <p className="error">{error}</p>}
 
       {!leagues ? (
         <p className="muted">Loading…</p>
       ) : leagues.length === 0 ? (
-        <p className="muted">No leagues are open for interest registration right now.</p>
+        <div className="card ol-empty">
+          <p><strong>No leagues are open right now.</strong></p>
+          <p className="muted">Check back soon - new leagues appear here when they open for registration.</p>
+          <Link to={homePath} className="btn cs-btn-block">
+            {isPlayerSession ? 'Back to my account' : 'Back to home'}
+          </Link>
+        </div>
       ) : (
-        <ul className="fixture-list">
+        <ul className="ol-list">
           {leagues.map((l) => (
-            <li key={l.leagueId} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>
-                  <Link to={`/leagues/${l.leagueId}`}>{l.leagueName}</Link>{' '}
-                  <span className="muted">
-                    · {l.divisionCount} division{l.divisionCount === 1 ? '' : 's'} ·{' '}
-                  </span>
-                  <PaymentSummary payment={l.payment} />
-                </span>
-                {l.requestStatus === 'assigned' ? (
-                  <span className="muted">You're already registered</span>
-                ) : l.requestStatus === 'pending' ? (
-                  <span className="muted">Interest registered - awaiting placement</span>
-                ) : (
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    disabled={requesting === l.leagueId}
-                    onClick={() => onRequest(l.leagueId)}
-                  >
-                    {requesting === l.leagueId ? 'Registering…' : 'Register interest'}
-                  </button>
-                )}
-              </div>
-              {l.divisions && l.divisions.length > 0 && (
-                <ul className="muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-                  {l.divisions.map((d) => (
-                    <DivisionGameStyle key={d.name} division={d} />
-                  ))}
-                </ul>
-              )}
-            </li>
+            <LeagueCard key={l.leagueId} league={l} requesting={requesting} onRequest={onRequest} />
           ))}
         </ul>
       )}

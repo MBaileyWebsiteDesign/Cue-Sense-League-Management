@@ -1521,3 +1521,52 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
   font-size: 1rem; font-weight: 400; background: #fff; color: var(--ink);
 }
 .ah-form input:focus, .ah-search:focus, .ah-walkin-form input:focus { outline: 2px solid var(--secondary); outline-offset: 1px; border-color: var(--secondary); }
+
+
+/* ---- Open Leagues redesign (2026-09-23) ---- */
+.ol-how { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ol-how li { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.95rem; }
+.ol-how-num {
+  width: 26px; height: 26px; border-radius: 13px; background: var(--primary); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; flex-shrink: 0;
+}
+.ol-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.ol-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.ol-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.ol-card-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ol-name { font-size: 1.15rem; font-weight: 700; color: var(--primary); text-decoration: none; }
+.ol-name:hover { text-decoration: underline; }
+.ol-sport { font-size: 0.85rem; }
+.ol-status {
+  flex-shrink: 0; font-size: 0.78rem; font-weight: 700; border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+}
+.ol-status-in { background: #e7f2ea; color: var(--win-ink); }
+.ol-status-wait { background: #fbf5e3; color: #7a5a10; border: 1px solid #e6d59e; }
+.ol-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ol-chip {
+  font-size: 0.82rem; font-weight: 600; border-radius: 999px; padding: 4px 10px;
+  background: #f1efe8; color: var(--ink);
+}
+.ol-chip-free { background: #e7f2ea; color: var(--win-ink); }
+.ol-divs { display: flex; flex-direction: column; gap: 8px; }
+.ol-divs-format { margin: 0; font-size: 0.9rem; display: flex; flex-direction: column; gap: 2px; }
+.ol-divs-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.ol-div-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ol-div-chip {
+  font-size: 0.8rem; font-weight: 600; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; background: var(--bg);
+}
+.ol-div-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ol-div-rows li { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid #f1efe8; font-size: 0.9rem; }
+.ol-div-rows li:last-child { border-bottom: 0; }
+.ol-note { margin: 0; font-size: 0.85rem; }
+.ol-actions { display: flex; flex-direction: column; gap: 8px; }
+.ol-view { color: var(--primary); text-decoration: none; }
+.ol-empty { text-align: center; }
+.ol-empty p { margin: 0 0 8px; }
+@media (min-width: 640px) {
+  .ol-actions { flex-direction: row; }
+  .ol-actions .cs-btn-block { width: auto; flex: 1; }
+}
