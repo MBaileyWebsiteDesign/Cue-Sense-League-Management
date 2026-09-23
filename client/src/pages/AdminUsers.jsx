@@ -353,6 +353,31 @@ function BulkImportPanel({ onImported }) {
   );
 }
 
+const ROLE_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'isAdmin', label: 'Admins' },
+  { key: 'isLeagueManager', label: 'League Managers' },
+  { key: 'isVenueManager', label: 'Venue Managers' },
+  { key: 'isCaptain', label: 'Captains' },
+  { key: 'suspended', label: 'Suspended' },
+];
+
+function userInitials(u) {
+  return `${(u.firstName || '')[0] || ''}${(u.lastName || '')[0] || ''}`.toUpperCase() || '?';
+}
+
+function RoleChips({ u }) {
+  return (
+    <span className="au-roles">
+      {u.isAdmin && <span className="au-role au-role-admin">Admin</span>}
+      {u.isLeagueManager && <span className="au-role">League Manager</span>}
+      {u.isVenueManager && <span className="au-role">Venue Manager</span>}
+      {u.isCaptain && <span className="au-role">Captain</span>}
+      {u.classification && <span className="au-role au-role-class">Class {u.classification}</span>}
+    </span>
+  );
+}
+
 export default function AdminUsers() {
   const [users, setUsers] = useState(null);
   const [venues, setVenues] = useState([]);
@@ -361,6 +386,8 @@ export default function AdminUsers() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState(null);
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Users' }]);
 
@@ -379,13 +406,23 @@ export default function AdminUsers() {
     load(query);
   };
 
+  // Role/status filter is applied on top of the server search, client-side,
+  // to whatever the current search returned.
+  const shown = (users || []).filter((u) => {
+    if (roleFilter === 'all') return true;
+    if (roleFilter === 'suspended') return u.status === 'suspended';
+    return !!u[roleFilter];
+  });
+  const countFor = (key) => (users || []).filter((u) => (key === 'all' ? true : key === 'suspended' ? u.status === 'suspended' : !!u[key])).length;
+
   const toggleOne = (id) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const allSelected = users && users.length > 0 && selectedIds.length === users.length;
+  const allSelected = shown.length > 0 && shown.every((u) => selectedIds.includes(u.id));
   const toggleAll = () => {
-    setSelectedIds(allSelected ? [] : users.map((u) => u.id));
+    const ids = shown.map((u) => u.id);
+    setSelectedIds(allSelected ? selectedIds.filter((id) => !ids.includes(id)) : [...new Set([...selectedIds, ...ids])]);
   };
 
   // Accounts with any league/match history (played a fixture, on a division/
@@ -397,7 +434,7 @@ export default function AdminUsers() {
   // from the account's own edit page.
   const onDeleteSelected = async () => {
     if (selectedIds.length === 0) return;
-    const names = users.filter((u) => selectedIds.includes(u.id)).map((u) => `${u.firstName} ${u.lastName}`);
+    const names = (users || []).filter((u) => selectedIds.includes(u.id)).map((u) => `${u.firstName} ${u.lastName}`);
     if (!window.confirm(`Delete ${selectedIds.length} account(s)?\n\n${names.join(', ')}\n\nThis can't be undone.`)) {
       return;
     }
@@ -417,18 +454,20 @@ export default function AdminUsers() {
   };
 
   return (
-    <div>
-      <div className="page-header">
+    <div className="au-page">
+      <div className="au-head">
+        <Link to="/admin" className="msg-icon-btn" aria-label="Back to Admin Portal">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
         <h1>Manage Users</h1>
-        <span className="inline-form" style={{ marginBottom: 0 }}>
-          <Link to="/admin" className="btn">&larr; Admin Portal</Link>
-        </span>
+        {users && <span className="muted au-total">{users.length} account{users.length === 1 ? '' : 's'}</span>}
       </div>
 
-      <BulkImportPanel onImported={() => load(query)} />
-
-      <form className="inline-form" onSubmit={onSearch}>
+      <form className="au-search" onSubmit={onSearch} role="search">
         <input
+          type="search"
+          className="ah-search"
+          aria-label="Search by name, email or team"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name, email or team…"
@@ -436,12 +475,35 @@ export default function AdminUsers() {
         <button className="btn btn-primary" type="submit">Search</button>
       </form>
 
-      <QuickAddUserBox onAdded={() => load(query)} />
+      <div className="au-filters" role="group" aria-label="Filter by role">
+        {ROLE_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            className={`au-filter${roleFilter === f.key ? ' au-filter-on' : ''}`}
+            aria-pressed={roleFilter === f.key}
+            onClick={() => setRoleFilter(f.key)}
+          >
+            {f.label}
+            {users && <span className="au-filter-count">{countFor(f.key)}</span>}
+          </button>
+        ))}
+      </div>
+
+      <section className="card au-add">
+        <button type="button" className="au-add-toggle" aria-expanded={quickAddOpen} onClick={() => setQuickAddOpen((o) => !o)}>
+          <span>Quick add a user</span>
+          <span aria-hidden="true">{quickAddOpen ? '−' : '+'}</span>
+        </button>
+        {quickAddOpen && <QuickAddUserBox onAdded={() => load(query)} />}
+      </section>
+
+      <BulkImportPanel onImported={() => load(query)} />
 
       {error && <p className="error">{error}</p>}
 
       {deleteResult && (
-        <div className="banner banner-success" style={{ marginTop: 12 }}>
+        <div className="banner banner-success" style={{ marginTop: 0 }}>
           {deleteResult.deleted.length > 0 && (
             <p style={{ margin: '0 0 8px' }}>
               Deleted {deleteResult.deleted.length} account{deleteResult.deleted.length === 1 ? '' : 's'}:{' '}
@@ -463,68 +525,115 @@ export default function AdminUsers() {
         </div>
       )}
 
-      {selectedIds.length > 0 && (
-        <div className="inline-form" style={{ marginTop: 12 }}>
-          <button className="btn btn-danger" type="button" onClick={onDeleteSelected} disabled={deleting}>
-            {deleting ? 'Deleting…' : `Delete ${selectedIds.length} selected`}
-          </button>
-          <button className="btn" type="button" onClick={() => setSelectedIds([])} disabled={deleting}>
-            Clear selection
-          </button>
-        </div>
-      )}
-
       {!users ? (
         <p>Loading…</p>
       ) : (
-        <table className="standings-table">
-          <thead>
-            <tr>
-              <th style={{ width: 32 }}>
-                <input
-                  type="checkbox"
-                  style={{ width: 'auto' }}
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  aria-label="Select all users"
-                />
-              </th>
-              <th>Name</th><th>Email</th><th>Team</th><th>Venue</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td>
+        <>
+          {/* Phones: one card per account */}
+          <div className="au-mobile">
+            {shown.length > 0 && (
+              <label className="au-select-all">
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                Select all {shown.length} shown
+              </label>
+            )}
+            <ul className="au-list">
+              {shown.map((u) => (
+                <li key={u.id} className={`au-card${selectedIds.includes(u.id) ? ' au-card-selected' : ''}`}>
                   <input
                     type="checkbox"
-                    style={{ width: 'auto' }}
+                    className="au-check"
                     checked={selectedIds.includes(u.id)}
                     onChange={() => toggleOne(u.id)}
                     aria-label={`Select ${u.firstName} ${u.lastName}`}
                   />
-                </td>
-                <td style={{ textAlign: 'left' }}>
-                  <Link to={`/admin/users/${u.id}`}>{u.firstName} {u.lastName}</Link>
-                </td>
-                <td style={{ textAlign: 'left' }}>{u.email}</td>
-                <td style={{ textAlign: 'left' }}>{u.teamName}</td>
-                <td style={{ textAlign: 'left' }}>{venueNameById[u.venueId] || '—'}</td>
-                <td>{u.classification || '—'}</td>
-                <td>{u.isAdmin ? '✓' : ''}</td>
-                <td>{u.isCaptain ? '✓' : ''}</td>
-                <td>{u.isLeagueManager ? '✓' : ''}</td>
-                <td>{u.isVenueManager ? '✓' : ''}</td>
-                <td>
-                  <span className={`status ${u.status === 'suspended' ? '' : 'status-completed'}`}>{u.status}</span>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 && (
-              <tr><td colSpan={11} className="muted">No users match that search.</td></tr>
-            )}
-          </tbody>
-        </table>
+                  <Link to={`/admin/users/${u.id}`} className="au-card-link">
+                    <span className="dv-avatar" aria-hidden="true">{userInitials(u)}</span>
+                    <span className="au-card-main">
+                      <span className="au-card-top">
+                        <strong className="au-name">{u.firstName} {u.lastName}</strong>
+                        {u.status === 'suspended' && <span className="au-suspended">Suspended</span>}
+                      </span>
+                      <span className="au-email">{u.email}</span>
+                      {(u.teamName || venueNameById[u.venueId]) && (
+                        <span className="au-meta">
+                          {[u.teamName, venueNameById[u.venueId]].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                      <RoleChips u={u} />
+                    </span>
+                    <svg className="au-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {shown.length === 0 && <p className="muted">No users match that search.</p>}
+          </div>
+
+          {/* Wider screens: the full table */}
+          <div className="au-desktop">
+            <table className="standings-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 32 }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: 'auto' }}
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      aria-label="Select all users shown"
+                    />
+                  </th>
+                  <th>Name</th><th>Email</th><th>Team</th><th>Venue</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((u) => (
+                  <tr key={u.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        style={{ width: 'auto' }}
+                        checked={selectedIds.includes(u.id)}
+                        onChange={() => toggleOne(u.id)}
+                        aria-label={`Select ${u.firstName} ${u.lastName}`}
+                      />
+                    </td>
+                    <td style={{ textAlign: 'left' }}>
+                      <Link to={`/admin/users/${u.id}`}>{u.firstName} {u.lastName}</Link>
+                    </td>
+                    <td style={{ textAlign: 'left' }}>{u.email}</td>
+                    <td style={{ textAlign: 'left' }}>{u.teamName}</td>
+                    <td style={{ textAlign: 'left' }}>{venueNameById[u.venueId] || '—'}</td>
+                    <td>{u.classification || '—'}</td>
+                    <td>{u.isAdmin ? '✓' : ''}</td>
+                    <td>{u.isCaptain ? '✓' : ''}</td>
+                    <td>{u.isLeagueManager ? '✓' : ''}</td>
+                    <td>{u.isVenueManager ? '✓' : ''}</td>
+                    <td>
+                      <span className={`status ${u.status === 'suspended' ? '' : 'status-completed'}`}>{u.status}</span>
+                    </td>
+                  </tr>
+                ))}
+                {shown.length === 0 && (
+                  <tr><td colSpan={11} className="muted">No users match that search.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {selectedIds.length > 0 && (
+        <div className="au-selbar" role="region" aria-label="Selected accounts">
+          <span className="au-selbar-count">{selectedIds.length} selected</span>
+          <button className="btn" type="button" onClick={() => setSelectedIds([])} disabled={deleting}>
+            Clear
+          </button>
+          <button className="btn btn-danger" type="button" onClick={onDeleteSelected} disabled={deleting}>
+            {deleting ? 'Deleting…' : `Delete ${selectedIds.length}`}
+          </button>
+        </div>
       )}
     </div>
   );
