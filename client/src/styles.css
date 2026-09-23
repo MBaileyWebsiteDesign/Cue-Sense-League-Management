@@ -1827,3 +1827,61 @@ a.dv-roster-name:hover { text-decoration: underline; }
 @media (min-width: 1000px) {
   .ap-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+
+/* ---- Manage Users redesign (2026-09-23) ---- */
+.au-page { display: flex; flex-direction: column; gap: 12px; padding-bottom: 72px; }
+.au-page > .card { margin-bottom: 0; }
+.au-head { display: flex; align-items: center; gap: 10px; }
+.au-head h1 { flex: 1; min-width: 0; margin: 0; font-size: 1.5rem; }
+.au-total { flex-shrink: 0; font-size: 0.85rem; }
+.au-search { display: flex; gap: 8px; }
+.au-search .ah-search { flex: 1; margin: 0; }
+.au-search .btn { flex-shrink: 0; }
+.au-filters { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.au-filter {
+  flex-shrink: 0; min-height: 36px; border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 4px 12px;
+  font: inherit; font-size: 0.85rem; font-weight: 600; color: #4b5563; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.au-filter-on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.au-filter-count { font-size: 0.72rem; opacity: 0.8; }
+.au-add { padding-top: 4px; padding-bottom: 4px; }
+.au-add-toggle {
+  width: 100%; min-height: 48px; border: 0; background: none; padding: 0; cursor: pointer; font: inherit; font-weight: 700;
+  color: var(--primary); display: flex; justify-content: space-between; align-items: center;
+}
+.au-add .quick-add-user-box { padding-bottom: 12px; }
+.au-select-all { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; font-weight: 600; margin-bottom: 6px; }
+.au-select-all input { width: 20px; height: 20px; }
+.au-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.au-card {
+  display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 4px 8px 4px 12px;
+}
+.au-card-selected { border-color: var(--primary); background: #f3f8f4; }
+.au-check { width: 22px; height: 22px; flex-shrink: 0; }
+.au-card-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 0; text-decoration: none; color: var(--ink); }
+.au-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.au-card-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.au-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.au-email, .au-meta { font-size: 0.82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.au-suspended { flex-shrink: 0; font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; background: #fee2e2; color: #991b1b; }
+.au-roles { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.au-role { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; background: #e7f2ea; color: var(--win-ink); }
+.au-role-admin { background: var(--primary); color: #fff; }
+.au-role-class { background: #f1efe8; color: #4b5563; }
+.au-chev { flex-shrink: 0; color: #9ca3af; }
+.au-selbar {
+  position: sticky; bottom: 0; z-index: 25; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+}
+.au-selbar-count { flex: 1; font-weight: 700; }
+.au-desktop { display: none; }
+@media (min-width: 641px) {
+  .au-mobile { display: none; }
+  .au-desktop { display: block; overflow-x: auto; }
+}
+@media (max-width: 640px) {
+  .au-add .quick-add-user-box { flex-direction: column; align-items: stretch; }
+  .au-add .quick-add-user-box input:not([type="checkbox"]) { flex: none; width: 100%; min-height: 44px; box-sizing: border-box; font-size: 1rem; }
+  .au-add .quick-add-user-box .btn { width: 100%; min-height: 44px; }
+}
