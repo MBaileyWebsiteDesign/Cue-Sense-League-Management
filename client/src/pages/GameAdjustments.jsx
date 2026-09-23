@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
@@ -11,6 +11,42 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 // `pending_confirmation`/`disputed`, reopen it back to in_progress so it can
 // be scored again normally. This is the tool the "Result disputed" banner on
 // FixtureDetail.jsx points admins at.
+//
+// Mobile layout (2026-09-23): numbered step cards, dispute cards with the
+// reason quoted, a searchable player picker, fixture rows with status chips,
+// and a two-sided -/+ score editor instead of bare number inputs. Behaviour
+// and API calls are unchanged.
+
+function statusLabel(status) {
+  return String(status || '').replace(/_/g, ' ');
+}
+
+function StatusChip({ status }) {
+  return <span className={`status status-${status}`}>{statusLabel(status)}</span>;
+}
+
+function ScoreStepper({ label, value, onChange }) {
+  const n = Math.max(0, Number(value) || 0);
+  return (
+    <div className="ga-side">
+      <span className="ga-side-name">{label}</span>
+      <div className="ah-stepper ga-stepper">
+        <button type="button" aria-label={`Decrease ${label}`} disabled={n <= 0} onClick={() => onChange(String(Math.max(0, n - 1)))}>−</button>
+        <input
+          type="number"
+          min="0"
+          inputMode="numeric"
+          aria-label={`${label} score`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required
+        />
+        <button type="button" aria-label={`Increase ${label}`} onClick={() => onChange(String(n + 1))}>+</button>
+      </div>
+    </div>
+  );
+}
+
 function OverrideForm({ fixture, isTeams, onChange, setBanner }) {
   const homeName = isTeams ? fixture.homeTeam?.name : (fixture.homePairing ? fixture.homePairing.name : fixture.homePlayer?.name);
   const awayName = isTeams ? fixture.awayTeam?.name : (fixture.awayPairing ? fixture.awayPairing.name : fixture.awayPlayer?.name);
@@ -54,26 +90,26 @@ function OverrideForm({ fixture, isTeams, onChange, setBanner }) {
   };
 
   return (
-    <div>
+    <div className="ga-override">
       {error && <p className="error">{error}</p>}
-      <form className="inline-form" onSubmit={onSubmit}>
-        <label>
-          {homeName || 'Home'}
-          <input type="number" min="0" value={homeScore} onChange={(e) => setHomeScore(e.target.value)} required />
-        </label>
-        <label>
-          {awayName || 'Away'}
-          <input type="number" min="0" value={awayScore} onChange={(e) => setAwayScore(e.target.value)} required />
-        </label>
-        <button className="btn btn-primary" type="submit" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Override Score'}
+      <form onSubmit={onSubmit} className="ga-override-form">
+        <span className="ga-unit muted">{isTeams ? 'Legs won' : 'Frames won'}</span>
+        <div className="ga-sides">
+          <ScoreStepper label={homeName || 'Home'} value={homeScore} onChange={setHomeScore} />
+          <span className="ga-vs" aria-hidden="true">vs</span>
+          <ScoreStepper label={awayName || 'Away'} value={awayScore} onChange={setAwayScore} />
+        </div>
+        <button className="btn btn-primary cs-btn-block" type="submit" disabled={submitting}>
+          {submitting ? 'Saving…' : `Override score to ${Number(homeScore) || 0}–${Number(awayScore) || 0}`}
         </button>
       </form>
       {(fixture.status === 'pending_confirmation' || fixture.status === 'disputed') && (
-        <p className="muted" style={{ marginTop: 8 }}>
-          Or <button className="btn" disabled={reopening} onClick={onReopen}>reopen this fixture for scoring</button>{' '}
-          instead of overriding it directly (unlocks frame entry again, doesn't set a score).
-        </p>
+        <div className="ga-reopen">
+          <button className="btn cs-btn-block" disabled={reopening} onClick={onReopen}>
+            {reopening ? 'Reopening…' : 'Reopen for scoring instead'}
+          </button>
+          <p className="muted ga-small">Unlocks frame entry again - doesn't set a score.</p>
+        </div>
       )}
     </div>
   );
@@ -97,6 +133,7 @@ export default function GameAdjustments() {
   const [loadingFixtures, setLoadingFixtures] = useState(false);
   const [needsAttention, setNeedsAttention] = useState([]);
   const [loadingAttention, setLoadingAttention] = useState(true);
+  const adjustRef = useRef(null);
 
   const loadNeedsAttention = () => {
     setLoadingAttention(true);
@@ -110,6 +147,13 @@ export default function GameAdjustments() {
     api.getRegisteredPlayers().then(setPlayers).catch((e) => setError(e.message));
     loadNeedsAttention();
   }, []);
+
+  // Bring the adjust card into view when a fixture is picked - on a phone it
+  // otherwise opens below the fold.
+  const selectedId = selectedFixture?.id;
+  useEffect(() => {
+    if (selectedId) adjustRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [selectedId]);
 
   const filteredPlayers = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -132,6 +176,13 @@ export default function GameAdjustments() {
     } finally {
       setLoadingFixtures(false);
     }
+  };
+
+  const clearPlayer = () => {
+    setSelectedPlayerId('');
+    setQuery('');
+    setPlayerFixtures([]);
+    setSelectedFixture(null);
   };
 
   const loadFixture = async (fixtureId) => {
@@ -186,115 +237,143 @@ export default function GameAdjustments() {
   // is a general "needs an admin's eyes" feed), this just narrows what
   // Section 1 displays to match its "Games disputed" heading.
   const disputedGames = useMemo(() => needsAttention.filter((item) => item.status === 'disputed'), [needsAttention]);
+  const selectedPlayer = players.find((p) => p.id === selectedPlayerId);
 
   return (
-    <div>
-      <h1>Game Adjustments</h1>
-      <p className="muted">
-        Resolve disputed results directly, or search for a player to correct or reopen any of
-        their fixtures. Use this for anything a "Result disputed" banner points you at, or for a
-        straightforward scoring mistake.
-      </p>
+    <div className="ga-page">
+      <div className="ga-head">
+        <Link to={isAdmin ? '/admin' : '/league-manager'} className="msg-icon-btn" aria-label={isAdmin ? 'Back to Admin Portal' : 'Back to League Manager Portal'}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <h1>Game Adjustments</h1>
+      </div>
+      <p className="muted ga-intro">Resolve disputed results, or find a player to correct or reopen one of their fixtures.</p>
       {error && <p className="error">{error}</p>}
       {banner && <p className="banner banner-success">{banner}</p>}
 
-      <section className="card">
-        <h2>1. Games disputed and Non-contactable/No Show</h2>
-        <p className="muted">
-          Every result currently disputed, across every league - resolve one directly here
-          without searching for the player first. This includes "Non-contactable / No Show"
-          walkover claims (tagged below), which need one click to authorise before the 0-0
-          win counts toward the table.
-        </p>
+      <section className="card ga-card">
+        <div className="ga-card-head">
+          <span className="ga-step">1</span>
+          <h2>Disputed &amp; no-show claims</h2>
+          {!loadingAttention && <span className={`ga-count${disputedGames.length ? ' ga-count-on' : ''}`}>{disputedGames.length}</span>}
+        </div>
         {loadingAttention ? (
-          <p>Loading…</p>
+          <p className="muted">Loading…</p>
         ) : disputedGames.length === 0 ? (
-          <p className="muted">No disputed games right now.</p>
+          <p className="muted ga-empty">Nothing disputed right now.</p>
         ) : (
-          <ul className="fixture-list">
-            {disputedGames.map((item) => (
-              <li key={`${item.fixtureId}-${item.legNumber ?? 'main'}`} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <ul className="ga-disputes">
+            {disputedGames.map((item) => {
+              const key = `${item.fixtureId}-${item.legNumber ?? 'main'}`;
+              return (
+                <li key={key} className="ga-dispute">
+                  <div className="ga-dispute-top">
+                    <span className="ga-dispute-label">{item.label}</span>
+                    <strong className="ga-dispute-score">{item.scoreLabel}</strong>
+                  </div>
+                  <span className="muted ga-small">
+                    {item.leagueName} / {item.divisionName} · Round {item.round}
+                    {item.legNumber ? ` · Leg ${item.legNumber}` : ''}
+                  </span>
+                  {item.disputeReason && (
+                    <blockquote className="ga-reason">
+                      <span className="ga-reason-label">Reason given</span>
+                      {item.disputeReason}
+                    </blockquote>
+                  )}
+                  {item.noShowClaim && (
+                    <div className="ga-noshow">
+                      <span className="status status-disputed">Non-contactable / No Show claim</span>
+                      <button className="btn btn-primary cs-btn-block" disabled={authorizing === key} onClick={() => authorizeNoShow(item)}>
+                        {authorizing === key ? 'Authorising…' : 'Authorise No-Show Win'}
+                      </button>
+                    </div>
+                  )}
                   {item.legNumber ? (
-                    <Link to={`/fixtures/${item.fixtureId}`} style={{ flex: 1 }}>
-                      {item.label} <strong>{item.scoreLabel}</strong>
-                      <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
-                    </Link>
+                    <Link to={`/fixtures/${item.fixtureId}`} className="btn cs-btn-block ga-action">Open fixture to resolve this leg</Link>
                   ) : (
-                    <button className="btn" style={{ width: '100%', textAlign: 'left' }} onClick={() => resolveDirectly(item.fixtureId)}>
-                      {item.label} <strong>{item.scoreLabel}</strong>
-                      <span className="muted"> · {item.leagueName} / {item.divisionName} · Round {item.round}</span>
+                    <button type="button" className="btn btn-brand-green cs-btn-block ga-action" onClick={() => resolveDirectly(item.fixtureId)}>
+                      Resolve this result
                     </button>
                   )}
-                  <span className={`status status-${item.status}`}>{item.status.replace('_', ' ')}</span>
-                </div>
-                {item.disputeReason && (
-                  <p className="muted" style={{ fontSize: '0.85rem', margin: '4px 0 0' }}>
-                    <strong>Reason given:</strong> {item.disputeReason}
-                  </p>
-                )}
-                {item.noShowClaim && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                    <span className="status status-disputed">Non-contactable / No Show claim</span>
-                    <button
-                      className="btn btn-primary"
-                      disabled={authorizing === `${item.fixtureId}-${item.legNumber ?? 'main'}`}
-                      onClick={() => authorizeNoShow(item)}
-                    >
-                      {authorizing === `${item.fixtureId}-${item.legNumber ?? 'main'}` ? 'Authorising…' : 'Authorise No-Show Win'}
-                    </button>
-                  </div>
-                )}
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
-        )}
-        {disputedGames.some((item) => !!item.legNumber) && (
-          <p className="muted" style={{ fontSize: '0.85rem', marginTop: 8 }}>
-            Team-fixture legs open on that fixture's own page - reopen or override an individual leg from there.
-          </p>
         )}
       </section>
 
-      <section className="card">
-        <h2>2. Find a player</h2>
-        <input
-          type="text"
-          placeholder="Search by name…"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setSelectedPlayerId(''); setSelectedFixture(null); }}
-          style={{ width: '100%', maxWidth: 400 }}
-        />
-        {query && !selectedPlayerId && (
-          <ul className="fixture-list" style={{ marginTop: 8 }}>
-            {filteredPlayers.map((p) => (
-              <li key={p.id}>
-                <button className="btn" style={{ width: '100%', textAlign: 'left' }} onClick={() => selectPlayer(p)}>
-                  {p.name}
-                </button>
-              </li>
-            ))}
-            {filteredPlayers.length === 0 && <li className="muted">No matching registered players.</li>}
-          </ul>
+      <section className="card ga-card">
+        <div className="ga-card-head">
+          <span className="ga-step">2</span>
+          <h2>Find a player</h2>
+        </div>
+        {selectedPlayerId ? (
+          <div className="ga-picked">
+            <span className="dv-avatar" aria-hidden="true">
+              {(selectedPlayer?.name || query).split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
+            </span>
+            <strong className="ga-picked-name">{selectedPlayer?.name || query}</strong>
+            <button type="button" className="btn dv-small-btn" onClick={clearPlayer}>Change</button>
+          </div>
+        ) : (
+          <>
+            <input
+              type="search"
+              className="ah-search"
+              aria-label="Search players by name"
+              placeholder="Search by name…"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setSelectedPlayerId(''); setSelectedFixture(null); }}
+            />
+            {query && (
+              <ul className="ga-rows">
+                {filteredPlayers.map((p) => (
+                  <li key={p.id}>
+                    <button type="button" className="ga-row" onClick={() => selectPlayer(p)}>
+                      <span className="dv-avatar dv-avatar-light" aria-hidden="true">
+                        {p.name.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
+                      </span>
+                      <span className="ga-row-main">{p.name}</span>
+                      <svg className="ll-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+                    </button>
+                  </li>
+                ))}
+                {filteredPlayers.length === 0 && <li className="muted ga-empty">No matching registered players.</li>}
+              </ul>
+            )}
+          </>
         )}
       </section>
 
       {selectedPlayerId && (
-        <section className="card">
-          <h2>3. Pick a fixture</h2>
+        <section className="card ga-card">
+          <div className="ga-card-head">
+            <span className="ga-step">3</span>
+            <h2>Pick a fixture</h2>
+          </div>
           {loadingFixtures ? (
-            <p>Loading…</p>
+            <p className="muted">Loading…</p>
           ) : playerFixtures.length === 0 ? (
-            <p className="muted">No fixtures found for this player.</p>
+            <p className="muted ga-empty">No fixtures found for this player.</p>
           ) : (
-            <ul className="fixture-list">
+            <ul className="ga-rows">
               {playerFixtures.map((f) => (
                 <li key={f.id}>
-                  <button className="btn" style={{ width: '100%', textAlign: 'left' }} onClick={() => loadFixture(f.id)}>
-                    vs {f.opponentName} <strong>{f.scoreLabel}</strong>
-                    <span className="muted"> · {f.leagueName} / {f.divisionName} · Round {f.round}</span>
+                  <button
+                    type="button"
+                    className={`ga-row${selectedFixture?.id === f.id ? ' ga-row-on' : ''}`}
+                    onClick={() => loadFixture(f.id)}
+                  >
+                    <span className="ga-row-main">
+                      <span className="ga-row-top">
+                        <span>vs {f.opponentName}</span>
+                        <strong>{f.scoreLabel}</strong>
+                      </span>
+                      <span className="muted ga-small">{f.leagueName} / {f.divisionName} · Round {f.round}</span>
+                    </span>
+                    <StatusChip status={f.status} />
                   </button>
-                  <span className={`status status-${f.status}`}>{f.status.replace('_', ' ')}</span>
                 </li>
               ))}
             </ul>
@@ -303,20 +382,20 @@ export default function GameAdjustments() {
       )}
 
       {selectedFixture && (
-        <section className="card">
-          <div className="page-header">
-            <h2>4. Adjust the result</h2>
-            <Link to={`/fixtures/${selectedFixture.id}`}>Open full fixture page</Link>
+        <section className="card ga-card" ref={adjustRef}>
+          <div className="ga-card-head">
+            <span className="ga-step">{selectedPlayerId ? 4 : 2}</span>
+            <h2>Adjust the result</h2>
+            <StatusChip status={selectedFixture.status} />
           </div>
-          <p className="muted">
-            Current status: <span className={`status status-${selectedFixture.status}`}>{selectedFixture.status.replace('_', ' ')}</span>
-          </p>
           <OverrideForm
+            key={selectedFixture.id}
             fixture={selectedFixture}
             isTeams={isTeams}
             onChange={() => { loadFixture(selectedFixture.id); loadNeedsAttention(); }}
             setBanner={setBanner}
           />
+          <Link to={`/fixtures/${selectedFixture.id}`} className="ga-open-link">Open full fixture page →</Link>
         </section>
       )}
     </div>
