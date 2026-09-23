@@ -1928,3 +1928,62 @@ a.dv-roster-name:hover { text-decoration: underline; }
   .ll-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ll-page > .ll-new { width: auto; align-self: flex-start; min-width: 200px; }
 }
+
+
+/* ---- Game Adjustments redesign (2026-09-23) ---- */
+.ga-page { display: flex; flex-direction: column; gap: 12px; }
+.ga-page > .card { margin-bottom: 0; }
+.ga-head { display: flex; align-items: center; gap: 10px; }
+.ga-head h1 { margin: 0; font-size: 1.5rem; }
+.ga-intro { margin: -4px 0 0; }
+.ga-card { display: flex; flex-direction: column; gap: 10px; }
+.ga-card-head { display: flex; align-items: center; gap: 10px; }
+.ga-card-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 1.1rem; }
+.ga-step {
+  width: 28px; height: 28px; flex-shrink: 0; border-radius: 14px; background: var(--primary); color: #fff;
+  font-weight: 700; font-size: 0.85rem; display: inline-flex; align-items: center; justify-content: center;
+}
+.ga-count { flex-shrink: 0; min-width: 24px; height: 24px; padding: 0 8px; border-radius: 12px; background: #f1efe8; color: #4b5563; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.ga-count-on { background: #b3413a; color: #fff; }
+.ga-empty { margin: 0; }
+.ga-small { font-size: 0.82rem; }
+.ga-disputes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ga-dispute { border: 1px solid #f1c7c3; background: #fffafa; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.ga-dispute-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.ga-dispute-label { font-weight: 700; min-width: 0; }
+.ga-dispute-score { flex-shrink: 0; font-size: 1.1rem; }
+.ga-reason { margin: 2px 0 0; padding: 8px 10px; background: #fff; border-left: 3px solid #b3413a; border-radius: 6px; font-size: 0.9rem; }
+.ga-reason-label { display: block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #991b1b; margin-bottom: 2px; }
+.ga-noshow { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.ga-action { text-decoration: none; margin-top: 2px; }
+.ga-rows { list-style: none; margin: 0; padding: 0; }
+.ga-rows li + li { border-top: 1px solid #f1efe8; }
+.ga-row {
+  width: 100%; min-height: 52px; border: 0; background: none; padding: 8px 2px; cursor: pointer; font: inherit; color: var(--ink);
+  display: flex; align-items: center; gap: 10px; text-align: left;
+}
+.ga-row-on { background: #f3f8f4; border-radius: 10px; }
+.ga-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-weight: 600; }
+.ga-row-top { display: flex; justify-content: space-between; gap: 8px; }
+.ga-row .status { flex-shrink: 0; }
+.ga-picked { display: flex; align-items: center; gap: 10px; }
+.ga-picked-name { flex: 1; min-width: 0; }
+.ga-override { display: flex; flex-direction: column; gap: 10px; }
+.ga-override-form { display: flex; flex-direction: column; gap: 10px; }
+.ga-unit { font-size: 0.8rem; text-align: center; }
+.ga-sides { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 8px; }
+.ga-side { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.ga-side-name { font-weight: 700; text-align: center; overflow-wrap: anywhere; font-size: 0.95rem; }
+.ga-vs { color: #9ca3af; font-weight: 700; padding-bottom: 12px; }
+.ga-stepper button { width: 40px; }
+.ga-stepper input {
+  width: 48px; height: 44px; border: 0; border-left: 1px solid #cfcabb; border-right: 1px solid #cfcabb; text-align: center;
+  font: inherit; font-size: 1.3rem; font-weight: 800; padding: 0; -moz-appearance: textfield;
+}
+.ga-stepper input::-webkit-outer-spin-button, .ga-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ga-reopen { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid #f1efe8; }
+.ga-reopen p { margin: 0; text-align: center; }
+.ga-open-link { font-weight: 600; font-size: 0.9rem; }
+@media (min-width: 640px) {
+  .ga-page .cs-btn-block { width: auto; align-self: flex-start; min-width: 260px; }
+}
