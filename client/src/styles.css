@@ -1987,3 +1987,8 @@ a.dv-roster-name:hover { text-decoration: underline; }
 @media (min-width: 640px) {
   .ga-page .cs-btn-block { width: auto; align-self: flex-start; min-width: 260px; }
 }
+
+.au-filters { scrollbar-width: none; }
+.au-filters::-webkit-scrollbar { display: none; }
+.au-walkin { font-size: 0.72rem; font-weight: 700; color: #7a5a10; background: #fbf5e3; border: 1px solid #e6d59e; border-radius: 999px; padding: 1px 8px; align-self: flex-start; }
+.au-add > div { padding-bottom: 12px; }
