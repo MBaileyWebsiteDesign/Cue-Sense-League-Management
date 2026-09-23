@@ -1710,3 +1710,70 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .msg-cant-send p:last-child { margin: 0; }
 .msg-compose .msg-compose-input, .msg-card textarea { font-family: inherit; font-size: 1rem; }
 .btn.msg-contact-btn { line-height: 1; }
+
+
+/* ---- Division / game page redesign (2026-09-23) ---- */
+.dv-page { display: flex; flex-direction: column; gap: 14px; }
+.dv-page > .card, .dv-page > section.card { margin-bottom: 0; }
+.dv-head {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px 14px;
+  display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.dv-head-top { display: flex; align-items: center; gap: 10px; }
+.dv-head-top h1 { flex: 1; min-width: 0; margin: 0; font-size: 1.35rem; line-height: 1.2; overflow-wrap: anywhere; }
+.dv-head-top .lg-div-status { align-self: center; }
+.dv-page .division-tabs {
+  display: flex; gap: 4px; padding: 4px; margin: 0; border: 0; border-radius: 12px; background: #ece9df; overflow-x: auto;
+}
+.dv-page .division-tab {
+  flex: 1; min-height: 40px; margin: 0; border: 0; border-radius: 9px; padding: 8px 10px; font-size: 0.95rem; color: #4b5563;
+}
+.dv-page .division-tab-active { background: #fff; color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.dv-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.dv-card-head h2 { margin: 0; }
+.dv-avatar {
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: var(--primary); color: #fff; font-weight: 700;
+  font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center;
+}
+.dv-avatar-light { background: #e7f2ea; color: var(--win-ink); }
+.dv-roster-name { flex: 1; min-width: 0; font-weight: 600; color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.dv-roster-name:hover { text-decoration: underline; }
+.dv-seed { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.dv-seed-btn {
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border); background: #fff; color: var(--primary);
+  font-size: 1.1rem; font-weight: 700; cursor: pointer;
+}
+.dv-seed-btn:disabled { opacity: 0.35; cursor: default; }
+.dv-add { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.dv-small { font-size: 0.82rem; margin: 4px 0 0; }
+.dv-hint { margin: 0 0 8px; font-size: 0.88rem; font-weight: 600; color: #7a5a10; background: #fbf5e3; border: 1px solid #e6d59e; border-radius: 8px; padding: 8px 10px; }
+.dv-start { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+.dv-start-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.dv-start-head h3 { margin: 0; font-size: 1.05rem; }
+.btn.dv-small-btn { min-height: 38px; padding: 6px 12px; font-size: 0.9rem; }
+.dv-estimate { display: flex; flex-direction: column; gap: 10px; }
+.dv-estimate-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.dv-estimate-label { font-weight: 600; }
+.dv-estimate-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dv-tile { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.dv-tile-num { font-size: 1.25rem; font-weight: 800; color: var(--primary); }
+.dv-tile-label { font-size: 0.78rem; color: var(--muted); }
+.dv-switch-row { display: flex; align-items: center; gap: 12px; }
+.dv-switch-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.dv-switch-text .muted { font-size: 0.82rem; }
+.dv-danger { border-color: #f1c7c3; padding-top: 4px; padding-bottom: 4px; }
+.dv-danger-toggle {
+  width: 100%; min-height: 48px; border: 0; background: none; padding: 0; cursor: pointer; font: inherit;
+  font-weight: 700; color: #b91c1c; display: flex; justify-content: space-between; align-items: center; text-align: left;
+}
+.dv-danger-body { padding-bottom: 10px; }
+.dv-confirm { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; margin-bottom: 8px; }
+.dv-confirm input {
+  min-height: 44px; box-sizing: border-box; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font: inherit; font-size: 1rem; background: #fff; color: var(--ink);
+}
+.dv-share-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 640px) {
+  .dv-page .cs-btn-block { width: auto; align-self: flex-start; min-width: 260px; }
+  .dv-danger .cs-btn-block { align-self: auto; }
+}
