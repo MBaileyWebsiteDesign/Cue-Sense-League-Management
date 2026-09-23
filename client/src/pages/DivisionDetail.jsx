@@ -7,6 +7,13 @@ import BracketChart from '../components/BracketChart.jsx';
 import DoubleElimBracketChart from '../components/DoubleElimBracketChart.jsx';
 import AdaptiveBracketChart from '../components/AdaptiveBracketChart.jsx';
 import MobileStandings, { standingsRows } from '../components/MobileStandings.jsx';
+import { schedulingLabel } from '../divisionDisplay.js';
+
+function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] || '' : '')).toUpperCase();
+}
 
 function generateFixturesLabel(division) {
   if (division.scheduling === 'knockout_single_elim') return 'Generate Fixtures (single-elimination knockout)';
@@ -282,26 +289,31 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
 // gets its own independent value, resetting to 1 on reload.
 function GameTimeEstimate({ division }) {
   const [tablesAvailable, setTablesAvailable] = useState(1);
+  const games = estimateGameCount(division);
+  const tables = Math.max(1, Number(tablesAvailable) || 1);
+  // Nothing useful to estimate until there are enough entrants for at
+  // least one game - hide the block rather than showing "0 mins / 0".
+  if (games === 0) return null;
   return (
-    <div>
-      <p style={{ margin: 0 }}>
-        <label>
-          <strong>Number of Tables available:</strong>{' '}
-          <input
-            type="number"
-            min="1"
-            value={tablesAvailable}
-            onChange={(e) => setTablesAvailable(e.target.value)}
-            style={{ width: 60 }}
-          />
-        </label>
-      </p>
-      <p style={{ margin: 0 }}>
-        <strong>Estimated Game Time:</strong> {formatMinutes(estimateGameTimeMinutes(division, tablesAvailable))}
-      </p>
-      <p style={{ margin: 0 }}>
-        <strong>Estimated No. of Games:</strong> {estimateGameCount(division)}
-      </p>
+    <div className="dv-estimate">
+      <div className="dv-estimate-row">
+        <span className="dv-estimate-label">Tables available</span>
+        <div className="ah-stepper">
+          <button type="button" aria-label="Fewer tables" disabled={tables <= 1} onClick={() => setTablesAvailable(Math.max(1, tables - 1))}>−</button>
+          <output aria-live="polite">{tables}</output>
+          <button type="button" aria-label="More tables" onClick={() => setTablesAvailable(tables + 1)}>+</button>
+        </div>
+      </div>
+      <div className="dv-estimate-tiles">
+        <div className="dv-tile">
+          <span className="dv-tile-num">{games}</span>
+          <span className="dv-tile-label">game{games === 1 ? '' : 's'} (est.)</span>
+        </div>
+        <div className="dv-tile">
+          <span className="dv-tile-num">{formatMinutes(estimateGameTimeMinutes(division, tables))}</span>
+          <span className="dv-tile-label">playing time (est.)</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -325,11 +337,11 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
   };
 
   return (
-    <div style={{ marginTop: 8 }}>
-      <div className="page-header" style={{ marginBottom: 8 }}>
-        <GameTimeEstimate division={division} />
-        <button className="btn" type="button" onClick={() => setChangingGameType((v) => !v)}>
-          {changingGameType ? 'Cancel' : 'Change Game Type'}
+    <div className="dv-start">
+      <div className="dv-start-head">
+        <h3>Start</h3>
+        <button className="btn dv-small-btn" type="button" onClick={() => setChangingGameType((v) => !v)}>
+          {changingGameType ? 'Cancel' : 'Change game type'}
         </button>
       </div>
       {changingGameType && (
@@ -340,15 +352,25 @@ function GenerateFixturesButton({ division, disabled, title, onChange, setError 
           onDone={() => setChangingGameType(false)}
         />
       )}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 'normal', marginBottom: 8 }}>
-        <input
-          type="checkbox"
-          checked={visibleByDefault}
-          onChange={(e) => setVisibleByDefault(e.target.checked)}
-        />
-        Make all fixtures visible to players immediately (skip releasing rounds one at a time)
-      </label>
-      <button className="btn btn-primary" disabled={disabled || generating} onClick={onGenerate} title={title}>
+      <GameTimeEstimate division={division} />
+      <div className="dv-switch-row">
+        <span className="dv-switch-text">
+          <strong>Release all rounds now</strong>
+          <span className="muted">Players see every fixture straight away, instead of rounds being released one at a time.</span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={visibleByDefault}
+          aria-label="Make all fixtures visible to players immediately"
+          className={`cs-switch${visibleByDefault ? ' cs-switch-on' : ''}`}
+          onClick={() => setVisibleByDefault((v) => !v)}
+        >
+          <span />
+        </button>
+      </div>
+      {disabled && title && <p className="dv-hint">{title}</p>}
+      <button className="btn btn-primary cs-btn-block" disabled={disabled || generating} onClick={onGenerate}>
         {generating ? 'Generating…' : generateFixturesLabel(division)}
       </button>
     </div>
@@ -394,7 +416,8 @@ function StartKillerGameButton({ division, disabled, title, onChange, setError }
           onDone={() => setChangingGameType(false)}
         />
       )}
-      <button className="btn btn-primary" disabled={disabled || starting} onClick={onStart} title={title}>
+      {disabled && title && <p className="dv-hint">{title}</p>}
+      <button className="btn btn-primary cs-btn-block" disabled={disabled || starting} onClick={onStart}>
         {starting ? 'Starting…' : `Start ${label}`}
       </button>
     </div>
@@ -586,8 +609,10 @@ function KillerBoard({ division, onChange, setError }) {
   );
 }
 
-function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin, isPlayerSession }) {
-  const [playerId, setPlayerId] = useState('');
+function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin, isPlayerSession, canWalkIn }) {
+  const [search, setSearch] = useState('');
+  const [addingId, setAddingId] = useState(null);
+  const [walkInOpen, setWalkInOpen] = useState(false);
   const [quickFirstName, setQuickFirstName] = useState('');
   const [quickLastName, setQuickLastName] = useState('');
   const [quickAdding, setQuickAdding] = useState(false);
@@ -632,16 +657,18 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   // reflecting that same limit instead of showing a control that would 400.
   const freePlayFull = isFreePlay && division.players.length >= 2;
 
-  const onAddPlayer = async (e) => {
-    e.preventDefault();
+  const onAddPlayer = async (playerId) => {
     if (!playerId) return;
     setError('');
+    setAddingId(playerId);
     try {
       await api.addPlayer(division.id, playerId);
-      setPlayerId('');
+      setSearch('');
       onChange();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setAddingId(null);
     }
   };
 
@@ -736,64 +763,107 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
     }
   };
 
+  const q = search.trim().toLowerCase();
+  const matches = q ? available.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8) : [];
+  const canAdd = !division.fixturesGenerated && !freePlayFull;
+  const showWalkIn = canWalkIn && !freePlayFull && (!division.fixturesGenerated || canQuickAddLateEntrant);
+  const showSeed = isAdmin && !isFreePlay && !division.fixturesGenerated && division.players.length > 1;
+
   return (
-    <section className="card">
-      <h2>Players</h2>
-      {!division.fixturesGenerated && !freePlayFull && (
-        <form className="inline-form" onSubmit={onAddPlayer}>
-          <select value={playerId} onChange={(e) => setPlayerId(e.target.value)} required>
-            <option value="" disabled>
-              {available.length === 0 ? 'No registered players available' : 'Select a registered player…'}
-            </option>
-            {available.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-          <button className="btn btn-primary" type="submit" disabled={!playerId}>Add Player</button>
-        </form>
-      )}
-      {!division.fixturesGenerated && !freePlayFull && (
-        <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
-          Only people with a registered player account can be added this way - see "My Account" to register.
-        </p>
+    <section className="card dv-card">
+      <div className="dv-card-head">
+        <h2>Players</h2>
+        <span className="muted">
+          {isFreePlay ? `${division.players.length} of 2` : `${division.players.length} player${division.players.length === 1 ? '' : 's'}`}
+        </span>
+      </div>
+
+      <ul className="ah-list dv-roster">
+        {division.players.map((p, i) => (
+          <li key={p.id}>
+            <span className="dv-avatar" aria-hidden="true">{initialsOf(p.name)}</span>
+            <Link to={`/players/${p.id}`} className="dv-roster-name">{p.name}</Link>
+            {showSeed && (
+              <span className="dv-seed">
+                <button type="button" className="dv-seed-btn" disabled={i === 0} onClick={() => onMovePlayer(i, -1)} aria-label={`Move ${p.name} up (earlier seed)`}>&uarr;</button>
+                <button type="button" className="dv-seed-btn" disabled={i === division.players.length - 1} onClick={() => onMovePlayer(i, 1)} aria-label={`Move ${p.name} down (later seed)`}>&darr;</button>
+              </span>
+            )}
+            {!division.fixturesGenerated && (
+              <button type="button" className="ah-remove" onClick={() => onRemovePlayer(p.id)} aria-label={`Remove ${p.name}`}>&times;</button>
+            )}
+          </li>
+        ))}
+        {division.players.length === 0 && <li className="muted">No players added yet</li>}
+      </ul>
+
+      {canAdd && (
+        <div className="dv-add">
+          <input
+            type="search"
+            className="ah-search"
+            aria-label="Search registered players"
+            placeholder={available.length === 0 ? 'No registered players available' : 'Search registered players…'}
+            value={search}
+            disabled={available.length === 0}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {q && matches.length === 0 && <p className="muted dv-small">No registered players match “{search.trim()}”.</p>}
+          {matches.length > 0 && (
+            <ul className="ah-list">
+              {matches.map((p) => (
+                <li key={p.id}>
+                  <span className="dv-avatar dv-avatar-light" aria-hidden="true">{initialsOf(p.name)}</span>
+                  <span className="dv-roster-name">{p.name}</span>
+                  <button type="button" className="btn btn-brand-green ah-add" disabled={addingId === p.id} onClick={() => onAddPlayer(p.id)}>
+                    {addingId === p.id ? 'Adding…' : 'Add'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="muted dv-small">Only people with a registered player account appear here - see "My Account" to register.</p>
+        </div>
       )}
       {freePlayFull && !division.fixturesGenerated && (
-        <p className="muted" style={{ marginTop: -8, marginBottom: 12, fontSize: '0.8rem' }}>
-          Free Play is a 2-player match - remove a player below to swap who's in it.
-        </p>
+        <p className="muted dv-small">Free Play is a 2-player match - remove a player above to swap who's in it.</p>
       )}
 
-      {isAdmin && !freePlayFull && (!division.fixturesGenerated || canQuickAddLateEntrant) && (
-        <>
-          <h3 style={{ marginBottom: 4 }}>Quick add (walk-in)</h3>
-          <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
-            {division.fixturesGenerated
-              ? `Fixtures are already generated, but ${openReservedSlots.length} reserved bracket slot${openReservedSlots.length === 1 ? ' is' : 's are'} still open for a day-of arrival - just a name, no account needed.`
-              : 'For someone who\'s never used CueSense before - just a name, no account needed to add them to the draw.'}
-          </p>
-          <form className="inline-form" onSubmit={onQuickAdd}>
-            <input
-              type="text"
-              placeholder="First name *"
-              aria-label="First name (required)"
-              value={quickFirstName}
-              onChange={(e) => setQuickFirstName(e.target.value)}
-              required
-            />
-            <input
-              type="text"
-              placeholder="Last name (optional)"
-              aria-label="Last name (optional)"
-              value={quickLastName}
-              onChange={(e) => setQuickLastName(e.target.value)}
-            />
-            <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
-              {quickAdding ? 'Adding…' : 'Quick Add'}
-            </button>
-          </form>
-          <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
-          {quickResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{quickResult}</p>}
-        </>
+      {showWalkIn && (
+        <div className="ah-walkin">
+          <button type="button" className="ah-walkin-toggle" aria-expanded={walkInOpen} onClick={() => setWalkInOpen((o) => !o)}>
+            <span>+ Add a walk-in</span>
+            <span aria-hidden="true">{walkInOpen ? '−' : '+'}</span>
+          </button>
+          {walkInOpen && (
+            <form className="ah-walkin-form" onSubmit={onQuickAdd}>
+              <p className="muted dv-small" style={{ margin: 0 }}>
+                {division.fixturesGenerated
+                  ? `Fixtures are already generated, but ${openReservedSlots.length} reserved bracket slot${openReservedSlots.length === 1 ? ' is' : 's are'} still open for a day-of arrival - just a name, no account needed.`
+                  : 'For someone who\'s never used CueSense before - just a name, no account needed.'}
+              </p>
+              <input
+                type="text"
+                placeholder="First name *"
+                aria-label="First name (required)"
+                value={quickFirstName}
+                onChange={(e) => setQuickFirstName(e.target.value)}
+                required
+              />
+              <input
+                type="text"
+                placeholder="Last name (optional)"
+                aria-label="Last name (optional)"
+                value={quickLastName}
+                onChange={(e) => setQuickLastName(e.target.value)}
+              />
+              <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
+                {quickAdding ? 'Adding…' : 'Add walk-in'}
+              </button>
+            </form>
+          )}
+          {quickResult && <p className="muted dv-small">{quickResult}</p>}
+        </div>
       )}
       {isAdmin && canQuickAddLateEntrant && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
@@ -829,30 +899,12 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           {lateEntrantResult && <p className="muted" style={{ fontSize: '0.85rem' }}>{lateEntrantResult}</p>}
         </>
       )}
-      <ul className="player-list">
-        {division.players.map((p, i) => (
-          <li key={p.id}>
-            <Link to={`/players/${p.id}`}>{p.name}</Link>
-            {!division.fixturesGenerated && division.players.length > 1 && (
-              <span>
-                <button className="btn-link" disabled={i === 0} onClick={() => onMovePlayer(i, -1)} title="Move up (earlier seed)">&uarr;</button>
-                <button className="btn-link" disabled={i === division.players.length - 1} onClick={() => onMovePlayer(i, 1)} title="Move down (later seed)">&darr;</button>
-              </span>
-            )}
-            {!division.fixturesGenerated && (
-              <button className="btn-link" onClick={() => onRemovePlayer(p.id)}>remove</button>
-            )}
-          </li>
-        ))}
-        {division.players.length === 0 && <li className="muted">No players registered yet</li>}
-      </ul>
-
       {!division.fixturesGenerated ? (
         isKiller ? (
           <StartKillerGameButton
             division={division}
             disabled={division.players.length < 2}
-            title={division.players.length < 2 ? 'Add at least 2 players first' : ''}
+            title={division.players.length < 2 ? `Add ${2 - division.players.length} more player${2 - division.players.length === 1 ? '' : 's'} to start` : ''}
             onChange={onChange}
             setError={setError}
           />
@@ -860,7 +912,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           <GenerateFixturesButton
             division={division}
             disabled={division.players.length < 2}
-            title={division.players.length < 2 ? 'Add at least 2 players first' : ''}
+            title={division.players.length < 2 ? `Add ${2 - division.players.length} more player${2 - division.players.length === 1 ? '' : 's'} to start` : ''}
             onChange={onChange}
             setError={setError}
           />
@@ -1460,6 +1512,7 @@ function SeedFromGroupsPanel({ division, onChange, setError }) {
 // division's League Manager gets the full admin panel instead, not this one.
 function DeleteOwnAdHocGamePanel({ division, setError }) {
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
   const [confirmName, setConfirmName] = useState('');
   const [deleting, setDeleting] = useState(false);
 
@@ -1475,29 +1528,34 @@ function DeleteOwnAdHocGamePanel({ division, setError }) {
     }
   };
 
+  const matchesName = confirmName.trim() === division.name;
   return (
-    <section className="card">
-      <h2 style={{ marginTop: 0 }}>Delete this game</h2>
-      <p className="muted">
-        Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture and
-        result. This cannot be undone. To confirm, type the game's name below.
-      </p>
-      <label>
-        Game name
-        <input
-          value={confirmName}
-          onChange={(e) => setConfirmName(e.target.value)}
-          placeholder={division.name}
-        />
-      </label>
-      <button
-        className="btn btn-danger"
-        type="button"
-        disabled={deleting || confirmName.trim() !== division.name}
-        onClick={onDelete}
-      >
-        {deleting ? 'Deleting…' : 'Delete this game permanently'}
+    <section className="card dv-danger">
+      <button type="button" className="dv-danger-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span>Delete game</span>
+        <span aria-hidden="true">{open ? '−' : '+'}</span>
       </button>
+      {open && (
+        <div className="dv-danger-body">
+          <p className="muted">
+            Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture and
+            result. This cannot be undone.
+          </p>
+          <label className="dv-confirm">
+            Type the game's name to confirm: <strong>{division.name}</strong>
+            <input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} autoComplete="off" />
+          </label>
+          {!matchesName && <p className="dv-hint">The delete button unlocks once the name matches exactly.</p>}
+          <button
+            className="btn btn-danger cs-btn-block"
+            type="button"
+            disabled={deleting || !matchesName}
+            onClick={onDelete}
+          >
+            {deleting ? 'Deleting…' : 'Delete this game permanently'}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -1546,15 +1604,13 @@ function ManageDivisionPanel({ division, canCloseEarly, onChange, setError }) {
   };
 
   return (
-    <section className="card">
-      <div className="page-header">
-        <h2 style={{ margin: 0 }}>Admin: Manage this Division</h2>
-        <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
-          {open ? 'Hide' : 'Show'}
-        </button>
-      </div>
+    <section className="card dv-danger">
+      <button type="button" className="dv-danger-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span>Admin: Manage this Division</span>
+        <span aria-hidden="true">{open ? '−' : '+'}</span>
+      </button>
       {open && (
-        <>
+        <div className="dv-danger-body">
           {canCloseEarly && (
             <div style={{ marginBottom: '1.5rem' }}>
               <h3 style={{ marginBottom: '0.25rem' }}>Close Division Early</h3>
@@ -1575,18 +1631,17 @@ function ManageDivisionPanel({ division, canCloseEarly, onChange, setError }) {
             <p className="muted">
               Permanently deletes <strong>{division.name}</strong> and everything in it - every fixture,
               team and pairing, plus its roll-of-honour history. The rest of the league is untouched. This
-              cannot be undone. To confirm, type the division's name below.
+              cannot be undone.
             </p>
-            <label>
-              Division name
-              <input
-                value={confirmName}
-                onChange={(e) => setConfirmName(e.target.value)}
-                placeholder={division.name}
-              />
+            <label className="dv-confirm">
+              Type the division's name to confirm: <strong>{division.name}</strong>
+              <input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} autoComplete="off" />
             </label>
+            {confirmName.trim() !== division.name && (
+              <p className="dv-hint">The delete button unlocks once the name matches exactly.</p>
+            )}
             <button
-              className="btn btn-danger"
+              className="btn btn-danger cs-btn-block"
               type="button"
               disabled={deleting || confirmName.trim() !== division.name}
               onClick={onDelete}
@@ -1594,7 +1649,7 @@ function ManageDivisionPanel({ division, canCloseEarly, onChange, setError }) {
               {deleting ? 'Deleting…' : 'Delete this division permanently'}
             </button>
           </div>
-        </>
+        </div>
       )}
     </section>
   );
@@ -1764,30 +1819,45 @@ export default function DivisionDetail() {
         .filter((s) => s.fixtures.length > 0)
     : [];
 
+  const entryChip = isTeams
+    ? `Teams · ${division.legsPerMatch} legs per match`
+    : isDoubles
+      ? `${division.pairingSize === 3 ? 'Triples' : 'Doubles'} · ${division.pairingSize} per pairing`
+      : 'Singles';
+  const formatChip = isKiller
+    ? `${division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'} · ${division.startingLives || 3} lives each`
+    : division.scheduling === 'free_play'
+      ? 'Free Play · no frame target'
+      : `${schedulingLabel(division.scheduling)}${division.raceTo ? ` · Race to ${division.raceTo}` : ''}`;
+  const statusChip = division.status === 'completed'
+    ? { label: 'Complete', tone: 'done' }
+    : isKiller
+      ? division.killer?.status === 'finished'
+        ? { label: 'Game finished', tone: 'done' }
+        : division.killer?.status === 'in_progress' || division.fixturesGenerated
+          ? { label: 'In progress', tone: 'live' }
+          : { label: 'Setting up', tone: 'idle' }
+      : division.fixturesGenerated
+        ? { label: 'Fixtures out', tone: 'live' }
+        : { label: 'Setting up', tone: 'idle' };
+  const backTo = isPlayerSession ? '/account' : `/leagues/${division.leagueId}`;
+
   return (
-    <div>
-      <p>
-        {isPlayerSession ? (
-          <Link to="/account">&larr; Back to portal</Link>
-        ) : (
-          <Link to={`/leagues/${division.leagueId}`}>&larr; Back to league</Link>
-        )}
-      </p>
-      <h1>{division.name}</h1>
-      <p className="muted">
-        {isTeams
-          ? `Team league · ${division.legsPerMatch} legs per match`
-          : isDoubles
-            ? `${division.pairingSize === 3 ? 'Triples' : 'Doubles'} league · ${division.pairingSize} players per pairing`
-            : isKiller
-              ? `${division.scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'} · free-for-all, ${division.startingLives || 3} lives each`
-              : division.scheduling === 'free_play'
-                ? 'Free Play · 2 player free style, no frame count target'
-                : 'Singles league'}
-      </p>
-      {division.createdByName && (
-        <p className="muted" style={{ marginTop: -8 }}>Created by {division.createdByName}</p>
-      )}
+    <div className="dv-page">
+      <section className="dv-head">
+        <div className="dv-head-top">
+          <Link to={backTo} className="msg-icon-btn" aria-label={isPlayerSession ? 'Back to my account' : 'Back to league'}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+          </Link>
+          <h1>{division.name}</h1>
+          <span className={`lg-div-status lg-div-status-${statusChip.tone}`}>{statusChip.label}</span>
+        </div>
+        <div className="ol-chips">
+          <span className="ol-chip">{formatChip}</span>
+          <span className="ol-chip">{entryChip}</span>
+          {division.createdByName && <span className="ol-chip">Created by {division.createdByName}</span>}
+        </div>
+      </section>
       {error && <p className="error">{error}</p>}
 
       {division.status === 'completed' && (
@@ -1850,24 +1920,20 @@ export default function DivisionDetail() {
 
       {(isKiller || activeTab === 'overview') && (
       <>
-      {canManage && (
-        <ManageDivisionPanel
-          division={division}
-          canCloseEarly={division.fixturesGenerated && division.status !== 'completed'}
-          onChange={load}
-          setError={setError}
-        />
-      )}
-      {!canManage && isOwnAdHocGame && (
-        <DeleteOwnAdHocGamePanel division={division} setError={setError} />
-      )}
-
       {isTeams ? (
         <TeamRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isPlayerSession={isPlayerSession} />
       ) : isDoubles ? (
         <PairingRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isPlayerSession={isPlayerSession} />
       ) : (
-        <SinglesRoster division={division} registeredPlayers={registeredPlayers} onChange={load} setError={setError} isAdmin={canManage} isPlayerSession={isPlayerSession} />
+        <SinglesRoster
+          division={division}
+          registeredPlayers={registeredPlayers}
+          onChange={load}
+          setError={setError}
+          isAdmin={canManage}
+          isPlayerSession={isPlayerSession}
+          canWalkIn={canManage || isOwnAdHocGame}
+        />
       )}
 
       {canManage && !division.fixturesGenerated && (
@@ -1880,6 +1946,18 @@ export default function DivisionDetail() {
 
       {isKiller && division.killer && (
         <KillerBoard division={division} onChange={load} setError={setError} />
+      )}
+
+      {canManage && (
+        <ManageDivisionPanel
+          division={division}
+          canCloseEarly={division.fixturesGenerated && division.status !== 'completed'}
+          onChange={load}
+          setError={setError}
+        />
+      )}
+      {!canManage && isOwnAdHocGame && (
+        <DeleteOwnAdHocGamePanel division={division} setError={setError} />
       )}
       </>
       )}
@@ -1953,10 +2031,19 @@ export default function DivisionDetail() {
         </p>
       </section>
 
-      <p style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <Link className="btn btn-primary" to={`/public/divisions/${division.id}/table`}>View public Division Table &rarr;</Link>
-        <Link className="btn btn-primary" to={`/public/divisions/${division.id}/fixtures`}>View public Division Fixtures &rarr;</Link>
-      </p>
+      <section className="lg-share" aria-label="Share and display">
+        <span className="lg-section-label">Share &amp; display</span>
+        <div className="lg-share-grid dv-share-grid">
+          <Link className="lg-share-tile" to={`/public/divisions/${division.id}/table`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            Public table
+          </Link>
+          <Link className="lg-share-tile" to={`/public/divisions/${division.id}/fixtures`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+            Public fixtures
+          </Link>
+        </div>
+      </section>
       {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
           The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
