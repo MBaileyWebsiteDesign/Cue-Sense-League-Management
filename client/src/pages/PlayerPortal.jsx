@@ -375,7 +375,7 @@ function NextMatch({ fixtures }) {
           </div>
           <div className="cs-next-actions">
             <Link to={`/fixtures/${next.id}`} className="btn btn-primary">Start game</Link>
-            {next.opponentUserId && <Link to={`/messages/${next.opponentUserId}`} className="btn">Message opponent</Link>}
+            {next.opponentUserId && <Link to={`/messages/${next.opponentUserId}`} className="btn btn-brand-green">Message opponent</Link>}
           </div>
           {upcoming.length > 1 && (
             <div className="cs-rows" style={{ marginTop: 10 }}>
