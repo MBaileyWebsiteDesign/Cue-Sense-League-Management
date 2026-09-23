@@ -89,12 +89,28 @@ const MAX_UNDO_HISTORY = 30;
 // division's own stored object directly.
 function advanceTurn(state, format) {
   if (format === CARDS_KILLER) {
+    // The same player is never drawn twice in a row (2026-09-23): skip past
+    // the previous shooter's cards to the next card belonging to someone
+    // else, leaving the skipped cards in the deck for a later draw. If only
+    // the previous shooter's cards are left, the deck is reshuffled from
+    // everyone's current lives first. (Shooting again after "nothing on the
+    // break" never comes through here - recordShot keeps the same player
+    // without advancing the turn.)
+    const previous = state.currentPlayerId;
+    const nextOther = () => (previous ? state.deck.findIndex((id) => id !== previous) : (state.deck.length ? 0 : -1));
     if (state.deck.length === 0) {
       state.deck = buildDeck(activePlayerIds(state), state.lives);
       pushLog(state, { type: 'reshuffle', detail: `Deck reshuffled - ${state.deck.length} card(s) in play` });
     }
-    state.currentPlayerId = state.deck[0];
-    state.deck = state.deck.slice(1);
+    let idx = nextOther();
+    if (idx === -1) {
+      state.deck = buildDeck(activePlayerIds(state), state.lives);
+      pushLog(state, { type: 'reshuffle', detail: `Deck reshuffled so the same player isn't drawn twice in a row - ${state.deck.length} card(s) in play` });
+      idx = nextOther();
+      if (idx === -1) idx = 0; // only one player left holding lives - win detection ends the game
+    }
+    state.currentPlayerId = state.deck[idx];
+    state.deck = [...state.deck.slice(0, idx), ...state.deck.slice(idx + 1)];
     return state;
   }
   // Killer Classic: fixed rotation, skipping anyone already out.
