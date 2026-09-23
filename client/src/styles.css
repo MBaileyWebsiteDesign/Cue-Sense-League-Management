@@ -1885,3 +1885,46 @@ a.dv-roster-name:hover { text-decoration: underline; }
   .au-add .quick-add-user-box input:not([type="checkbox"]) { flex: none; width: 100%; min-height: 44px; box-sizing: border-box; font-size: 1rem; }
   .au-add .quick-add-user-box .btn { width: 100%; min-height: 44px; }
 }
+
+
+/* ---- Leagues list redesign (2026-09-23) ---- */
+.ll-page { display: flex; flex-direction: column; gap: 12px; }
+.ll-page > .card { margin-bottom: 0; }
+.ll-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.ll-head h1 { margin: 0; }
+.ll-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ll-card {
+  display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 14px 14px 16px; text-decoration: none; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.ll-card:hover { border-color: var(--primary); }
+.ll-card-system { background: #faf9f5; border-style: dashed; }
+.ll-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ll-name { font-size: 1.1rem; color: var(--primary); }
+.ll-sport { font-size: 0.85rem; }
+.ll-chev { flex-shrink: 0; color: #9ca3af; }
+.ll-form { display: flex; flex-direction: column; gap: 12px; }
+.ll-form h2 { margin: 0; }
+.ll-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; font-weight: 600; }
+.ll-field input {
+  min-height: 44px; box-sizing: border-box; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font: inherit; font-size: 1rem; font-weight: 400; background: #fff; color: var(--ink);
+}
+.ll-note { margin: -4px 0 0; font-size: 0.82rem; }
+.ll-switch { padding-top: 10px; border-top: 1px solid #f1efe8; }
+.ll-sub { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; background: var(--bg); border-radius: 10px; }
+.ll-dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ll-managers { border: 0; border-top: 1px solid #f1efe8; margin: 0; padding: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.ll-managers legend { font-weight: 700; padding: 0; margin-bottom: 6px; }
+.ll-manager-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; max-height: 260px; overflow-y: auto; }
+.ll-manager-list li + li { border-top: 1px solid #f1efe8; }
+.ll-manager-row { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 12px; cursor: pointer; font-weight: 400; }
+.ll-manager-row input { width: 20px; height: 20px; flex-shrink: 0; }
+.ll-manager-text { display: flex; flex-direction: column; min-width: 0; }
+.ll-manager-text .muted { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ll-empty { text-align: center; }
+.ll-empty p { margin: 0 0 10px; }
+@media (min-width: 640px) {
+  .ll-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ll-page > .ll-new { width: auto; align-self: flex-start; min-width: 200px; }
+}
