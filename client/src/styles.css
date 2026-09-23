@@ -2054,3 +2054,82 @@ a.dv-roster-name:hover { text-decoration: underline; }
 .mr-handled-note { margin: 0; font-size: 0.9rem; padding: 8px 10px; background: var(--bg); border-radius: 8px; }
 .mr-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 24px 16px; }
 .mr-empty-icon { width: 48px; height: 48px; border-radius: 24px; background: #e7f2ea; color: var(--win-ink); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+
+
+/* ---- Guides / Issues / Audit / Email / API keys / Backup redesign (2026-09-23) ---- */
+.sx-page { display: flex; flex-direction: column; gap: 12px; }
+.sx-page .card { margin-bottom: 0; }
+.sx-stack { display: flex; flex-direction: column; gap: 12px; }
+.sx-stack .card { margin-bottom: 0; }
+.sx-card { display: flex; flex-direction: column; gap: 10px; }
+.sx-card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.sx-card-head h2 { margin: 0; font-size: 1.1rem; }
+.sx-small { font-size: 0.82rem; }
+.sx-form { display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px; }
+.sx-textarea { width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; font-size: 1rem; font-weight: 400; resize: vertical; }
+.sx-field { display: flex; flex-direction: column; gap: 6px; }
+.sx-field-label { font-size: 0.85rem; font-weight: 600; }
+.sx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sx-file { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; font-weight: 600; }
+.sx-file input[type="file"] { font: inherit; font-size: 0.9rem; font-weight: 400; max-width: 100%; }
+.sx-file input[type="file"]::file-selector-button {
+  min-height: 40px; margin-right: 10px; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--primary);
+  background: #fff; color: var(--primary); font: inherit; font-weight: 700; cursor: pointer;
+}
+/* Guides */
+.sx-guides { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.sx-guide { border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.sx-guide-top { display: flex; gap: 10px; align-items: flex-start; }
+.sx-kind { flex-shrink: 0; width: 44px; height: 44px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; background: #f1efe8; color: #4b5563; }
+.sx-kind-pdf { background: #fef2f2; color: #b91c1c; }
+.sx-kind-word { background: #e8f0fb; color: #1d4ed8; }
+.sx-guide-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sx-guide-admin { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid #f1efe8; }
+.sx-guide-actions { display: flex; gap: 8px; }
+/* Issues */
+.sx-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sx-issue { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; text-decoration: none; color: var(--ink); }
+.sx-issue:hover { border-color: var(--primary); }
+.sx-issue-top { display: flex; align-items: center; gap: 8px; }
+.sx-issue-title { font-size: 0.98rem; line-height: 1.3; }
+.sx-issue-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sx-state { font-size: 0.7rem; font-weight: 800; border-radius: 999px; padding: 1px 8px; }
+.sx-state-open { background: #e7f2ea; color: #1a7f37; }
+.sx-state-closed { background: #f1ebfb; color: #8250df; }
+.sx-label { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; color: #1a1a1a; }
+.sx-request { margin-top: 0; border-top: 0; }
+.sx-request-row { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.sx-request-desc { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Audit log */
+.sx-day { display: flex; flex-direction: column; gap: 6px; }
+.sx-log { list-style: none; margin: 0; padding: 0; background: #fff; border: 1px solid var(--border); border-radius: 14px; }
+.sx-log-row { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #f1efe8; }
+.sx-log-row:last-child { border-bottom: 0; }
+.sx-log-icon { width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: #f1efe8; color: #4b5563; }
+.sx-log-results { background: #e7f2ea; color: var(--win-ink); }
+.sx-log-divisions { background: #e8f0fb; color: #1d4ed8; }
+.sx-log-leagues { background: #fbf5e3; color: #7a5a10; }
+.sx-log-accounts { background: #f1ebfb; color: #6d28d9; }
+.sx-log-venues { background: #e6f4f1; color: #0f766e; }
+.sx-log-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sx-log-top { display: flex; justify-content: space-between; gap: 8px; font-size: 0.9rem; }
+.sx-log-time { flex-shrink: 0; font-size: 0.78rem; }
+.sx-log-details { font-size: 0.88rem; line-height: 1.35; overflow-wrap: anywhere; }
+/* Email */
+.sx-kv { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.sx-kv .muted { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+.sx-sends { list-style: none; margin: 0; padding: 0; }
+.sx-sends li { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid #f1efe8; }
+.sx-sends li:last-child { border-bottom: 0; }
+.sx-send-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.sx-send-to { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sx-send-subject { font-size: 0.9rem; }
+/* API keys */
+.sx-warn { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; background: #fbf5e3; border: 1px solid #e6d59e; border-radius: 12px; color: #5a4a17; font-size: 0.9rem; }
+.sx-newkey { display: flex; flex-direction: column; gap: 8px; padding: 14px; background: #e7f2ea; border: 1px solid #b9dcc2; border-radius: 14px; color: var(--win-ink); }
+.sx-key { display: block; padding: 10px 12px; background: #fff; border: 1px solid #b9dcc2; border-radius: 8px; font-size: 0.85rem; word-break: break-all; user-select: all; color: var(--ink); }
+/* Backup */
+.sx-safe { border-left: 4px solid var(--secondary); }
+.sx-caution { border-color: #e6d59e; padding-top: 4px; padding-bottom: 4px; }
+.sx-caution-toggle { color: #7a5a10; }
+.sx-danger-body { display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; }
