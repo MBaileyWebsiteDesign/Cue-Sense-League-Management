@@ -2028,3 +2028,29 @@ a.dv-roster-name:hover { text-decoration: underline; }
 @media (min-width: 900px) {
   .mm-venues { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
+
+
+/* ---- Message Reports redesign (2026-09-23) ---- */
+.mr-page { display: flex; flex-direction: column; gap: 12px; }
+.mr-page .card { margin-bottom: 0; }
+.mr-card { display: flex; flex-direction: column; gap: 10px; }
+.mr-card-open { border-left: 4px solid #b3413a; }
+.mr-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.mr-who { display: flex; flex-direction: column; min-width: 0; }
+.mr-reported { font-size: 1.1rem; }
+.mr-when { flex-shrink: 0; font-size: 0.8rem; }
+.mr-convo { border-top: 1px solid #f1efe8; }
+.mr-bubbles { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 8px; }
+.mr-msg { align-self: flex-start; max-width: 88%; background: #f1efe8; border-radius: 14px 14px 14px 4px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+.mr-msg-reported { align-self: flex-end; background: #fef2f2; border: 1px solid #f1c7c3; border-radius: 14px 14px 4px 14px; }
+.mr-msg-meta { font-size: 0.72rem; color: var(--muted); }
+.mr-msg-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.95rem; }
+.mr-note { display: flex; flex-direction: column; gap: 4px; font-size: 0.88rem; font-weight: 600; }
+.mr-note textarea {
+  width: 100%; box-sizing: border-box; min-height: 64px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font-family: inherit; font-size: 1rem; font-weight: 400; resize: vertical;
+}
+.mr-handled { display: flex; flex-direction: column; gap: 8px; }
+.mr-handled-note { margin: 0; font-size: 0.9rem; padding: 8px 10px; background: var(--bg); border-radius: 8px; }
+.mr-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 24px 16px; }
+.mr-empty-icon { width: 48px; height: 48px; border-radius: 24px; background: #e7f2ea; color: var(--win-ink); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 4px; }
