@@ -5601,16 +5601,88 @@ function fixtureAccessInfo(db, user, fixture) {
   };
 }
 
-app.post('/api/fixtures/:id/referee', requireAuth, asyncRoute((req, res) => {
-  const email = String((req.body || {}).email || '').trim().toLowerCase();
-  if (!email) throw new ApiError(400, 'email is required');
+// Referee candidates (2026-09-23): active accounts flagged isReferee (Manage
+// Users) who play in - directly, via a team roster or a doubles pairing - or
+// manage the fixture's league. Ad hoc games have no real league, so every
+// flagged referee is offered there. The fixture's own entrants and anyone
+// already refereeing it are left out.
+function refereeCandidatesFor(db, fixture) {
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === (fixture.leagueId || division?.leagueId));
+  const flagged = db.users.filter((u) => u.isReferee && u.status !== 'suspended');
+  const inFixture = new Set();
+  const addEntrant = (id) => {
+    if (!id) return;
+    inFixture.add(id);
+    const pairing = db.pairings.find((p) => p.id === id);
+    if (pairing) pairing.playerIds.forEach((pid) => inFixture.add(pid));
+  };
+  addEntrant(fixture.homePlayerId);
+  addEntrant(fixture.awayPlayerId);
+  for (const teamId of [fixture.homeTeamId, fixture.awayTeamId]) {
+    const team = teamId ? db.teams.find((t) => t.id === teamId) : null;
+    if (team) team.playerIds.forEach((pid) => inFixture.add(pid));
+  }
+  const already = new Set(fixture.refereeUserIds || []);
+  let eligible;
+  if (!league || league.isAdHocPool) {
+    eligible = flagged;
+  } else {
+    const leagueDivisions = db.divisions.filter((d) => d.leagueId === league.id);
+    const leaguePlayerIds = new Set();
+    for (const d of leagueDivisions) {
+      (d.playerIds || []).forEach((pid) => leaguePlayerIds.add(pid));
+      for (const teamId of d.teamIds || []) {
+        const team = db.teams.find((t) => t.id === teamId);
+        if (team) team.playerIds.forEach((pid) => leaguePlayerIds.add(pid));
+      }
+      for (const pairingId of d.pairingIds || []) {
+        const pairing = db.pairings.find((p) => p.id === pairingId);
+        if (pairing) pairing.playerIds.forEach((pid) => leaguePlayerIds.add(pid));
+      }
+    }
+    const managers = new Set(league.managerUserIds || []);
+    eligible = flagged.filter((u) => managers.has(u.id) || (u.playerId && leaguePlayerIds.has(u.playerId)));
+  }
+  return eligible
+    .filter((u) => !already.has(u.id) && !(u.playerId && inFixture.has(u.playerId)))
+    .map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+app.get('/api/fixtures/:id/referee-candidates', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   if (!canControlFixture(db, req.auth.user, fixture, { allowReferee: false })) {
     throw new ApiError(403, 'Only a player in this fixture, or an admin/league manager, can name a referee');
   }
-  const target = db.users.find((u) => u.email.toLowerCase() === email && u.status !== 'suspended');
+  res.json({ candidates: refereeCandidatesFor(db, fixture) });
+}));
+
+// Name a referee: { userId } picked from the referee-candidates dropdown
+// (the fixture page's only UI since 2026-09-23), or the older { email } form,
+// kept for API compatibility.
+app.post('/api/fixtures/:id/referee', requireAuth, asyncRoute((req, res) => {
+  const body = req.body || {};
+  const userId = String(body.userId || '').trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  if (!userId && !email) throw new ApiError(400, 'userId or email is required');
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  if (!canControlFixture(db, req.auth.user, fixture, { allowReferee: false })) {
+    throw new ApiError(403, 'Only a player in this fixture, or an admin/league manager, can name a referee');
+  }
+  let target;
+  if (userId) {
+    if (!refereeCandidatesFor(db, fixture).some((c) => c.id === userId)) {
+      throw new ApiError(400, 'That account is not a flagged referee available for this match');
+    }
+    target = db.users.find((u) => u.id === userId);
+  } else {
+    target = db.users.find((u) => u.email.toLowerCase() === email && u.status !== 'suspended');
+  }
   if (!target) throw new ApiError(404, 'No active account with that email');
   fixture.refereeUserIds = Array.isArray(fixture.refereeUserIds) ? fixture.refereeUserIds : [];
   if (!fixture.refereeUserIds.includes(target.id)) fixture.refereeUserIds.push(target.id);
@@ -7331,11 +7403,18 @@ app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
 // Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
 // toggle now that an account can be both, either or neither.
 app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
-  const { isAdmin, isCaptain, isLeagueManager, isVenueManager } = req.body;
+  const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isReferee } = req.body;
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
   const changes = [];
+  // Referee flag (2026-09-23): marks an account as available to referee -
+  // it then appears in the fixture page's referee dropdown for leagues it
+  // plays in or manages (see GET /api/fixtures/:id/referee-candidates).
+  if (isReferee !== undefined && !!isReferee !== !!user.isReferee) {
+    user.isReferee = !!isReferee;
+    changes.push(user.isReferee ? 'marked as referee' : 'unmarked as referee');
+  }
   if (isAdmin !== undefined && !!isAdmin !== user.isAdmin) {
     user.isAdmin = !!isAdmin;
     changes.push(user.isAdmin ? 'granted admin' : 'revoked admin');

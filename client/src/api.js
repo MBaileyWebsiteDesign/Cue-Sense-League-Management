@@ -402,6 +402,9 @@ const networkApi = {
     request(`/fixtures/${fixtureId}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),
   addFixtureReferee: (fixtureId, email) =>
     request(`/fixtures/${fixtureId}/referee`, { method: 'POST', body: JSON.stringify({ email }) }),
+  getRefereeCandidates: (fixtureId) => request(`/fixtures/${fixtureId}/referee-candidates`),
+  addFixtureRefereeById: (fixtureId, userId) =>
+    request(`/fixtures/${fixtureId}/referee`, { method: 'POST', body: JSON.stringify({ userId }) }),
   removeFixtureReferee: (fixtureId, userId) =>
     request(`/fixtures/${fixtureId}/referee/${userId}`, { method: 'DELETE' }),
   claimNoShow: (fixtureId, legNumber) =>
