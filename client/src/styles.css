@@ -1708,3 +1708,5 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .msg-count-max { color: #b91c1c; font-weight: 700; }
 .msg-cant-send p { margin: 0 0 10px; }
 .msg-cant-send p:last-child { margin: 0; }
+.msg-compose .msg-compose-input, .msg-card textarea { font-family: inherit; font-size: 1rem; }
+.btn.msg-contact-btn { line-height: 1; }
