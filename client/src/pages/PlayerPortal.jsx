@@ -418,7 +418,9 @@ function RecentResults({ fixtures, profile }) {
             <span className="cs-badge cs-chip-V" aria-label="Awaiting confirmation">?</span>
             <div className="cs-result-body">
               <strong>vs {f.opponentName}</strong>
-              <span className="muted">{[f.leagueName, f.divisionName, `Round ${f.round}`].filter(Boolean).join(' · ')}</span>
+              {[f.leagueName, f.divisionName, `Round ${f.round}`].filter(Boolean).map((t) => (
+                <span key={t} className="muted">{t}</span>
+              ))}
               <span className="cs-await">Waiting confirmation</span>
             </div>
             <Chevron />
@@ -432,7 +434,9 @@ function RecentResults({ fixtures, profile }) {
               <ResultBadge result={r.result} />
               <div className="cs-result-body">
                 <strong>vs {r.opponentName}</strong>
-                <span className="muted">{[r.leagueName, r.divisionName, round != null ? `Round ${round}` : null].filter(Boolean).join(' · ')}{r.context && r.context !== 'singles' ? ` · ${r.context}` : ''}</span>
+                {[r.leagueName, r.divisionName, round != null ? `Round ${round}` : null, r.context && r.context !== 'singles' ? r.context : null].filter(Boolean).map((t) => (
+                  <span key={t} className="muted">{t}</span>
+                ))}
               </div>
               <span className="cs-result-score">{r.forScore}–{r.againstScore}</span>
               <Chevron />
