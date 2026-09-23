@@ -321,6 +321,9 @@ export default function PlayerProfile() {
     <div className="cs-profile">
       <h1 className="cs-title">{profile.name}</h1>
       <p className="muted" style={{ marginTop: 0 }}>Career record across every league and division</p>
+      <p style={{ marginTop: -4, marginBottom: 12 }}>
+        <Link to="/account">&larr; Back to my account</Link>
+      </p>
       <FormStrip form={profile.formGuide} />
 
       {isAdmin && <AdminAccountPanel playerId={profile.id} divisions={profile.divisions || []} />}
