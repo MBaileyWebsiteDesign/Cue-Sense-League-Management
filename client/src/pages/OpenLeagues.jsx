@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import { divisionFormat, sortDivisionsPremierFirst } from '../divisionDisplay.js';
 
 // A league marked "Open For Registration" doesn't have a roster of its
 // own to join directly - a player here just registers interest in the
@@ -10,49 +11,6 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 // League Manager splits interested players across whichever division(s)
 // they choose (bulk or one at a time) from that league's "Admin: Manage
 // this League" -> League Interests subsection whenever they're ready.
-
-const SCHEDULING_LABELS = {
-  knockout_single_elim: 'Knockout (single elim)',
-  knockout_double_elim: 'Knockout (double elim)',
-  knockout_double_elim_pcdek: 'Pre Configured Double Elim Knockout',
-  knockout_double_elim_adek: 'Adaptive Double Elim Knockout',
-  round_robin_double: 'Standard League - Double Leg',
-  round_robin_single: 'Standard League - Single Leg',
-  killer_classic: 'Killer Classic',
-  cards_killer: 'Cards Killer',
-  free_play: 'Free Play',
-};
-
-const KILLER_SCHEDULING_TYPES = ['killer_classic', 'cards_killer'];
-
-function schedulingLabel(scheduling) {
-  return SCHEDULING_LABELS[scheduling] || 'Standard League - Single Leg';
-}
-
-function entryTypeLabel(division) {
-  if (division.entryType === 'teams') {
-    return `Teams · ${division.legsPerMatch} leg${division.legsPerMatch === 1 ? '' : 's'}/match`;
-  }
-  if (division.entryType === 'doubles') {
-    return `${division.pairingSize === 3 ? 'Triples' : 'Doubles'} (${division.pairingSize} players/pairing)`;
-  }
-  return 'Singles';
-}
-
-// One line describing how a division plays, e.g.
-// "Singles · Race to 6 · Standard League - Double Leg".
-function divisionFormat(division) {
-  const isKiller = KILLER_SCHEDULING_TYPES.includes(division.scheduling);
-  const parts = [];
-  if (isKiller) {
-    parts.push(`${division.startingLives || 3} lives each`);
-  } else {
-    parts.push(entryTypeLabel(division));
-    if (division.raceTo) parts.push(`Race to ${division.raceTo}`);
-  }
-  parts.push(schedulingLabel(division.scheduling));
-  return parts.join(' · ');
-}
 
 function paymentLabel(payment) {
   if (!payment || !payment.required) return 'Free to join';
@@ -66,8 +24,9 @@ function StatusBadge({ status }) {
   return null;
 }
 
-function DivisionsBlock({ divisions }) {
-  if (!divisions || divisions.length === 0) return null;
+function DivisionsBlock({ divisions: rawDivisions }) {
+  if (!rawDivisions || rawDivisions.length === 0) return null;
+  const divisions = sortDivisionsPremierFirst(rawDivisions);
   const formats = divisions.map(divisionFormat);
   const allSame = formats.every((f) => f === formats[0]);
 
