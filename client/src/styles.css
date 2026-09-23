@@ -1992,3 +1992,39 @@ a.dv-roster-name:hover { text-decoration: underline; }
 .au-filters::-webkit-scrollbar { display: none; }
 .au-walkin { font-size: 0.72rem; font-weight: 700; color: #7a5a10; background: #fbf5e3; border: 1px solid #e6d59e; border-radius: 999px; padding: 1px 8px; align-self: flex-start; }
 .au-add > div { padding-bottom: 12px; }
+
+
+/* ---- Membership Management redesign (2026-09-23) ---- */
+.mm-page { display: flex; flex-direction: column; gap: 12px; }
+.mm-page .card { margin-bottom: 0; }
+.mm-intro { margin: -4px 0 0; }
+.mm-add h2 { margin: 0 0 8px; font-size: 1.05rem; }
+.mm-add-form { display: flex; gap: 8px; }
+.mm-input {
+  flex: 1; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: 8px; font: inherit; font-size: 1rem; background: #fff; color: var(--ink);
+}
+.mm-input:focus { outline: 2px solid var(--secondary); outline-offset: 1px; border-color: var(--secondary); }
+.mm-add-form .btn { flex-shrink: 0; min-height: 44px; }
+.mm-venues { display: flex; flex-direction: column; gap: 12px; }
+.mm-venue { display: flex; flex-direction: column; gap: 10px; }
+.mm-venue-head { display: flex; align-items: center; gap: 10px; }
+.mm-venue-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 1.2rem; }
+.mm-venue-icon { width: 38px; height: 38px; flex-shrink: 0; border-radius: 10px; background: #e7f2ea; color: var(--primary); display: inline-flex; align-items: center; justify-content: center; }
+.mm-sub-head { display: flex; justify-content: space-between; align-items: baseline; }
+.mm-sub-head h3 { margin: 0; font-size: 0.95rem; }
+.mm-small { font-size: 0.85rem; margin: 4px 0 0; }
+.mm-managers { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid #f1efe8; }
+.mm-rows { list-style: none; margin: 0; padding: 0; }
+.mm-rows li { display: flex; align-items: center; gap: 10px; min-height: 56px; border-bottom: 1px solid #f1efe8; }
+.mm-rows li:last-child { border-bottom: 0; }
+.mm-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mm-row-main .muted { font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-pick { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.mm-settings { border-top: 1px solid #f1efe8; }
+.mm-settings-toggle { color: #4b5563; }
+.mm-settings-body { display: flex; flex-direction: column; gap: 12px; padding-bottom: 6px; }
+.mm-label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; }
+@media (min-width: 900px) {
+  .mm-venues { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
