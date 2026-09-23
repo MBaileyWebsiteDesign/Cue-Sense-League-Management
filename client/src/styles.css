@@ -1563,7 +1563,7 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .ol-div-rows li:last-child { border-bottom: 0; }
 .ol-note { margin: 0; font-size: 0.85rem; }
 .ol-actions { display: flex; flex-direction: column; gap: 8px; }
-.ol-view { color: var(--primary); text-decoration: none; }
+.ol-card .ol-actions .ol-view { display: flex; align-items: center; justify-content: center; text-align: center; color: var(--primary); font-weight: 700; text-decoration: none; }
 .ol-empty { text-align: center; }
 .ol-empty p { margin: 0 0 8px; }
 @media (min-width: 640px) {
