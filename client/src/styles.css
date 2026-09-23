@@ -1514,3 +1514,10 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .ah-walkin-toggle { width: 100%; min-height: 50px; border: 0; background: none; display: flex; justify-content: space-between; align-items: center; font: inherit; font-weight: 700; color: var(--primary); cursor: pointer; padding: 0; }
 .ah-walkin-form { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
 .ah-walkin-form .btn { min-height: 44px; }
+
+/* Ad Hoc inputs use the app's normal .form input look (2026-09-23 polish) */
+.ah-form input, .ah-search, .ah-walkin-form input {
+  display: block; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 1rem; font-weight: 400; background: #fff; color: var(--ink);
+}
+.ah-form input:focus, .ah-search:focus, .ah-walkin-form input:focus { outline: 2px solid var(--secondary); outline-offset: 1px; border-color: var(--secondary); }
