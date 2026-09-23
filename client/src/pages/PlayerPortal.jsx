@@ -541,12 +541,12 @@ function MyLeagues({ leagues, playerId }) {
         </div>
       )}
       {uniqueLeagues.length > 0 && (
-        <p className="cs-small" style={{ margin: '10px 0 0' }}>
-          League pages:{' '}
-          {uniqueLeagues.map((l, i) => (
-            <span key={l.leagueId}>{i > 0 && ' · '}<Link to={`/leagues/${l.leagueId}`}>{l.leagueName}</Link></span>
+        <div className="cs-small" style={{ margin: '10px 0 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span>League pages:</span>
+          {uniqueLeagues.map((l) => (
+            <Link key={l.leagueId} to={`/leagues/${l.leagueId}`}>{l.leagueName}</Link>
           ))}
-        </p>
+        </div>
       )}
     </section>
   );
