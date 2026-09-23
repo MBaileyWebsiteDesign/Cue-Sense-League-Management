@@ -609,7 +609,7 @@ function KillerBoard({ division, onChange, setError }) {
   );
 }
 
-function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin, isPlayerSession, canWalkIn }) {
+function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmin, isPlayerSession, canEditRoster }) {
   const [search, setSearch] = useState('');
   const [addingId, setAddingId] = useState(null);
   const [walkInOpen, setWalkInOpen] = useState(false);
@@ -765,8 +765,10 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
 
   const q = search.trim().toLowerCase();
   const matches = q ? available.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8) : [];
-  const canAdd = !division.fixturesGenerated && !freePlayFull;
-  const showWalkIn = canWalkIn && !freePlayFull && (!division.fixturesGenerated || canQuickAddLateEntrant);
+  // Only an admin, this league's manager or the creator of their own Ad Hoc
+  // game can change the roster - mirrors assertCanEditRoster server-side.
+  const canAdd = canEditRoster && !division.fixturesGenerated && !freePlayFull;
+  const showWalkIn = canEditRoster && !freePlayFull && (!division.fixturesGenerated || canQuickAddLateEntrant);
   const showSeed = isAdmin && !isFreePlay && !division.fixturesGenerated && division.players.length > 1;
 
   return (
@@ -789,7 +791,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
                 <button type="button" className="dv-seed-btn" disabled={i === division.players.length - 1} onClick={() => onMovePlayer(i, 1)} aria-label={`Move ${p.name} down (later seed)`}>&darr;</button>
               </span>
             )}
-            {!division.fixturesGenerated && (
+            {canEditRoster && !division.fixturesGenerated && (
               <button type="button" className="ah-remove" onClick={() => onRemovePlayer(p.id)} aria-label={`Remove ${p.name}`}>&times;</button>
             )}
           </li>
@@ -825,7 +827,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           <p className="muted dv-small">Only people with a registered player account appear here - see "My Account" to register.</p>
         </div>
       )}
-      {freePlayFull && !division.fixturesGenerated && (
+      {canEditRoster && freePlayFull && !division.fixturesGenerated && (
         <p className="muted dv-small">Free Play is a 2-player match - remove a player above to swap who's in it.</p>
       )}
 
@@ -1932,7 +1934,7 @@ export default function DivisionDetail() {
           setError={setError}
           isAdmin={canManage}
           isPlayerSession={isPlayerSession}
-          canWalkIn={canManage || isOwnAdHocGame}
+          canEditRoster={canManage || isOwnAdHocGame}
         />
       )}
 
