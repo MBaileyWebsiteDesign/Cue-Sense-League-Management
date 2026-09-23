@@ -2899,13 +2899,30 @@ app.get('/api/guides/:id/download', requireAuth, asyncRoute((req, res) => {
   res.download(filePath, guide.originalFileName);
 }));
 
-app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
+// Who may change a singles division's roster (add a registered player,
+// quick-add a walk-in, remove a player): an Overall Admin, a League
+// Manager of the division's league, or the creator of their own Ad Hoc
+// game (same isOwnAdHocGame test as DELETE /api/divisions/:id and
+// canControlFixture). Before 2026-09-23 these routes had no access check,
+// so any caller could edit any division's roster before fixtures existed.
+function assertCanEditRoster(req, db, division) {
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  const isOwnAdHocGame = !!(
+    league?.isAdHocPool &&
+    division.createdByUserId &&
+    division.createdByUserId === req.auth.userId
+  );
+  if (!isOwnAdHocGame) assertLeagueAccess(req, league);
+}
+
+app.post('/api/divisions/:id/players', requireAuth, asyncRoute((req, res) => {
   const { playerId } = req.body;
   if (!playerId) throw new ApiError(400, 'playerId is required');
 
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  assertCanEditRoster(req, db, division);
   if (division.entryType !== 'singles') {
     throw new ApiError(400, `This is a ${division.entryType} division - add players to a ${division.entryType === 'teams' ? 'team' : 'pairing'} instead`);
   }
@@ -2926,10 +2943,11 @@ app.post('/api/divisions/:id/players', asyncRoute((req, res) => {
   res.status(201).json(hydrateDivision(db, division));
 }));
 
-app.delete('/api/divisions/:id/players/:playerId', asyncRoute((req, res) => {
+app.delete('/api/divisions/:id/players/:playerId', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  assertCanEditRoster(req, db, division);
   if (division.fixturesGenerated) {
     throw new ApiError(400, 'Cannot remove players after fixtures have been generated for this division');
   }
@@ -3350,6 +3368,7 @@ app.post('/api/divisions/:id/quick-add-player', requireAuth, asyncRoute((req, re
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  assertCanEditRoster(req, db, division);
   if (division.entryType !== 'singles') {
     throw new ApiError(400, 'Quick-add is only available for singles divisions right now');
   }
