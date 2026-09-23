@@ -1570,3 +1570,47 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
   .ol-actions { flex-direction: row; }
   .ol-actions .cs-btn-block { width: auto; flex: 1; }
 }
+
+
+/* ---- League page redesign (2026-09-23) ---- */
+.lg-page { display: flex; flex-direction: column; gap: 14px; }
+.lg-page > p { margin: 0; }
+.lg-head {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.lg-head-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.lg-head-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lg-head-title h1 { margin: 0; font-size: 1.6rem; line-height: 1.15; }
+.lg-chip-open { background: #fbf5e3; color: #7a5a10; border: 1px solid #e6d59e; }
+.lg-section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.lg-share { display: flex; flex-direction: column; gap: 8px; }
+.lg-share-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lg-share-tile {
+  background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-height: 44px;
+  display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--primary); font-weight: 700; font-size: 0.9rem;
+}
+.lg-share-tile:hover { border-color: var(--primary); }
+.lg-divs {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.lg-divs-head { display: flex; justify-content: space-between; align-items: baseline; }
+.lg-divs-head h2 { margin: 0; font-size: 1.15rem; }
+.lg-divs-format { margin: 8px 0 4px; }
+.lg-div-list { list-style: none; margin: 0; padding: 0; }
+.lg-div-list li { border-bottom: 1px solid #f1efe8; }
+.lg-div-list li:last-child { border-bottom: 0; }
+.lg-div-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; min-height: 44px; text-decoration: none; color: var(--ink); }
+.lg-div-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lg-div-main strong { font-size: 1rem; }
+.lg-div-main .muted { font-size: 0.85rem; }
+.lg-div-status { flex-shrink: 0; font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+.lg-div-status-idle { background: #f1efe8; color: #4b5563; }
+.lg-div-status-live { background: #e7f2ea; color: var(--win-ink); }
+.lg-div-status-done { background: var(--primary); color: #fff; }
+.lg-div-chev { color: #9ca3af; flex-shrink: 0; }
+@media (min-width: 640px) {
+  .lg-share-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lg-head .cs-btn-block { width: auto; align-self: flex-start; }
+}

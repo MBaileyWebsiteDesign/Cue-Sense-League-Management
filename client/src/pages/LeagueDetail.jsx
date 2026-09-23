@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import { divisionFormat, sortDivisionsPremierFirst } from '../divisionDisplay.js';
 
 // Named physical tables for this league - see server/src/index.js's
 // POST /api/leagues/:id/tables and the Arena display, which shows what's
@@ -589,10 +590,90 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   );
 }
 
+function divisionCountLabel(division) {
+  if (division.entryType === 'teams') {
+    const n = (division.teamIds || []).length;
+    return `${n} team${n === 1 ? '' : 's'}`;
+  }
+  if (division.entryType === 'doubles') {
+    const n = (division.pairingIds || []).length;
+    return `${n} pairing${n === 1 ? '' : 's'}`;
+  }
+  const n = (division.playerIds || []).length;
+  return `${n} player${n === 1 ? '' : 's'}`;
+}
+
+function divisionStatus(division) {
+  if (division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer') {
+    if (division.killer?.status === 'finished') return { label: 'Game finished', tone: 'done' };
+    if (division.killer?.status === 'in_progress') return { label: 'In progress', tone: 'live' };
+    return { label: 'Not started', tone: 'idle' };
+  }
+  if (division.status === 'completed') return { label: 'Season complete', tone: 'done' };
+  if (division.fixturesGenerated) return { label: 'Fixtures out', tone: 'live' };
+  return { label: 'Not started', tone: 'idle' };
+}
+
+// Divisions as one compact card of tappable rows. When every division
+// plays the same way the format is shown once at the top; otherwise each
+// row carries its own format line.
+function DivisionsCard({ divisions }) {
+  const sorted = sortDivisionsPremierFirst(divisions || []);
+  const formats = sorted.map(divisionFormat);
+  const allSame = formats.length > 1 && formats.every((f) => f === formats[0]);
+
+  return (
+    <section className="lg-divs">
+      <div className="lg-divs-head">
+        <h2>Divisions</h2>
+        <span className="muted">{sorted.length}</span>
+      </div>
+      {sorted.length === 0 ? (
+        <p className="muted" style={{ margin: '8px 0 10px' }}>No divisions yet.</p>
+      ) : (
+        <>
+          {allSame && (
+            <p className="ol-divs-format lg-divs-format">
+              <span className="ol-divs-label">All divisions</span>
+              {formats[0]}
+            </p>
+          )}
+          <ul className="lg-div-list">
+            {sorted.map((division, i) => {
+              const st = divisionStatus(division);
+              return (
+                <li key={division.id}>
+                  <Link to={`/divisions/${division.id}`} className="lg-div-row">
+                    <span className="lg-div-main">
+                      <strong>{division.name}</strong>
+                      <span className="muted">
+                        {divisionCountLabel(division)}
+                        {!allSame && ` · ${formats[i]}`}
+                      </span>
+                    </span>
+                    <span className={`lg-div-status lg-div-status-${st.tone}`}>{st.label}</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="lg-div-chev"><path d="M9 6l6 6-6 6" /></svg>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function LeagueDetail() {
-  const { isAdmin, canManageLeague } = useAuth();
+  const { isAdmin, isCaptain, isLeagueManager, canManageLeague } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  const homePath = isPlayerSession ? '/account' : '/';
   const { leagueId } = useParams();
   const [league, setLeague] = useState(null);
+  // This player's interest status for an open league ('pending' /
+  // 'assigned'), taken from the same /api/open-leagues data the Open
+  // Leagues page uses. null when the league isn't open or has no request.
+  const [requestStatus, setRequestStatus] = useState(null);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [entryType, setEntryType] = useState('singles');
@@ -622,8 +703,8 @@ export default function LeagueDetail() {
 
   useSetBreadcrumbs(
     league
-      ? [{ label: 'Home', to: '/' }, { label: league.name }]
-      : [{ label: 'Home', to: '/' }, { label: 'Loading…' }]
+      ? [{ label: 'Home', to: homePath }, { label: league.name }]
+      : [{ label: 'Home', to: homePath }, { label: 'Loading…' }]
   );
 
   const load = () => api.getLeague(leagueId).then(setLeague).catch((e) => setError(e.message));
@@ -632,6 +713,28 @@ export default function LeagueDetail() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
+
+  const isOpenLeague = !!(league && league.isOpenForRegistration);
+  useEffect(() => {
+    if (!isOpenLeague) {
+      setRequestStatus(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getOpenLeagues()
+      .then((rows) => {
+        if (cancelled) return;
+        const row = (rows || []).find((r) => r.leagueId === leagueId);
+        setRequestStatus(row ? row.requestStatus || null : null);
+      })
+      .catch(() => {
+        if (!cancelled) setRequestStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [leagueId, isOpenLeague]);
 
   const onAddDivision = async (e) => {
     e.preventDefault();
@@ -690,21 +793,37 @@ export default function LeagueDetail() {
   const canManage = canManageLeague(league);
 
   return (
-    <div>
-      <p><Link to="/leagues">&larr; All leagues</Link></p>
-      <div className="page-header">
-        <div>
-          <h1>{league.name}</h1>
-          <p className="muted">
-            {league.sport}
-          </p>
+    <div className="lg-page">
+      {!isPlayerSession && <p><Link to="/leagues">&larr; All leagues</Link></p>}
+      <section className="lg-head">
+        <div className="lg-head-top">
+          <div className="lg-head-title">
+            <h1>{league.name}</h1>
+            {league.sport && <span className="muted">{league.sport}</span>}
+          </div>
+          {requestStatus === 'assigned' && <span className="ol-status ol-status-in">Registered</span>}
+          {requestStatus === 'pending' && <span className="ol-status ol-status-wait">Awaiting placement</span>}
+        </div>
+        <div className="ol-chips">
+          <span className="ol-chip">
+            {league.divisions.length} division{league.divisions.length === 1 ? '' : 's'}
+          </span>
+          {league.payment && league.payment.required ? (
+            <span className="ol-chip">
+              {league.payment.currency === 'GBP'
+                ? `£${league.payment.amount}`
+                : `${league.payment.amount} ${league.payment.currency}`}{' '}
+              entry
+            </span>
+          ) : null}
+          {league.isOpenForRegistration && <span className="ol-chip lg-chip-open">Open for registration</span>}
         </div>
         {canManage && (
-          <button className="btn" onClick={() => setShowForm((v) => !v)}>
+          <button className="btn cs-btn-block" onClick={() => setShowForm((v) => !v)}>
             {showForm ? 'Cancel' : '+ New Division'}
           </button>
         )}
-      </div>
+      </section>
 
       {showForm && canManage && (
         <form className="card form" onSubmit={onAddDivision}>
@@ -841,57 +960,36 @@ export default function LeagueDetail() {
 
       {error && <p className="error">{error}</p>}
 
-      <p style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <Link className="btn btn-primary" to={`/arena/${league.id}`}>View Arena display &rarr;</Link>
-        <Link className="btn btn-primary" to={`/public/leagues/${league.id}/table`}>View public League Table &rarr;</Link>
-        <Link className="btn btn-primary" to={`/public/leagues/${league.id}/fixtures`}>View public League Fixtures &rarr;</Link>
-        <Link className="btn btn-primary" to={`/public/leagues/${league.id}/interests`}>View public League Interests &rarr;</Link>
-      </p>
-      {canManage && (
-        <p className="muted" style={{ fontSize: '0.8rem' }}>
-          The three links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
-          &lt;iframe&gt; on another site) - copy any URL from your browser's address bar once you're on
-          the page.
-        </p>
-      )}
-
-      <div className="card-grid">
-        {league.divisions.map((division) => (
-          <Link key={division.id} to={`/divisions/${division.id}`} className="card card-link">
-            <h2>{division.name}</h2>
-            <p className="muted">
-              {division.entryType === 'teams'
-                ? `${division.teamIds.length} team${division.teamIds.length === 1 ? '' : 's'} · ${division.legsPerMatch} legs/match`
-                : division.entryType === 'doubles'
-                  ? `${division.pairingIds.length} pairing${division.pairingIds.length === 1 ? '' : 's'} · ${division.pairingSize} players/pairing`
-                  : `${division.playerIds.length} player${division.playerIds.length === 1 ? '' : 's'}`}
-              {' · '}
-              {division.scheduling === 'knockout_single_elim'
-                ? 'Knockout (single elim)'
-                : division.scheduling === 'knockout_double_elim'
-                  ? 'Knockout (double elim)'
-                  : division.scheduling === 'knockout_double_elim_pcdek'
-                    ? 'Pre Configured Double Elim Knockout'
-                    : division.scheduling === 'knockout_double_elim_adek'
-                      ? 'Adaptive Double Elim Knockout'
-                      : division.scheduling === 'killer_classic'
-                        ? 'Killer Classic'
-                        : division.scheduling === 'cards_killer'
-                          ? 'Cards Killer'
-                          : division.scheduling === 'free_play'
-                            ? 'Free Play'
-                            : division.scheduling === 'round_robin_double'
-                              ? 'Standard League - Double Leg'
-                              : 'Standard League - Single Leg'}
-              {' · '}
-              {division.scheduling === 'killer_classic' || division.scheduling === 'cards_killer'
-                ? (division.killer?.status === 'finished' ? 'game finished' : division.killer?.status === 'in_progress' ? 'game in progress' : 'not started')
-                : division.fixturesGenerated ? 'fixtures generated' : 'not started'}
-              {division.status === 'completed' && ' · season complete'}
-            </p>
+      <section className="lg-share" aria-label="Share and display">
+        <span className="lg-section-label">Share &amp; display</span>
+        <div className="lg-share-grid">
+          <Link className="lg-share-tile" to={`/arena/${league.id}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
+            Arena display
           </Link>
-        ))}
-      </div>
+          <Link className="lg-share-tile" to={`/public/leagues/${league.id}/table`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            League table
+          </Link>
+          <Link className="lg-share-tile" to={`/public/leagues/${league.id}/fixtures`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+            Fixtures
+          </Link>
+          <Link className="lg-share-tile" to={`/public/leagues/${league.id}/interests`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 3-5 6-5s6 2 6 5M16 11h5M18.5 8.5v5" /></svg>
+            Interests
+          </Link>
+        </div>
+        {canManage && (
+          <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
+            These links are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
+            &lt;iframe&gt; on another site) - copy any URL from your browser's address bar once you're on
+            the page.
+          </p>
+        )}
+      </section>
+
+      <DivisionsCard divisions={league.divisions} />
 
       {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
 
