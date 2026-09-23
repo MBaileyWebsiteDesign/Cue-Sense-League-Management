@@ -228,6 +228,9 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         <button className="btn" disabled={busy} onClick={() => setPermission({ isVenueManager: !user.isVenueManager })}>
           {user.isVenueManager ? 'Revoke Venue Manager' : 'Grant Venue Manager'}
         </button>
+        <button className="btn" disabled={busy} onClick={() => setPermission({ isReferee: !user.isReferee })}>
+          {user.isReferee ? 'Unmark Referee' : 'Mark as Referee'}
+        </button>
         <button className="btn" disabled={busy} onClick={toggleStatus}>
           {user.status === 'suspended' ? 'Reactivate Account' : 'Suspend Account'}
         </button>
@@ -239,7 +242,8 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         leagues (assign them from that league's own page) - granting it here doesn't give
         access to anything by itself, and revoking it also strips any leagues they were
         already assigned to. Venue Manager works the same way, but for venues - assign them
-        from Admin Portal &rarr; Membership Management.
+        from Admin Portal &rarr; Membership Management. Referee lists this account in the fixture page's referee
+        dropdown for leagues it plays in or manages (and for ad hoc games).
       </p>
     </section>
   );

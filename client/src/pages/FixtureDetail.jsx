@@ -673,7 +673,7 @@ function FinalResultCard({ fixture, homeEntrant, awayEntrant, EntrantName }) {
   );
 }
 
-function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimisticFrame, onRollbackFrame }) {
+function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimisticFrame, onRollbackFrame, tools }) {
   const { user, isAdmin } = useAuth();
   const complete = fixture.status === 'completed';
   // Scoring is locked once a result has been submitted (pending_confirmation)
@@ -826,77 +826,80 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
       {complete ? (
         <FinalResultCard fixture={fixture} homeEntrant={homeEntrant} awayEntrant={awayEntrant} EntrantName={EntrantName} />
       ) : (
-      <section className="card scoreboard">
-        <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === fixture.homePlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
-          <h2><EntrantName entrant={homeEntrant} id={fixture.homePlayerId} /></h2>
-          <div className="score">{fixture.homeFrameScore}</div>
-          <button className="btn btn-primary" disabled={locked || framePending} onClick={() => onRecord(fixture.homePlayerId)}>
-            Frame won by {homeEntrant.name}
-          </button>
-          <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
-            <button
-              className="btn btn-yellow"
-              disabled={locked || framePending}
-              title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
-              onClick={() => onRecord(fixture.homePlayerId, 'bnd')}
-            >
-              BND
-            </button>
-            <button
-              type="button"
-              className={`btn btn-break${breakerId === fixture.homePlayerId ? ' btn-break-selected' : ''}`}
-              disabled={locked || breakOrderLocked}
-              title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
-              onClick={() => onSelectBreaker(fixture.homePlayerId)}
-            >
-              {breakerId === fixture.homePlayerId ? 'Breaking \u2713' : 'Break'}
-            </button>
-            <button
-              className="btn btn-yellow"
-              disabled={locked || framePending}
-              title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
-              onClick={() => onRecord(fixture.homePlayerId, 'rnd')}
-            >
-              RND
-            </button>
+      <>
+        <section className="card cs-board">
+          <div className="cs-board-grid">
+            {[
+              { id: fixture.homePlayerId, entrant: homeEntrant, score: fixture.homeFrameScore, side: 'home' },
+              { id: fixture.awayPlayerId, entrant: awayEntrant, score: fixture.awayFrameScore, side: 'away' },
+            ].map((p, idx) => (
+              <div key={p.side} className={`cs-board-player cs-side-${p.side}`} style={{ gridColumn: idx === 0 ? 1 : 3 }}>
+                <span className="cs-board-bar" aria-hidden="true" />
+                <span className="cs-board-name"><EntrantName entrant={p.entrant} id={p.id} /></span>
+                <span className="cs-board-score">{p.score}</span>
+                {!isFreePlay && fixture.raceTo <= 15 && (
+                  <span className="cs-pips" role="img" aria-label={`${p.score} of ${fixture.raceTo} frames`}>
+                    {Array.from({ length: fixture.raceTo }, (_, i) => (
+                      <span key={i} className={i < p.score ? 'cs-pip cs-pip-on' : 'cs-pip'} />
+                    ))}
+                  </span>
+                )}
+                {!isFreePlay && (
+                  <span className="cs-to-win">{Math.max(0, fixture.raceTo - p.score) === 0 ? 'Target reached' : `${fixture.raceTo - p.score} to win`}</span>
+                )}
+                {!locked && (
+                  <button
+                    type="button"
+                    className={`cs-break-pill${breakerId === p.id || (!breakerId && currentBreakerId === p.id) ? ' cs-break-on' : ''}`}
+                    disabled={breakOrderLocked}
+                    aria-pressed={breakerId === p.id}
+                    title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself."
+                    onClick={() => onSelectBreaker(p.id)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M3 21L17 7" /><circle cx="19" cy="5" r="2.5" /></svg>
+                    {breakerId === p.id ? 'Breaking' : (!breakerId && currentBreakerId === p.id) ? 'Breaks next' : 'Break?'}
+                  </button>
+                )}
+              </div>
+            ))}
+            <span className="cs-board-vs" style={{ gridColumn: 2, gridRow: 1 }}>vs</span>
           </div>
-        </div>
-        <div className="scoreboard-vs">vs</div>
-        <div className={`scoreboard-player${currentBreakerId ? (currentBreakerId === fixture.awayPlayerId ? ' scoreboard-player-breaking' : ' scoreboard-player-not-breaking') : ''}`}>
-          <h2><EntrantName entrant={awayEntrant} id={fixture.awayPlayerId} /></h2>
-          <div className="score">{fixture.awayFrameScore}</div>
-          <button className="btn btn-primary" disabled={locked || framePending} onClick={() => onRecord(fixture.awayPlayerId)}>
-            Frame won by {awayEntrant.name}
-          </button>
-          <div className="inline-form" style={{ justifyContent: 'center', marginTop: 6 }}>
-            <button
-              className="btn btn-yellow"
-              disabled={locked || framePending}
-              title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
-              onClick={() => onRecord(fixture.awayPlayerId, 'bnd')}
-            >
-              BND
-            </button>
-            <button
-              type="button"
-              className={`btn btn-break${breakerId === fixture.awayPlayerId ? ' btn-break-selected' : ''}`}
-              disabled={locked || breakOrderLocked}
-              title="Record that this player won the lag and broke to start this frame. Doesn't award a frame win by itself - record the winner as usual once the frame is played."
-              onClick={() => onSelectBreaker(fixture.awayPlayerId)}
-            >
-              {breakerId === fixture.awayPlayerId ? 'Breaking \u2713' : 'Break'}
-            </button>
-            <button
-              className="btn btn-yellow"
-              disabled={locked || framePending}
-              title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
-              onClick={() => onRecord(fixture.awayPlayerId, 'rnd')}
-            >
-              RND
-            </button>
+          <p className="cs-board-note">
+            {isFreePlay ? "Free Play – no frame target. Finish whenever someone's ahead." : `Race to ${fixture.raceTo}`}
+          </p>
+        </section>
+
+        {tools}
+
+        {!locked && (
+          <div className="cs-score-grid">
+            {[
+              { id: fixture.homePlayerId, entrant: homeEntrant, side: 'home' },
+              { id: fixture.awayPlayerId, entrant: awayEntrant, side: 'away' },
+            ].map((p) => (
+              <div key={p.side} className={`cs-score-col cs-side-${p.side}`}>
+                <button className="cs-plus" disabled={framePending} onClick={() => onRecord(p.id)}>
+                  +1 Frame<span className="cs-plus-name">{p.entrant.name}</span>
+                </button>
+                <div className="cs-method-row">
+                  <button
+                    className="cs-method"
+                    disabled={framePending}
+                    title="Break and Dish - breaks and clears every ball including the black without missing a shot; the other side gets no visit to the table."
+                    onClick={() => onRecord(p.id, 'bnd')}
+                  >BND</button>
+                  <button
+                    className="cs-method"
+                    disabled={framePending}
+                    title="Reverse Break and Dish - the breaker misses at some point, then this player clears every ball including the black on their first visit without missing."
+                    onClick={() => onRecord(p.id, 'rnd')}
+                  >RND</button>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      </section>
+        )}
+      </>
       )}
 
       {raceTargetReached && fixture.canControl && (
@@ -927,11 +930,6 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         </p>
       )}
 
-      {canReportNoShow && (
-        <NoShowClaimButton
-          onClaim={async () => { await api.claimNoShow(fixture.id); onChange(); }}
-        />
-      )}
 
       <ResultConfirmationPanel
         status={fixture.status}
@@ -962,16 +960,19 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
       )}
 
       <section className="card">
-        <div className="page-header">
-          <h2>Frame history</h2>
-          {!complete && (
-            <button className="btn" disabled={fixture.frames.length === 0 || locked || framePending} onClick={onUndo}>
-              Undo last frame
+        <div className="cs-card-head">
+          <h2>Frames</h2>
+          {!locked && fixture.frames.length > 0 && (
+            <button type="button" className="cs-link-btn" disabled={framePending} onClick={onUndo}>
+              Undo frame {fixture.frames.length}
             </button>
           )}
         </div>
+        {fixture.frames.length > 0 && (
+          <FrameStrip fixture={fixture} homeName={homeEntrant.name} awayName={awayEntrant.name} />
+        )}
         {fixture.frames.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>No frames recorded{complete ? '' : ' yet'}.</p>
+          <p className="muted" style={{ margin: 0 }}>{complete ? 'No frames recorded.' : "No frames yet. Tap Break? on whoever won the lag, then +1 Frame when a frame's won."}</p>
         ) : (
           <ol className="cs-timeline">
             {(() => {
@@ -1002,6 +1003,63 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
           </ol>
         )}
       </section>
+
+      {canReportNoShow && <ProblemWithMatch onClaim={async () => { await api.claimNoShow(fixture.id); onChange(); }} />}
+    </div>
+  );
+}
+
+// "Problem with this match?" - keeps the no-show report out of the way of
+// the scoring buttons (mobile redesign 2026-09-23).
+function ProblemWithMatch({ onClaim }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="cs-problem">
+      <button type="button" className="cs-link-btn cs-muted-link" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        Problem with this match?
+      </button>
+      {open && <NoShowClaimButton onClaim={onClaim} />}
+    </div>
+  );
+}
+
+// Frame strip + live mini-stats: one square per frame coloured by winner,
+// marked B (won on own break), D (BND) or R (RND).
+function FrameStrip({ fixture, homeName, awayName }) {
+  const frames = fixture.frames || [];
+  const stat = (id, fn) => frames.filter((f) => f.winnerPlayerId === id && fn(f)).length;
+  const rows = [
+    ['Frames won', (id) => stat(id, () => true)],
+    ['Won on own break', (id) => stat(id, (f) => f.breakerPlayerId === id)],
+    ['BND', (id) => stat(id, (f) => f.method === 'bnd')],
+    ['RND', (id) => stat(id, (f) => f.method === 'rnd')],
+  ];
+  return (
+    <div className="cs-strip-wrap">
+      <div className="cs-strip">
+        {frames.map((f, i) => {
+          const home = f.winnerPlayerId === fixture.homePlayerId;
+          const mark = f.method === 'bnd' ? 'D' : f.method === 'rnd' ? 'R' : f.breakerPlayerId && f.breakerPlayerId === f.winnerPlayerId ? 'B' : String(i + 1);
+          return (
+            <span key={f.frameNumber || i} className={`cs-sq ${home ? 'cs-sq-home' : 'cs-sq-away'}${f.pending ? ' cs-sq-pending' : ''}`} title={`Frame ${i + 1}: ${home ? homeName : awayName}`}>
+              {mark}
+            </span>
+          );
+        })}
+      </div>
+      <div className="cs-strip-key">
+        <span><span className="cs-key cs-sq-home" /> {homeName}</span>
+        <span><span className="cs-key cs-sq-away" /> {awayName}</span>
+        <span>B = won on own break · D = BND · R = RND</span>
+      </div>
+      <table className="cs-mini">
+        <thead><tr><th /><th className="cs-tone-home">{homeName}</th><th className="cs-tone-away">{awayName}</th></tr></thead>
+        <tbody>
+          {rows.map(([label, fn]) => (
+            <tr key={label}><td>{label}</td><td>{fn(fixture.homePlayerId)}</td><td>{fn(fixture.awayPlayerId)}</td></tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -1158,36 +1216,210 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
   );
 }
 
-// Admin-only: assign this fixture to a table plus a date/time - see
-// server/src/index.js's POST /api/fixtures/:id/schedule (rejects a
-// double-booking on the same table at the same date+time).
-function RefereePanel({ fixture, onChange, setError }) {
-  const [email, setEmail] = useState('');
+// Referee picker: a dropdown of accounts an admin has flagged as referees
+// (Manage Users -> Mark as Referee) who play in or manage this fixture's
+// league (every flagged referee for ad hoc games) - see GET
+// /api/fixtures/:id/referee-candidates. Replaces the old type-an-email box
+// (Matt, 2026-09-23).
+function RefereePicker({ fixture, onChange, setError }) {
+  const [candidates, setCandidates] = useState(null);
+  const [choice, setChoice] = useState('');
   const [busy, setBusy] = useState(false);
+  const refereeKey = (fixture.refereeUsers || []).map((u) => u.id).join(',');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!api.getRefereeCandidates) { setCandidates([]); return undefined; }
+    api.getRefereeCandidates(fixture.id)
+      .then((r) => { if (!cancelled) setCandidates(r.candidates || []); })
+      .catch(() => { if (!cancelled) setCandidates([]); });
+    return () => { cancelled = true; };
+  }, [fixture.id, refereeKey]);
+
   const run = async (fn) => {
     setBusy(true);
     setError('');
     try { await fn(); onChange(); } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
+
+  return (
+    <div className="cs-ref">
+      {(fixture.refereeUsers || []).map((u) => (
+        <div key={u.id} className="cs-ref-current">
+          <span><strong>{u.name}</strong> <span className="muted cs-small">is refereeing</span></span>
+          <button type="button" className="cs-link-btn" disabled={busy} onClick={() => run(() => api.removeFixtureReferee(fixture.id, u.id))}>Remove</button>
+        </div>
+      ))}
+      {candidates && candidates.length === 0 ? (
+        <p className="muted cs-small" style={{ margin: 0 }}>
+          No players in this league are flagged as referees yet - an admin can flag them in Manage Users.
+        </p>
+      ) : (
+        <div className="cs-ref-row">
+          <select aria-label="Choose a referee" value={choice} onChange={(e) => setChoice(e.target.value)} disabled={!candidates || busy}>
+            <option value="">{candidates ? 'Choose a referee…' : 'Loading…'}</option>
+            {(candidates || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!choice || busy}
+            onClick={() => run(async () => { await api.addFixtureRefereeById(fixture.id, choice); setChoice(''); })}
+          >
+            Add
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Match tools (mobile redesign, 2026-09-23) for singles/doubles fixtures:
+// sits between the scoreboard and the scoring buttons. Alternative breaking,
+// table & venue and referee are always on the front; the timer and shot
+// clock fold away. Same API calls as the older LiveMatchControls card, which
+// team fixtures still use.
+function MatchToolsCard({ fixture, isDoubles, onChange, setError }) {
+  const [now, setNow] = useState(Date.now());
+  const [tableNumber, setTableNumber] = useState(fixture.table || '');
+  const [venue, setVenue] = useState(fixture.venue || '');
+  const [savingTableInfo, setSavingTableInfo] = useState(false);
+  const [timerOpen, setTimerOpen] = useState(!!(fixture.timer?.running || fixture.shotClock?.running));
+  const canControl = !!fixture.canControl;
+
+  const currentBreakerId = fixture.alternativeBreaking
+    ? (() => {
+        const lastBreakerFrame = [...fixture.frames].reverse().find((f) => f.breakerPlayerId);
+        return lastBreakerFrame
+          ? (lastBreakerFrame.breakerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId)
+          : null;
+      })()
+    : null;
+  const homeName = isDoubles ? fixture.homePairing?.name : fixture.homePlayer?.name;
+  const awayName = isDoubles ? fixture.awayPairing?.name : fixture.awayPlayer?.name;
+
+  useEffect(() => {
+    if (!fixture.timer.running && !fixture.shotClock.running) return undefined;
+    const tick = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(tick);
+  }, [fixture.timer.running, fixture.shotClock.running]);
+
+  const run = async (fn) => {
+    setError('');
+    try { await fn(); onChange(); } catch (err) { setError(err.message); }
+  };
+  const saveTableInfo = async () => {
+    setSavingTableInfo(true);
+    try { await run(() => api.setFixtureTableInfo(fixture.id, tableNumber.trim(), venue.trim())); } finally { setSavingTableInfo(false); }
+  };
+
+  const formatClock = (totalSeconds) => {
+    const sec = Math.max(0, Math.floor(totalSeconds));
+    return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+  };
+  const timerElapsed = fixture.timer.elapsedSeconds
+    + (fixture.timer.running && fixture.timer.startedAt ? (now - new Date(fixture.timer.startedAt).getTime()) / 1000 : 0);
+  const shotRemaining = fixture.shotClock.running && fixture.shotClock.startedAt
+    ? fixture.shotClock.durationSeconds - (now - new Date(fixture.shotClock.startedAt).getTime()) / 1000
+    : fixture.shotClock.durationSeconds;
+
+  const altNote = fixture.alternativeBreaking
+    ? (currentBreakerId ? `On – ${currentBreakerId === fixture.homePlayerId ? homeName : awayName} breaks next` : 'On – set the first breaker with Break?')
+    : 'Off – when on, players take turns to break';
+
+  return (
+    <section className="card cs-tools">
+      <h2>Match tools</h2>
+      {canControl && (
+        <div className="cs-tools-row">
+          <div className="cs-grow">
+            <strong>Alternative breaking</strong>
+            <span className="muted cs-small">{altNote}</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!!fixture.alternativeBreaking}
+            aria-label="Alternative breaking"
+            className={`cs-switch${fixture.alternativeBreaking ? ' cs-switch-on' : ''}`}
+            onClick={() => run(() => api.setAlternativeBreaking(fixture.id, !fixture.alternativeBreaking))}
+          >
+            <span />
+          </button>
+        </div>
+      )}
+      {canControl && (
+        <div className="cs-tools-block">
+          <strong>Table &amp; venue <span className="muted cs-small" style={{ fontWeight: 400 }}>optional – feeds the Table record on players' stats</span></strong>
+          <div className="cs-table-row">
+            <input type="text" aria-label="Table number" value={tableNumber} onChange={(e) => setTableNumber(e.target.value)} placeholder="Table" />
+            <input type="text" aria-label="Venue" value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Venue, e.g. The Cue Club" />
+          </div>
+          <button type="button" className="btn cs-btn-outline" disabled={savingTableInfo} onClick={saveTableInfo}>
+            {savingTableInfo ? 'Saving…' : 'Save table & venue'}
+          </button>
+          {(fixture.table || fixture.venue) && (
+            <span className="muted cs-small">
+              Recording frames against {fixture.table ? `table "${fixture.table}"` : 'no table set'}{fixture.venue ? ` at ${fixture.venue}` : ''}.
+            </span>
+          )}
+        </div>
+      )}
+      {fixture.canManageReferees && (
+        <div className="cs-tools-block">
+          <strong>Referee <span className="muted cs-small" style={{ fontWeight: 400 }}>optional – can score this match for you</span></strong>
+          <RefereePicker fixture={fixture} onChange={onChange} setError={setError} />
+        </div>
+      )}
+      {canControl && (
+        <>
+          <button type="button" className="cs-tools-toggle" aria-expanded={timerOpen} onClick={() => setTimerOpen((o) => !o)}>
+            <span>Timer &amp; shot clock</span>
+            <span className="muted cs-small">{timerOpen ? 'Hide' : `${formatClock(timerElapsed)} · ${formatClock(shotRemaining)}`}</span>
+          </button>
+          {timerOpen && (
+            <div className="cs-clocks">
+              <div className="cs-clock">
+                <span className="cs-kicker">Match timer</span>
+                <span className="cs-clock-value">{formatClock(timerElapsed)}</span>
+                <div className="cs-clock-btns">
+                  {fixture.timer.running ? (
+                    <button className="btn" onClick={() => run(() => api.pauseTimer(fixture.id))}>Pause</button>
+                  ) : (
+                    <button className="btn btn-primary" onClick={() => run(() => api.startTimer(fixture.id))}>Start</button>
+                  )}
+                  <button className="btn" onClick={() => run(() => api.resetTimer(fixture.id))}>Reset</button>
+                </div>
+              </div>
+              <div className="cs-clock">
+                <span className="cs-kicker">Shot clock</span>
+                <span className="cs-clock-value" style={{ color: fixture.shotClock.running && shotRemaining <= 10 ? '#dc2626' : undefined }}>{formatClock(shotRemaining)}</span>
+                <div className="cs-clock-btns">
+                  <button className="btn btn-primary" onClick={() => run(() => api.startShotClock(fixture.id, fixture.shotClock.durationSeconds))}>
+                    {fixture.shotClock.running ? 'Restart' : `Start ${fixture.shotClock.durationSeconds}s`}
+                  </button>
+                  <button className="btn" onClick={() => run(() => api.stopShotClock(fixture.id))}>Stop</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// Admin-only: assign this fixture to a table plus a date/time - see
+// server/src/index.js's POST /api/fixtures/:id/schedule (rejects a
+// double-booking on the same table at the same date+time).
+function RefereePanel({ fixture, onChange, setError }) {
   return (
     <section className="card card-center">
       <h2>Referee</h2>
       <p className="muted" style={{ marginTop: 0 }}>
-        Only the players in this match (and admins) can score it. To let someone else referee, enter the email of their Cue Sense account.
+        Only the players in this match (and admins) can score it. To let someone else referee, choose a player flagged as a referee.
       </p>
-      {(fixture.refereeUsers || []).map((u) => (
-        <p key={u.id}>
-          {u.name}{' '}
-          <button className="btn" disabled={busy} onClick={() => run(() => api.removeFixtureReferee(fixture.id, u.id))}>Remove</button>
-        </p>
-      ))}
-      <form
-        className="inline-form inline-form-center"
-        onSubmit={(e) => { e.preventDefault(); if (email.trim()) run(async () => { await api.addFixtureReferee(fixture.id, email.trim()); setEmail(''); }); }}
-      >
-        <input type="email" placeholder="Referee's account email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <button className="btn btn-primary" type="submit" disabled={busy || !email.trim()}>Add referee</button>
-      </form>
+      <RefereePicker fixture={fixture} onChange={onChange} setError={setError} />
     </section>
   );
 }
@@ -1375,10 +1607,10 @@ export default function FixtureDetail() {
           View only - only the players in this match, its referee, or an admin/league manager can score or control it.
         </p>
       )}
-      {fixture.canManageReferees && fixture.status !== 'completed' && <RefereePanel fixture={fixture} onChange={load} setError={setError} />}
+      {isTeams && fixture.canManageReferees && fixture.status !== 'completed' && <RefereePanel fixture={fixture} onChange={load} setError={setError} />}
 
       {isAdminSession && <ScheduleFixturePanel fixture={fixture} onChange={load} setError={setError} />}
-      {fixture.status !== 'completed' && fixture.canControl && <LiveMatchControls fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} setError={setError} />}
+      {isTeams && fixture.status !== 'completed' && fixture.canControl && <LiveMatchControls fixture={fixture} isTeams={isTeams} isDoubles={isDoubles} onChange={load} setError={setError} />}
 
       {isTeams ? (
         <TeamFixtureView
@@ -1396,6 +1628,9 @@ export default function FixtureDetail() {
           setError={setError}
           onOptimisticFrame={onOptimisticFrame}
           onRollbackFrame={onRollbackFrame}
+          tools={fixture.status !== 'completed' && fixture.bothEntrantsKnown && (fixture.canControl || fixture.canManageReferees)
+            ? <MatchToolsCard fixture={fixture} isDoubles={isDoubles} onChange={load} setError={setError} />
+            : null}
         />
       )}
 
