@@ -832,7 +832,7 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       {showWalkIn && (
         <div className="ah-walkin">
           <button type="button" className="ah-walkin-toggle" aria-expanded={walkInOpen} onClick={() => setWalkInOpen((o) => !o)}>
-            <span>+ Add a walk-in</span>
+            <span>Add a walk-in</span>
             <span aria-hidden="true">{walkInOpen ? '−' : '+'}</span>
           </button>
           {walkInOpen && (
