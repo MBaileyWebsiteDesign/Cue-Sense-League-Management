@@ -295,13 +295,11 @@ function BulkImportPanel({ onImported }) {
   };
 
   return (
-    <section className="card">
-      <div className="page-header" style={{ marginBottom: open ? 12 : 0 }}>
-        <h2 style={{ margin: 0 }}>Bulk Add Users</h2>
-        <button className="btn" type="button" onClick={() => setOpen((v) => !v)}>
-          {open ? 'Hide' : 'Upload CSV / Excel or add players'}
-        </button>
-      </div>
+    <section className="card au-add">
+      <button type="button" className="au-add-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span>Bulk add users (CSV / Excel)</span>
+        <span aria-hidden="true">{open ? '−' : '+'}</span>
+      </button>
 
       {open && (
         <div>
@@ -359,8 +357,15 @@ const ROLE_FILTERS = [
   { key: 'isLeagueManager', label: 'League Managers' },
   { key: 'isVenueManager', label: 'Venue Managers' },
   { key: 'isCaptain', label: 'Captains' },
+  { key: 'walkin', label: 'Walk-ins' },
   { key: 'suspended', label: 'Suspended' },
 ];
+
+// Walk-ins added with Quick Add (see POST /api/divisions/:id/quick-add-player)
+// get a synthetic, non-login email - show that as a tag rather than the raw
+// address. "Unassigned" is the default team placeholder, not a real team.
+const isWalkIn = (u) => /@no-login\.cuesense$/i.test(u.email || '');
+const realTeam = (u) => (u.teamName && u.teamName !== 'Unassigned' ? u.teamName : '');
 
 function userInitials(u) {
   return `${(u.firstName || '')[0] || ''}${(u.lastName || '')[0] || ''}`.toUpperCase() || '?';
@@ -411,9 +416,12 @@ export default function AdminUsers() {
   const shown = (users || []).filter((u) => {
     if (roleFilter === 'all') return true;
     if (roleFilter === 'suspended') return u.status === 'suspended';
+    if (roleFilter === 'walkin') return isWalkIn(u);
     return !!u[roleFilter];
   });
-  const countFor = (key) => (users || []).filter((u) => (key === 'all' ? true : key === 'suspended' ? u.status === 'suspended' : !!u[key])).length;
+  const countFor = (key) => (users || []).filter((u) => (
+    key === 'all' ? true : key === 'suspended' ? u.status === 'suspended' : key === 'walkin' ? isWalkIn(u) : !!u[key]
+  )).length;
 
   const toggleOne = (id) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -470,7 +478,7 @@ export default function AdminUsers() {
           aria-label="Search by name, email or team"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name, email or team…"
+          placeholder="Search name, email or team"
         />
         <button className="btn btn-primary" type="submit">Search</button>
       </form>
@@ -554,10 +562,14 @@ export default function AdminUsers() {
                         <strong className="au-name">{u.firstName} {u.lastName}</strong>
                         {u.status === 'suspended' && <span className="au-suspended">Suspended</span>}
                       </span>
-                      <span className="au-email">{u.email}</span>
-                      {(u.teamName || venueNameById[u.venueId]) && (
+                      {isWalkIn(u) ? (
+                        <span className="au-walkin">Walk-in · no login</span>
+                      ) : (
+                        <span className="au-email">{u.email}</span>
+                      )}
+                      {(realTeam(u) || venueNameById[u.venueId]) && (
                         <span className="au-meta">
-                          {[u.teamName, venueNameById[u.venueId]].filter(Boolean).join(' · ')}
+                          {[realTeam(u), venueNameById[u.venueId]].filter(Boolean).join(' · ')}
                         </span>
                       )}
                       <RoleChips u={u} />
@@ -602,8 +614,8 @@ export default function AdminUsers() {
                     <td style={{ textAlign: 'left' }}>
                       <Link to={`/admin/users/${u.id}`}>{u.firstName} {u.lastName}</Link>
                     </td>
-                    <td style={{ textAlign: 'left' }}>{u.email}</td>
-                    <td style={{ textAlign: 'left' }}>{u.teamName}</td>
+                    <td style={{ textAlign: 'left' }}>{isWalkIn(u) ? <span className="au-walkin">Walk-in · no login</span> : u.email}</td>
+                    <td style={{ textAlign: 'left' }}>{realTeam(u)}</td>
                     <td style={{ textAlign: 'left' }}>{venueNameById[u.venueId] || '—'}</td>
                     <td>{u.classification || '—'}</td>
                     <td>{u.isAdmin ? '✓' : ''}</td>
