@@ -1777,3 +1777,53 @@ a.dv-roster-name:hover { text-decoration: underline; }
   .dv-page .cs-btn-block { width: auto; align-self: flex-start; min-width: 260px; }
   .dv-danger .cs-btn-block { align-self: auto; }
 }
+
+
+/* ---- Admin Portal redesign (2026-09-23) ---- */
+.ap-page { display: flex; flex-direction: column; gap: 14px; }
+.ap-intro h1 { margin: 0 0 4px; }
+.ap-intro p { margin: 0; }
+.ap-attention {
+  background: #fef2f2; border: 1px solid #f1c7c3; border-radius: 14px; padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.ap-attention-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #991b1b; }
+.ap-attention-row {
+  display: flex; justify-content: space-between; align-items: center; min-height: 44px;
+  text-decoration: none; color: #7f1d1d; font-weight: 700; border-bottom: 1px solid #f8d7d4;
+}
+.ap-attention-row:last-child { border-bottom: 0; }
+.ap-count {
+  flex-shrink: 0; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: #b3413a; color: #fff;
+  font-size: 0.78rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+}
+.btn.ap-new-season {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 60px;
+  text-decoration: none; font-size: 1.1rem;
+}
+.ap-new-season-sub { font-size: 0.8rem; font-weight: 500; }
+.ap-section { display: flex; flex-direction: column; gap: 8px; }
+.ap-section-title { margin: 4px 0 0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ap-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ap-tile {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 12px;
+  display: flex; flex-direction: column; gap: 4px; min-height: 112px; text-decoration: none; color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.ap-tile:hover { border-color: var(--primary); }
+.ap-tile-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.ap-icon {
+  width: 38px; height: 38px; border-radius: 10px; background: #e7f2ea; color: var(--primary);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.ap-tile-title { font-size: 0.98rem; line-height: 1.2; }
+.ap-tile-desc { font-size: 0.8rem; line-height: 1.3; color: var(--muted); }
+.ap-tile-alert { border-color: #f1c7c3; background: #fffafa; }
+.ap-tile-danger { border-color: #f1c7c3; }
+.ap-tile-danger .ap-icon { background: #fef2f2; color: #b91c1c; }
+@media (min-width: 640px) {
+  .ap-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1000px) {
+  .ap-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
