@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
@@ -36,18 +37,18 @@ function fileKindLabel(guide) {
 // controls (Admin only) - "who can view this guide".
 function VisibilityCheckboxes({ value, onChange, disabled }) {
   return (
-    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 12 }}>
+    <span className="sx-chips" role="group" aria-label="Visible to">
       {GUIDE_ROLES.map((role) => (
-        <label key={role} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 'normal' }}>
-          <input
-            type="checkbox"
-            style={{ width: 'auto' }}
-            checked={!!value[role]}
-            disabled={disabled}
-            onChange={(e) => onChange({ ...value, [role]: e.target.checked })}
-          />
-          {GUIDE_ROLE_LABELS[role]}
-        </label>
+        <button
+          key={role}
+          type="button"
+          className={`au-filter${value[role] ? ' au-filter-on' : ''}`}
+          aria-pressed={!!value[role]}
+          disabled={disabled}
+          onClick={() => onChange({ ...value, [role]: !value[role] })}
+        >
+          {value[role] ? '✓ ' : ''}{GUIDE_ROLE_LABELS[role]}
+        </button>
       ))}
     </span>
   );
@@ -98,17 +99,17 @@ function UploadGuideForm({ onUploaded }) {
   };
 
   return (
-    <form className="form" onSubmit={onSubmit}>
-      <label>
+    <form className="sx-form" onSubmit={onSubmit}>
+      <label className="ll-field">
         Title
         <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
       </label>
-      <label className="label-details">
+      <label className="ll-field">
         <span>Description <span className="muted">(optional)</span></span>
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={3} />
+        <textarea className="sx-textarea" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} rows={3} />
       </label>
-      <label>
-        File <span className="muted">(PDF or Word document)</span>
+      <label className="sx-file">
+        <span>File <span className="muted">(PDF or Word document)</span></span>
         <input
           ref={fileInputRef}
           type="file"
@@ -117,13 +118,13 @@ function UploadGuideForm({ onUploaded }) {
           required
         />
       </label>
-      {fileName && <p className="muted" style={{ fontSize: '0.8rem' }}>Selected: {fileName}</p>}
-      <div>
-        <p style={{ marginBottom: 4 }}>Visible to</p>
+      {fileName && <p className="muted sx-small" style={{ margin: 0 }}>Selected: {fileName}</p>}
+      <div className="sx-field">
+        <span className="sx-field-label">Visible to</span>
         <VisibilityCheckboxes value={visibility} onChange={setVisibility} />
       </div>
       {error && <p className="error">{error}</p>}
-      <button className="btn btn-primary" type="submit" disabled={submitting}>
+      <button className="btn btn-primary cs-btn-block" type="submit" disabled={submitting}>
         {submitting ? 'Uploading…' : 'Upload guide'}
       </button>
     </form>
@@ -175,42 +176,34 @@ function GuideRow({ guide, isAdmin, onDownload, onSave, onDelete }) {
   };
 
   return (
-    <li style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', gap: 12 }}>
-        <span>
+    <li className="sx-guide">
+      <div className="sx-guide-top">
+        <span className={`sx-kind sx-kind-${fileKindLabel(guide).toLowerCase()}`} aria-hidden="true">{fileKindLabel(guide)}</span>
+        <span className="sx-guide-main">
           <strong>{guide.title}</strong>
-          <span
-            style={{
-              marginLeft: 8,
-              fontSize: 12,
-              padding: '1px 6px',
-              borderRadius: 10,
-              background: 'var(--border)',
-              color: 'var(--muted)',
-            }}
-          >
-            {fileKindLabel(guide)}
-          </span>
-          {guide.description && <div className="muted">{guide.description}</div>}
-          <div className="muted" style={{ fontSize: '0.8rem' }}>
-            {guide.uploadedByName} &middot; {new Date(guide.createdAt).toLocaleDateString()}
+          {guide.description && <span className="muted sx-small">{guide.description}</span>}
+          <span className="muted sx-small">
+            {guide.uploadedByName} &middot; {new Date(guide.createdAt).toLocaleDateString('en-GB')}
             {guide.size !== undefined ? ` · ${formatSize(guide.size)}` : ''}
-          </div>
+          </span>
         </span>
-        <button type="button" className="btn" style={{ flexShrink: 0 }} disabled={downloading} onClick={download}>
-          {downloading ? 'Downloading…' : 'Download'}
-        </button>
       </div>
+      <button type="button" className="btn btn-brand-green cs-btn-block" disabled={downloading} onClick={download}>
+        {downloading ? 'Downloading…' : `Download ${fileKindLabel(guide)}`}
+      </button>
 
       {isAdmin && (
-        <div className="inline-form" style={{ flexWrap: 'wrap', marginTop: 8, marginBottom: 0 }}>
+        <div className="sx-guide-admin">
+          <span className="sx-field-label">Visible to</span>
           <VisibilityCheckboxes value={visibility} onChange={setVisibility} disabled={saving || deleting} />
-          <button type="button" className="btn" disabled={!dirty || saving} onClick={save}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button type="button" className="btn-link" disabled={deleting} onClick={remove}>
-            {deleting ? 'Removing…' : 'Remove'}
-          </button>
+          <div className="sx-guide-actions">
+            <button type="button" className="btn dv-small-btn" disabled={!dirty || saving} onClick={save}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className="btn btn-danger dv-small-btn" disabled={deleting} onClick={() => { if (window.confirm(`Remove "${guide.title}"?`)) remove(); }}>
+              {deleting ? 'Removing…' : 'Remove'}
+            </button>
+          </div>
         </div>
       )}
       {rowError && <p className="error" style={{ margin: '4px 0 0' }}>{rowError}</p>}
@@ -228,6 +221,7 @@ export function GuidesBody() {
   const { isAdmin } = useAuth();
   const [guides, setGuides] = useState(null);
   const [error, setError] = useState('');
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const load = () => api.getGuides().then(setGuides).catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
@@ -245,29 +239,21 @@ export function GuidesBody() {
   };
 
   return (
-    <>
-      {isAdmin && (
-        <section className="card">
-          <h2>Upload a Guide</h2>
-          <p className="muted">
-            Choose which account types can see it - players, captains, league managers and/or
-            overall admins.
-          </p>
-          <UploadGuideForm onUploaded={load} />
-        </section>
-      )}
-
-      <section className="card">
-        <h2>Available Guides</h2>
+    <div className="sx-stack">
+      <section className="card sx-card">
+        <div className="sx-card-head">
+          <h2>Available guides</h2>
+          {guides && <span className="muted">{guides.length}</span>}
+        </div>
 
         {error && <p className="error">{error}</p>}
 
         {!guides ? (
-          <p>Loading&hellip;</p>
+          <p className="muted">Loading&hellip;</p>
         ) : guides.length === 0 ? (
-          <p className="muted">No guides available{isAdmin ? ' yet' : ''}.</p>
+          <p className="muted" style={{ margin: 0 }}>No guides available{isAdmin ? ' yet - upload one below' : ''}.</p>
         ) : (
-          <ul className="fixture-list">
+          <ul className="sx-guides">
             {guides.map((guide) => (
               <GuideRow
                 key={guide.id}
@@ -281,7 +267,17 @@ export function GuidesBody() {
           </ul>
         )}
       </section>
-    </>
+
+      {isAdmin && (
+        <section className="card au-add">
+          <button type="button" className="au-add-toggle" aria-expanded={uploadOpen} onClick={() => setUploadOpen((o) => !o)}>
+            <span>Upload a guide</span>
+            <span aria-hidden="true">{uploadOpen ? '−' : '+'}</span>
+          </button>
+          {uploadOpen && <UploadGuideForm onUploaded={async () => { await load(); setUploadOpen(false); }} />}
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -294,8 +290,14 @@ export default function Guides() {
   useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Guides' }]);
 
   return (
-    <div>
-      <h1>Guides</h1>
+    <div className="sx-page">
+      <div className="au-head">
+        <Link to={isPlayerSession ? '/account' : '/'} className="msg-icon-btn" aria-label="Back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <h1>Guides</h1>
+      </div>
+      <p className="muted mm-intro">Reference documents for your account type.</p>
       <GuidesBody />
     </div>
   );

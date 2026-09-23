@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
@@ -40,6 +41,7 @@ export function IssuesBugsFeaturesBody() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
     // Issue / Bug Tracker is Overall-Admin-only (see the note above the
@@ -88,70 +90,56 @@ export function IssuesBugsFeaturesBody() {
     }
   };
 
+  const countOf = (f) => (issues ? (f === 'all' ? issues.length : issues.filter((i) => i.state === f).length) : 0);
+
   return (
-    <>
+    <div className="sx-stack dv-page">
       {isAdmin && (
-      <section className="card">
-        <h2>Issue / Bug Tracker</h2>
+      <section className="card sx-card">
+        <div className="sx-card-head">
+          <h2>Issue / Bug tracker</h2>
+          <span className="muted sx-small">from GitHub</span>
+        </div>
 
         {issuesError && <p className="error">{issuesError}</p>}
 
-        <p>
+        <div className="division-tabs" role="tablist">
           {FILTERS.map((f) => (
             <button
               key={f}
-              className="btn-link"
-              style={{
-                marginRight: 16,
-                fontWeight: filter === f ? 'bold' : 'normal',
-                textDecoration: filter === f ? 'underline' : 'none',
-              }}
+              type="button"
+              role="tab"
+              aria-selected={filter === f}
+              className={`division-tab${filter === f ? ' division-tab-active' : ''}`}
               onClick={() => setFilter(f)}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {f.charAt(0).toUpperCase() + f.slice(1)}{issues ? ` (${countOf(f)})` : ''}
             </button>
           ))}
-        </p>
+        </div>
 
         {!issues && !issuesError ? (
-          <p>Loading&hellip;</p>
+          <p className="muted">Loading&hellip;</p>
         ) : filtered ? (
-          <ul className="fixture-list">
+          <ul className="sx-issues">
             {filtered.map((issue) => (
               <li key={issue.number}>
-                <span>
-                  <span
-                    style={{
-                      color: issue.state === 'open' ? '#1a7f37' : '#8250df',
-                      fontWeight: 'bold',
-                      marginRight: 6,
-                    }}
-                  >
-                    {issue.state === 'open' ? 'Open' : 'Closed'}
+                <a href={issue.htmlUrl} target="_blank" rel="noopener noreferrer" className="sx-issue">
+                  <span className="sx-issue-top">
+                    <span className={`sx-state sx-state-${issue.state}`}>{issue.state === 'open' ? 'Open' : 'Closed'}</span>
+                    <span className="muted sx-small">#{issue.number}</span>
                   </span>
-                  <a href={issue.htmlUrl} target="_blank" rel="noopener noreferrer">
-                    #{issue.number} {issue.title}
-                  </a>
-                  {issue.labels.map((l) => (
-                    <span
-                      key={l.name}
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 12,
-                        padding: '1px 6px',
-                        borderRadius: 10,
-                        background: `#${l.color}`,
-                        color: '#1a1a1a',
-                      }}
-                    >
-                      {l.name}
+                  <strong className="sx-issue-title">{issue.title}</strong>
+                  <span className="sx-issue-meta">
+                    {issue.labels.map((l) => (
+                      <span key={l.name} className="sx-label" style={{ background: `#${l.color}` }}>{l.name}</span>
+                    ))}
+                    <span className="muted sx-small">
+                      opened {new Date(issue.createdAt).toLocaleDateString('en-GB')}
+                      {issue.commentCount > 0 ? ` · ${issue.commentCount} comment${issue.commentCount === 1 ? '' : 's'}` : ''}
                     </span>
-                  ))}
-                </span>
-                <span className="muted">
-                  opened {new Date(issue.createdAt).toLocaleDateString()}
-                  {issue.commentCount > 0 ? ` \u00b7 ${issue.commentCount} comment${issue.commentCount === 1 ? '' : 's'}` : ''}
-                </span>
+                  </span>
+                </a>
               </li>
             ))}
             {filtered.length === 0 && <li className="muted">No {filter === 'all' ? '' : filter} issues.</li>}
@@ -160,79 +148,69 @@ export function IssuesBugsFeaturesBody() {
       </section>
       )}
 
-      <section className="card">
-        <h2>Feature / Requests</h2>
+      <section className="card sx-card">
+        <div className="sx-card-head">
+          <h2>Feature requests</h2>
+          {requests && <span className="muted">{requests.length}</span>}
+        </div>
 
-        <form className="form" onSubmit={onSubmit} style={{ marginBottom: 24 }}>
-          <label>
-            Title
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={200}
-              required
-            />
-          </label>
-          <label className="label-details">
-            <span>Details</span>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={4000}
-              rows={5}
-              required
-            />
-          </label>
-          {submitError && <p className="error">{submitError}</p>}
-          <button className="btn btn-primary" type="submit" disabled={submitting}>
-            {submitting ? 'Submitting\u2026' : 'Submit request'}
+        <div className="ah-walkin sx-request">
+          <button type="button" className="ah-walkin-toggle" aria-expanded={formOpen} onClick={() => setFormOpen((o) => !o)}>
+            <span>Request a feature</span>
+            <span aria-hidden="true">{formOpen ? '−' : '+'}</span>
           </button>
-        </form>
+          {formOpen && (
+            <form className="sx-form" onSubmit={onSubmit}>
+              <label className="ll-field">
+                Title
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
+              </label>
+              <label className="ll-field">
+                <span>Details</span>
+                <textarea className="sx-textarea" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} rows={5} required />
+              </label>
+              {submitError && <p className="error">{submitError}</p>}
+              <button className="btn btn-primary cs-btn-block" type="submit" disabled={submitting}>
+                {submitting ? 'Submitting…' : 'Submit request'}
+              </button>
+            </form>
+          )}
+        </div>
 
         {requestsError && <p className="error">{requestsError}</p>}
 
         {!requests ? (
-          <p>Loading&hellip;</p>
+          <p className="muted">Loading&hellip;</p>
+        ) : requests.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>No requests yet &mdash; be the first.</p>
         ) : (
-          <ul className="fixture-list">
+          <ul className="sx-issues">
             {requests.map((r) => (
-              <li key={r.id}>
-                <span>
-                  <strong>{r.title}</strong>
-                  {r.description && <div className="muted">{r.description}</div>}
-                </span>
-                <span className="muted">
-                  {r.createdByName} &middot; {new Date(r.createdAt).toLocaleDateString()}
+              <li key={r.id} className="sx-request-row">
+                <strong className="sx-issue-title">{r.title}</strong>
+                {r.description && <span className="muted sx-small sx-request-desc">{r.description}</span>}
+                <span className="sx-issue-meta">
+                  <span className="muted sx-small">{r.createdByName} &middot; {new Date(r.createdAt).toLocaleDateString('en-GB')}</span>
                   {r.githubIssueUrl && (
-                    <>
-                      {' '}&middot;{' '}
-                      <a href={r.githubIssueUrl} target="_blank" rel="noopener noreferrer">
-                        GitHub #{r.githubIssueNumber}
-                      </a>
-                    </>
+                    <a className="sx-small" href={r.githubIssueUrl} target="_blank" rel="noopener noreferrer">GitHub #{r.githubIssueNumber}</a>
                   )}
                   {isAdmin && (
-                    <>
-                      {' '}&middot;{' '}
-                      <button
-                        type="button"
-                        className="btn-link"
-                        onClick={() => onDelete(r.id)}
-                        disabled={deletingId === r.id}
-                      >
-                        {deletingId === r.id ? 'Removing\u2026' : 'Remove'}
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      className="btn btn-danger dv-small-btn"
+                      onClick={() => { if (window.confirm(`Remove request "${r.title}"?`)) onDelete(r.id); }}
+                      disabled={deletingId === r.id}
+                    >
+                      {deletingId === r.id ? 'Removing…' : 'Remove'}
+                    </button>
                   )}
                 </span>
               </li>
             ))}
-            {requests.length === 0 && <li className="muted">No requests yet &mdash; be the first.</li>}
           </ul>
         )}
       </section>
-    </>
+    </div>
   );
 }
 
@@ -244,8 +222,13 @@ export default function IssuesBugsFeatures() {
   useSetBreadcrumbs([{ label: 'Home', to: isPlayerSession ? '/account' : '/' }, { label: 'Issues / Bugs / Features' }]);
 
   return (
-    <div>
-      <h1>Issues / Bugs / Features</h1>
+    <div className="sx-page">
+      <div className="au-head">
+        <Link to={isPlayerSession ? '/account' : '/'} className="msg-icon-btn" aria-label="Back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <h1>Issues &amp; features</h1>
+      </div>
       <IssuesBugsFeaturesBody />
     </div>
   );
