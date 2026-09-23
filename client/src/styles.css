@@ -1441,3 +1441,76 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
    opponent" on My Account's Next match card (2026-09-23). */
 .btn-brand-green { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn-brand-green:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); color: #fff; }
+
+/* ------------------------------------------------------------------
+   Ad Hoc Game / Head-to-Head setup redesign (2026-09-23) - AdHocGame.jsx.
+   ------------------------------------------------------------------ */
+.ah-steps { list-style: none; display: flex; gap: 8px; padding: 0; margin: 0 0 14px; }
+.ah-steps li { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 700; color: var(--muted); }
+.ah-steps li + li::before { content: ''; width: 24px; height: 2px; background: var(--border); margin-right: 2px; }
+.ah-steps span { width: 24px; height: 24px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--border); color: var(--ink); font-size: 0.75rem; }
+.ah-steps .ah-step-on { color: var(--primary); }
+.ah-steps .ah-step-on span { background: var(--primary); color: #fff; }
+.ah-steps .ah-step-done span { background: var(--secondary); color: #fff; }
+
+.ah-form { display: flex; flex-direction: column; gap: 18px; }
+.ah-field { display: flex; flex-direction: column; gap: 8px; }
+.ah-label { font-weight: 700; font-size: 0.95rem; }
+.ah-field input, .ah-search, .ah-walkin-form input { min-height: 44px; box-sizing: border-box; width: 100%; }
+.ah-hint { font-size: 0.8rem; color: var(--muted); }
+.ah-hint:empty { display: none; }
+.ah-link { align-self: flex-start; border: 0; background: none; padding: 4px 0; font: inherit; font-size: 0.88rem; font-weight: 700; color: var(--primary); text-decoration: underline; cursor: pointer; }
+
+.ah-formats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ah-format {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; min-height: 92px;
+  padding: 12px; border-radius: 12px; border: 2px solid var(--border); background: #fff; color: var(--ink);
+  font: inherit; cursor: pointer;
+}
+.ah-format svg { color: var(--primary); }
+.ah-format strong { font-size: 1rem; }
+.ah-format span { font-size: 0.78rem; color: var(--muted); line-height: 1.3; }
+.ah-format-on { border-color: var(--primary) !important; background: #eef5f0 !important; box-shadow: inset 0 0 0 1px var(--primary); }
+.ah-more { display: flex; flex-direction: column; gap: 6px; }
+.ah-more-row {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-height: 48px;
+  padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border); background: #fff; color: var(--ink);
+  font: inherit; cursor: pointer;
+}
+.ah-more-row span { font-size: 0.78rem; color: var(--muted); }
+
+.ah-chip { align-self: flex-start; font-size: 0.85rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: var(--tile-bg, #f5f3ec); }
+.ah-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.ah-pills button {
+  min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid #cfcabb; background: #fff; color: var(--primary);
+  font: inherit; font-size: 0.9rem; font-weight: 700; cursor: pointer;
+}
+.ah-pills button.ah-pill-on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ah-stepper-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 6px; }
+.ah-stepper { display: inline-flex; align-items: center; border: 1px solid #cfcabb; border-radius: 12px; overflow: hidden; }
+.ah-stepper button { width: 48px; height: 44px; border: 0; background: #fff; font: inherit; font-size: 1.4rem; font-weight: 700; color: var(--primary); cursor: pointer; }
+.ah-stepper output { min-width: 44px; text-align: center; font-size: 1.2rem; font-weight: 800; }
+.ah-next { width: 100%; min-height: 50px; font-size: 1.05rem; margin-top: 4px; }
+
+.ah-players { display: flex; flex-direction: column; }
+.ah-h3 { margin: 0 0 8px; font-size: 1rem; }
+.ah-vs { display: grid; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); align-items: center; gap: 6px; padding: 12px; border-radius: 12px; background: var(--tile-bg, #f5f3ec); margin-bottom: 16px; }
+.ah-vs-side { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; min-width: 0; }
+.ah-vs-side strong { overflow-wrap: anywhere; }
+.ah-vs-bar { width: 36px; height: 4px; border-radius: 2px; }
+.ah-vs-home .ah-vs-bar { background: var(--primary); }
+.ah-vs-away .ah-vs-bar { background: var(--cta); }
+.ah-vs-mid { text-align: center; font-size: 0.8rem; font-weight: 700; color: #9ca3af; }
+.ah-list { list-style: none; margin: 0; padding: 0; }
+.ah-list li { display: flex; align-items: center; gap: 10px; min-height: 52px; border-bottom: 1px solid var(--border); }
+.ah-list li:last-child { border-bottom: none; }
+.ah-avatar { width: 34px; height: 34px; border-radius: 17px; background: var(--primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.ah-results .ah-avatar { background: var(--tile-bg, #f5f3ec); color: var(--primary); }
+.ah-grow { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.ah-remove { width: 44px; height: 44px; border-radius: 22px; border: 1px solid #f1c7c3; background: #fff; color: #b91c1c; font-size: 1.4rem; line-height: 1; cursor: pointer; flex-shrink: 0; }
+.ah-add { min-height: 40px; }
+.ah-search { margin-bottom: 4px; }
+.ah-walkin { margin-top: 12px; border-top: 1px solid var(--border); }
+.ah-walkin-toggle { width: 100%; min-height: 50px; border: 0; background: none; display: flex; justify-content: space-between; align-items: center; font: inherit; font-weight: 700; color: var(--primary); cursor: pointer; padding: 0; }
+.ah-walkin-form { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.ah-walkin-form .btn { min-height: 44px; }

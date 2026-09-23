@@ -13,8 +13,48 @@ const FREE_PLAY_SCHEDULING = 'free_play';
 // "Division name", "Select Players" instead of "Add Division") and with no
 // league picker - every ad hoc game lands in the shared system league
 // automatically (see server/src/index.js's POST /api/adhoc-games).
+// Format cards (mobile redesign, 2026-09-23): the four common formats are
+// shown as tappable cards; the rest sit behind "More formats".
+const MAIN_FORMATS = [
+  { value: 'free_play', title: 'Free Play', desc: '2 players, no frame target' },
+  { value: 'killer_classic', title: 'Killer', desc: 'Everyone in, play in order' },
+  { value: 'knockout_single_elim', title: 'Knockout', desc: 'Single elimination' },
+  { value: 'round_robin_single', title: 'League', desc: 'Everyone plays each other once' },
+];
+const MORE_FORMATS = [
+  { value: 'cards_killer', title: 'Killer Random', desc: 'Player order randomised on each turn' },
+  { value: 'knockout_double_elim', title: 'Knockout (double elimination)', desc: 'Two losses and you are out' },
+  { value: 'round_robin_double', title: 'League – double leg', desc: 'Everyone plays each other twice, home and away' },
+  { value: 'knockout_double_elim_pcdek', title: 'Pre Configured Double Elimination Knockout', desc: '' },
+  { value: 'knockout_double_elim_adek', title: 'Adaptive Double Elimination Knockout', desc: 'No rematches before the finals' },
+];
+const ENTRY_TYPES = [
+  { value: 'singles', label: 'Singles' },
+  { value: 'teams', label: 'Teams' },
+  { value: 'doubles', label: 'Doubles' },
+];
+
+function FormatIcon({ value }) {
+  const common = { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
+  if (value === 'free_play') return <svg {...common}><circle cx="8" cy="12" r="3" /><circle cx="16" cy="12" r="3" /></svg>;
+  if (value === 'killer_classic') return <svg {...common}><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.5-7 10-7 10z" /></svg>;
+  if (value === 'knockout_single_elim') return <svg {...common}><path d="M4 5h5v6h6M4 19h5v-8M15 11h5" /></svg>;
+  return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
+}
+
+function StepIndicator({ step }) {
+  return (
+    <ol className="ah-steps" aria-label="Setup steps">
+      <li className={step === 1 ? 'ah-step-on' : 'ah-step-done'}><span>1</span> Game</li>
+      <li className={step === 2 ? 'ah-step-on' : ''}><span>2</span> Players</li>
+    </ol>
+  );
+}
+
 function GameSetupForm({ onCreated }) {
-  const [name, setName] = useState('');
+  const { user } = useAuth();
+  const defaultName = `${`${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Player'} - ${new Date().toLocaleDateString()}`;
+  const [name, setName] = useState(defaultName);
   const [entryType, setEntryType] = useState('singles');
   const [legsPerMatch, setLegsPerMatch] = useState(5);
   const [pairingSize, setPairingSize] = useState(2);
@@ -24,17 +64,21 @@ function GameSetupForm({ onCreated }) {
   const [formatMode, setFormatMode] = useState('raceTo');
   const [formatValue, setFormatValue] = useState(6);
   const [startingLives, setStartingLives] = useState(3);
+  const [showMore, setShowMore] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const isKiller = KILLER_SCHEDULING.includes(scheduling);
   const isFreePlay = scheduling === FREE_PLAY_SCHEDULING;
+  const moreSelected = MORE_FORMATS.some((f) => f.value === scheduling);
 
   const onSchedulingChange = (value) => {
     setScheduling(value);
     // No fixed sides in a free-for-all/2-player game.
     if (KILLER_SCHEDULING.includes(value) || value === FREE_PLAY_SCHEDULING) setEntryType('singles');
   };
+
+  const step = (setter, value, delta, min) => setter(Math.max(min, (Number(value) || min) + delta));
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -62,7 +106,7 @@ function GameSetupForm({ onCreated }) {
     setSubmitting(true);
     try {
       const division = await api.createAdHocGame({
-        name,
+        name: name.trim(),
         entryType,
         scheduling,
         ...(isKiller ? { startingLives: Number(startingLives) } : { raceTo }),
@@ -77,137 +121,136 @@ function GameSetupForm({ onCreated }) {
     }
   };
 
+  const FormatCard = ({ f }) => (
+    <button
+      type="button"
+      className={`ah-format${scheduling === f.value ? ' ah-format-on' : ''}`}
+      aria-pressed={scheduling === f.value}
+      onClick={() => onSchedulingChange(f.value)}
+    >
+      <FormatIcon value={f.value} />
+      <strong>{f.title}</strong>
+      {f.desc && <span>{f.desc}</span>}
+    </button>
+  );
+
   return (
-    <form className="card form" onSubmit={onSubmit}>
-      <label>
-        Game Name
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Friday Night Decider"
-          required
-        />
+    <form className="card ah-form" onSubmit={onSubmit}>
+      <label className="ah-field">
+        <span className="ah-label">Game name</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Friday Night Decider" required />
       </label>
-      <label>
-        Entry type
-        <select value={entryType} onChange={(e) => setEntryType(e.target.value)} disabled={isKiller || isFreePlay}>
-          {isKiller ? (
-            <option value="singles">Singles (one player at a time, everyone in the game together)</option>
-          ) : isFreePlay ? (
-            <option value="singles">Singles (one player vs one player)</option>
-          ) : (
-            <>
-              <option value="singles">Singles (one player vs one player)</option>
-              <option value="teams">Teams (team vs team, made up of legs)</option>
-              <option value="doubles">Doubles/Triples (2-3 player pairing vs pairing, alternate-shot)</option>
-            </>
-          )}
-        </select>
-        {isKiller && (
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            Killer Classic/Cards Killer are free-for-all games with no fixed sides, so this is locked to Singles.
-          </span>
+
+      <div className="ah-field">
+        <span className="ah-label">Format</span>
+        <div className="ah-formats">
+          {MAIN_FORMATS.map((f) => <FormatCard key={f.value} f={f} />)}
+        </div>
+        {(showMore || moreSelected) ? (
+          <div className="ah-more">
+            {MORE_FORMATS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                className={`ah-more-row${scheduling === f.value ? ' ah-format-on' : ''}`}
+                aria-pressed={scheduling === f.value}
+                onClick={() => onSchedulingChange(f.value)}
+              >
+                <strong>{f.title}</strong>
+                {f.desc && <span>{f.desc}</span>}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button type="button" className="ah-link" onClick={() => setShowMore(true)}>More formats</button>
         )}
-        {isFreePlay && (
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            Free Play is a 2-player game, so this is locked to Singles.
-          </span>
-        )}
-      </label>
-      {entryType === 'teams' && !isKiller && !isFreePlay && (
-        <label>
-          Legs per match
-          <input
-            type="number"
-            min="1"
-            value={legsPerMatch}
-            onChange={(e) => setLegsPerMatch(e.target.value)}
-            required
-          />
-        </label>
-      )}
-      {entryType === 'doubles' && !isKiller && !isFreePlay && (
-        <label>
-          Players per pairing
-          <select value={pairingSize} onChange={(e) => setPairingSize(e.target.value)}>
-            <option value={2}>2 (doubles)</option>
-            <option value={3}>3 (triples)</option>
-          </select>
-        </label>
-      )}
-      <label>
-        Format
-        <select value={scheduling} onChange={(e) => onSchedulingChange(e.target.value)}>
-          <option value="free_play">Free Play (2 player free style, no frame count target)</option>
-          <option value="killer_classic">Killer Classic (Players play in order)</option>
-          <option value="cards_killer">Killer Random (Player order randomised on each turn)</option>
-          <option value="knockout_single_elim">Knockout (single elimination)</option>
-          <option value="knockout_double_elim">Knockout (double elimination)</option>
-          <option value="round_robin_single">Standard League - Single Leg (Everyone plays each other once)</option>
-          <option value="round_robin_double">Standard League - Double Leg (Everyone plays each other twice, home and away)</option>
-          <option value="knockout_double_elim_pcdek">Pre Configured Double Elimination Knockout</option>
-          <option value="knockout_double_elim_adek">Adaptive Double Elimination Knockout (no rematches before the finals)</option>
-        </select>
-      </label>
-      {isKiller ? (
-        <label>
-          Starting lives
-          <input
-            type="number"
-            min="1"
-            value={startingLives}
-            onChange={(e) => setStartingLives(e.target.value)}
-            required
-          />
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            Every player starts the game with this many lives - there's no per-match race to a number of frames in
-            {' '}{scheduling === 'cards_killer' ? 'Cards Killer' : 'Killer Classic'}, so Match format/Race to don't apply.
-          </span>
-        </label>
-      ) : isFreePlay ? (
-        <p className="muted" style={{ fontSize: '0.8rem' }}>
-          Free Play has no frame count target, so Match format/Race to don't apply - frames are still recorded one
-          at a time, and either player can finish the match themselves whenever the scores aren't level.
-        </p>
+        <span className="ah-hint">
+          {isFreePlay
+            ? 'No frame target - finish whenever someone is ahead.'
+            : isKiller
+              ? 'Free-for-all - everyone plays in one game, no fixed sides.'
+              : ''}
+        </span>
+      </div>
+
+      {isKiller || isFreePlay ? (
+        <div className="ah-field">
+          <span className="ah-label">Entry type</span>
+          <span className="ah-chip">Singles</span>
+        </div>
       ) : (
-        <>
-          <label>
-            Match format
-            <select value={formatMode} onChange={(e) => setFormatMode(e.target.value)}>
-              <option value="raceTo">Race to (frames)</option>
-              <option value="bestOf">Best of (frames)</option>
-            </select>
-          </label>
-          <label>
-            {formatMode === 'bestOf' ? 'Best of (frames)' : 'Race to (frames)'}
-            <input
-              type="number"
-              min="1"
-              step={formatMode === 'bestOf' ? 2 : 1}
-              value={formatValue}
-              onChange={(e) => setFormatValue(e.target.value)}
-              required
-            />
-            {formatMode === 'bestOf' && (() => {
-              const v = Number(formatValue);
-              if (!Number.isInteger(v) || v < 1) return null;
-              return v % 2 === 0 ? (
-                <span className="muted" style={{ fontSize: '0.8rem' }}>
-                  Best of must be an odd number, so it can't end level.
-                </span>
-              ) : (
-                <span className="muted" style={{ fontSize: '0.8rem' }}>
-                  = Race to {(v + 1) / 2} - first to {(v + 1) / 2} frame{(v + 1) / 2 === 1 ? '' : 's'} wins the
-                  match; any frames that can no longer affect the result aren't played.
-                </span>
-              );
-            })()}
-          </label>
-        </>
+        <div className="ah-field">
+          <span className="ah-label">Entry type</span>
+          <div className="ah-pills" role="group" aria-label="Entry type">
+            {ENTRY_TYPES.map((t) => (
+              <button key={t.value} type="button" className={entryType === t.value ? 'ah-pill-on' : ''} aria-pressed={entryType === t.value} onClick={() => setEntryType(t.value)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {entryType === 'teams' && (
+            <div className="ah-stepper-row">
+              <span>Legs per match</span>
+              <div className="ah-stepper">
+                <button type="button" aria-label="Fewer legs" onClick={() => step(setLegsPerMatch, legsPerMatch, -1, 1)}>−</button>
+                <output>{legsPerMatch}</output>
+                <button type="button" aria-label="More legs" onClick={() => step(setLegsPerMatch, legsPerMatch, 1, 1)}>+</button>
+              </div>
+            </div>
+          )}
+          {entryType === 'doubles' && (
+            <div className="ah-pills" role="group" aria-label="Players per pairing" style={{ marginTop: 8 }}>
+              <button type="button" className={Number(pairingSize) === 2 ? 'ah-pill-on' : ''} aria-pressed={Number(pairingSize) === 2} onClick={() => setPairingSize(2)}>Doubles (2)</button>
+              <button type="button" className={Number(pairingSize) === 3 ? 'ah-pill-on' : ''} aria-pressed={Number(pairingSize) === 3} onClick={() => setPairingSize(3)}>Triples (3)</button>
+            </div>
+          )}
+        </div>
       )}
+
+      {isKiller && (
+        <div className="ah-field">
+          <div className="ah-stepper-row">
+            <span className="ah-label">Starting lives</span>
+            <div className="ah-stepper">
+              <button type="button" aria-label="Fewer lives" onClick={() => step(setStartingLives, startingLives, -1, 1)}>−</button>
+              <output>{startingLives}</output>
+              <button type="button" aria-label="More lives" onClick={() => step(setStartingLives, startingLives, 1, 1)}>+</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!isKiller && !isFreePlay && (
+        <div className="ah-field">
+          <span className="ah-label">Match length</span>
+          <div className="ah-pills" role="group" aria-label="Match format">
+            <button type="button" className={formatMode === 'raceTo' ? 'ah-pill-on' : ''} aria-pressed={formatMode === 'raceTo'} onClick={() => setFormatMode('raceTo')}>Race to</button>
+            <button
+              type="button"
+              className={formatMode === 'bestOf' ? 'ah-pill-on' : ''}
+              aria-pressed={formatMode === 'bestOf'}
+              onClick={() => { setFormatMode('bestOf'); if (Number(formatValue) % 2 === 0) setFormatValue(Number(formatValue) + 1); }}
+            >
+              Best of
+            </button>
+          </div>
+          <div className="ah-stepper-row">
+            <span>{formatMode === 'bestOf' ? 'Best of' : 'Race to'} (frames)</span>
+            <div className="ah-stepper">
+              <button type="button" aria-label="Fewer frames" onClick={() => step(setFormatValue, formatValue, formatMode === 'bestOf' ? -2 : -1, 1)}>−</button>
+              <output>{formatValue}</output>
+              <button type="button" aria-label="More frames" onClick={() => step(setFormatValue, formatValue, formatMode === 'bestOf' ? 2 : 1, 1)}>+</button>
+            </div>
+          </div>
+          {formatMode === 'bestOf' && Number(formatValue) % 2 === 1 && (
+            <span className="ah-hint">= Race to {(Number(formatValue) + 1) / 2}</span>
+          )}
+        </div>
+      )}
+
       {error && <p className="error">{error}</p>}
-      <button className="btn btn-primary" type="submit" disabled={submitting || !name.trim()}>
-        {submitting ? 'Creating…' : 'Select Players'}
+      <button className="btn btn-primary ah-next" type="submit" disabled={submitting || !name.trim()}>
+        {submitting ? 'Creating…' : 'Next: add players'}
       </button>
     </form>
   );
@@ -219,28 +262,36 @@ function GameSetupForm({ onCreated }) {
 // without a CueSense account), but no late entrant/reserved slot handling
 // or manual seeding - fixtures aren't generated until "Start Game", so none
 // of that applies before a first ad hoc game roster even has two names in it.
+
 function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
-  const [playerId, setPlayerId] = useState('');
+  const { user } = useAuth();
+  const [search, setSearch] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const [walkInOpen, setWalkInOpen] = useState(false);
   const [quickFirstName, setQuickFirstName] = useState('');
   const [quickLastName, setQuickLastName] = useState('');
   const [quickAdding, setQuickAdding] = useState(false);
   const alreadyIn = new Set(division.players.map((p) => p.id));
   const available = registeredPlayers.filter((p) => !alreadyIn.has(p.id));
+  const isFreePlay = division.scheduling === FREE_PLAY_SCHEDULING;
   // Free Play is a 2-player match - both add paths below hide once the 2nd
   // is in, matching DivisionDetail.jsx's SinglesRoster and the server-side
   // cap on POST /divisions/:id/players and /quick-add-player.
-  const freePlayFull = division.scheduling === FREE_PLAY_SCHEDULING && division.players.length >= 2;
+  const freePlayFull = isFreePlay && division.players.length >= 2;
+  const q = search.trim().toLowerCase();
+  const matches = q ? available.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 20) : available.slice(0, 8);
 
-  const onAdd = async (e) => {
-    e.preventDefault();
-    if (!playerId) return;
+  const onAdd = async (id) => {
     setError('');
+    setBusyId(id);
     try {
-      await api.addPlayer(division.id, playerId);
-      setPlayerId('');
+      await api.addPlayer(division.id, id);
+      setSearch('');
       onChange();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -253,6 +304,7 @@ function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
       await api.quickAddPlayer(division.id, quickFirstName.trim(), quickLastName.trim() || null);
       setQuickFirstName('');
       setQuickLastName('');
+      setWalkInOpen(false);
       onChange();
     } catch (err) {
       setError(err.message);
@@ -271,67 +323,79 @@ function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
     }
   };
 
-  return (
-    <section className="card">
-      <h3 style={{ marginTop: 0 }}>Players</h3>
-      {freePlayFull ? (
-        <p className="muted" style={{ marginTop: 0, marginBottom: 12, fontSize: '0.8rem' }}>
-          Free Play is a 2-player match - remove a player below to swap who's in it.
-        </p>
-      ) : (
-        <>
-          <form className="inline-form" onSubmit={onAdd}>
-            <select value={playerId} onChange={(e) => setPlayerId(e.target.value)} required>
-              <option value="" disabled>
-                {available.length === 0 ? 'No registered players available' : 'Select a registered player…'}
-              </option>
-              {available.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <button className="btn btn-primary" type="submit" disabled={!playerId}>Add Player</button>
-          </form>
-          <p className="muted" style={{ marginTop: -4, marginBottom: 12, fontSize: '0.8rem' }}>
-            Only people with a registered player account can be added this way - see "My Account" to register.
-          </p>
+  const opponent = isFreePlay ? division.players.find((p) => p.id !== user?.playerId) : null;
+  const me = isFreePlay ? division.players.find((p) => p.id === user?.playerId) : null;
 
-          <h4 style={{ marginBottom: 4 }}>Add a walk-in</h4>
-          <p className="muted" style={{ marginTop: 0, marginBottom: 8, fontSize: '0.8rem' }}>
-            For someone who's never used CueSense before - just a name, no account needed to add them to the game.
-          </p>
-          <form className="inline-form" onSubmit={onQuickAdd}>
-            <input
-              type="text"
-              placeholder="First name *"
-              aria-label="First name (required)"
-              value={quickFirstName}
-              onChange={(e) => setQuickFirstName(e.target.value)}
-              required
-            />
-            <input
-              type="text"
-              placeholder="Last name (optional)"
-              aria-label="Last name (optional)"
-              value={quickLastName}
-              onChange={(e) => setQuickLastName(e.target.value)}
-            />
-            <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
-              {quickAdding ? 'Adding…' : 'Add Walk-in'}
-            </button>
-          </form>
-          <p className="muted" style={{ marginTop: 4, fontSize: '0.75rem' }}>* required</p>
-        </>
+  return (
+    <section className="card ah-players">
+      {isFreePlay && (
+        <div className="ah-vs">
+          <div className="ah-vs-side ah-vs-home"><span className="ah-vs-bar" /><strong>{me ? me.name : (division.players[0]?.name || 'Player 1')}</strong></div>
+          <span className="ah-vs-mid">vs</span>
+          <div className="ah-vs-side ah-vs-away"><span className="ah-vs-bar" /><strong>{opponent ? opponent.name : (division.players.length >= 2 ? division.players[1].name : '?')}</strong></div>
+        </div>
       )}
 
-      <ul className="player-list">
+      <h3 className="ah-h3">Players <span className="muted">({division.players.length}{isFreePlay ? ' of 2' : ''})</span></h3>
+      <ul className="ah-list">
         {division.players.map((p) => (
           <li key={p.id}>
-            {p.name}
-            <button className="btn-link" onClick={() => onRemove(p.id)}>remove</button>
+            <span className="ah-avatar" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
+            <span className="ah-grow">{p.name}{p.id === user?.playerId ? <span className="muted"> (you)</span> : null}</span>
+            <button type="button" className="ah-remove" aria-label={`Remove ${p.name}`} onClick={() => onRemove(p.id)}>×</button>
           </li>
         ))}
         {division.players.length === 0 && <li className="muted">No players added yet</li>}
       </ul>
+
+      {freePlayFull ? (
+        <p className="muted ah-hint" style={{ marginTop: 8 }}>Free Play is a 2-player match - remove a player above to swap who's in it.</p>
+      ) : (
+        <>
+          <h3 className="ah-h3" style={{ marginTop: 16 }}>{isFreePlay ? 'Choose your opponent' : 'Add players'}</h3>
+          <input
+            type="search"
+            className="ah-search"
+            placeholder="Search registered players"
+            aria-label="Search registered players"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <ul className="ah-list ah-results">
+            {matches.map((p) => (
+              <li key={p.id}>
+                <span className="ah-avatar" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
+                <span className="ah-grow">{p.name}</span>
+                <button type="button" className="btn btn-primary ah-add" disabled={busyId === p.id} onClick={() => onAdd(p.id)}>
+                  {busyId === p.id ? 'Adding…' : 'Add'}
+                </button>
+              </li>
+            ))}
+            {matches.length === 0 && (
+              <li className="muted">{available.length === 0 ? 'No registered players available' : 'No players match that search'}</li>
+            )}
+          </ul>
+          {!q && available.length > matches.length && (
+            <p className="muted ah-hint">Showing {matches.length} of {available.length} - search to find someone else.</p>
+          )}
+
+          <div className="ah-walkin">
+            <button type="button" className="ah-walkin-toggle" aria-expanded={walkInOpen} onClick={() => setWalkInOpen((o) => !o)}>
+              <span>+ Add a walk-in</span>
+              <span className="muted ah-hint">No account needed</span>
+            </button>
+            {walkInOpen && (
+              <form className="ah-walkin-form" onSubmit={onQuickAdd}>
+                <input type="text" placeholder="First name *" aria-label="First name (required)" value={quickFirstName} onChange={(e) => setQuickFirstName(e.target.value)} required />
+                <input type="text" placeholder="Last name (optional)" aria-label="Last name (optional)" value={quickLastName} onChange={(e) => setQuickLastName(e.target.value)} />
+                <button className="btn btn-primary" type="submit" disabled={quickAdding || !quickFirstName.trim()}>
+                  {quickAdding ? 'Adding…' : 'Add walk-in'}
+                </button>
+              </form>
+            )}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -340,6 +404,7 @@ function SinglesPicker({ division, registeredPlayers, onChange, setError }) {
 // DivisionDetail.jsx's TeamRoster (no manual seed reordering, which only
 // matters once there are enough entrants that seed order is worth
 // controlling by hand - not a concern for a first ad hoc game roster).
+
 function TeamsPicker({ division, registeredPlayers, onChange, setError }) {
   const [teamName, setTeamName] = useState('');
   const [playerIds, setPlayerIds] = useState({}); // teamId -> selected registered playerId
@@ -635,6 +700,7 @@ function SelectPlayers({ justCreated, onStarted }) {
 
   return (
     <div>
+      <StepIndicator step={2} />
       <h2 style={{ marginBottom: 4 }}>{division.name}</h2>
       <p className="muted" style={{ marginTop: 0 }}>Add everyone who's playing, then start the game.</p>
 
@@ -650,13 +716,13 @@ function SelectPlayers({ justCreated, onStarted }) {
 
       {error && <p className="error">{error}</p>}
       <button
-        className="btn btn-primary"
+        className="btn btn-primary ah-next"
         type="button"
         disabled={!canStart || starting}
         onClick={onStart}
         title={canStart ? '' : 'Add enough players first'}
       >
-        {starting ? 'Starting…' : 'Start Game'}
+        {starting ? 'Starting…' : canStart ? 'Start game' : 'Add players to start'}
       </button>
     </div>
   );
@@ -728,7 +794,10 @@ export default function AdHocGame({ quickStart = false }) {
       {quickStart && !createdDivision ? (
         quickError ? <p className="error">{quickError}</p> : <p>Creating your game…</p>
       ) : !createdDivision ? (
-        <GameSetupForm onCreated={setCreatedDivision} />
+        <>
+          <StepIndicator step={1} />
+          <GameSetupForm onCreated={setCreatedDivision} />
+        </>
       ) : (
         <SelectPlayers justCreated={createdDivision} onStarted={(path) => navigate(path)} />
       )}
