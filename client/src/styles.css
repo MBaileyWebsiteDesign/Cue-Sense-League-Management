@@ -2273,3 +2273,9 @@ button.vm-tile { cursor: pointer; }
 }
 .lg-divs > .lg-divs-head:first-child h2 { color: #fff; }
 .lg-divs > .lg-divs-head:first-child .muted { color: rgba(255, 255, 255, 0.8); }
+
+/* Venue Manager bookings - "Live" marker shown while the live-update stream is connected */
+.vm-bk-live { font-weight: 700; color: #fff; }
+.vm-bk-live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4ade80; margin-right: 5px; vertical-align: 1px; box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); animation: vm-bk-pulse 2s infinite; }
+@keyframes vm-bk-pulse { 0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); } 70% { box-shadow: 0 0 0 6px rgba(74, 222, 128, 0); } 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); } }
+@media (prefers-reduced-motion: reduce) { .vm-bk-live-dot { animation: none; } }
