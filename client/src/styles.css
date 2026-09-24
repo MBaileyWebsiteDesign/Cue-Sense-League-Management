@@ -2171,18 +2171,37 @@ button.vm-tile { cursor: pointer; }
   .vm-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
-/* Venue Manager - Wix table bookings card */
-.vm-bookings .vm-small { margin: 2px 0 8px; }
-.vm-bk-day { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.vm-bk-day-head { margin: 0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280; }
-.vm-bk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.vm-bk { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px; }
-.vm-bk-time { display: flex; flex-direction: column; align-items: flex-start; font-variant-numeric: tabular-nums; min-width: 44px; }
-.vm-bk-time .muted { font-size: 0.8rem; }
+/* Venue Manager - Wix table bookings card (top of the page, brand-green
+   header band so it stands out next to the coloured status tiles) */
+.sx-card.vm-bookings { padding: 0; gap: 0; overflow: hidden; background: #fff; border-radius: 14px; border: 2px solid var(--primary); box-shadow: 0 2px 8px rgba(18, 61, 36, 0.12); }
+.vm-bk-band { background: var(--primary); color: #fff; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; }
+.vm-bk-band-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vm-bk-band-title svg { color: var(--cta); flex-shrink: 0; }
+.vm-bk-band h2 { margin: 0; font-size: 1.15rem; color: #fff; }
+.vm-bk-count { background: var(--cta); color: #1a1a1a; font-weight: 800; font-size: 0.95rem; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.btn.vm-bk-refresh { background: var(--cta); color: #1a1a1a; border: none; font-weight: 700; min-height: 36px; padding: 6px 14px; }
+.btn.vm-bk-refresh:hover:not(:disabled) { background: var(--cta-dark); color: #fff; }
+.vm-bk-sync { grid-column: 1 / -1; font-size: 0.8rem; color: rgba(255, 255, 255, 0.78); }
+.vm-bk-body { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.vm-bk-body > p { margin: 4px 2px; }
+.vm-bk-empty { color: var(--muted); font-weight: 600; }
+.vm-bk-day { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.vm-bk-day-head { align-self: flex-start; margin: 0; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: #7a5a10; background: #fbf5e3; border: 1px solid #e6d59e; border-radius: 999px; padding: 3px 10px; }
+.vm-bk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.vm-bk { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--border); border-left: 5px solid #9ca3af; border-radius: 12px; padding: 8px 10px; background: #fff; }
+.vm-bk-confirmed { border-left-color: #16a34a; }
+.vm-bk-pending { border-left-color: var(--cta); }
+.vm-bk-time { display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--primary); color: #fff; border-radius: 10px; padding: 6px 8px; min-width: 54px; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.vm-bk-time strong { font-size: 1.05rem; }
+.vm-bk-time span { font-size: 0.75rem; opacity: 0.8; }
 .vm-bk-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.vm-bk-main strong { font-size: 1.02rem; }
+.vm-bk-main span { color: #4b5563; }
 .vm-bk-main > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vm-bk-chips { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-.vm-bk-pay { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #f1efe8; color: #4b5563; white-space: nowrap; }
+.vm-bk-pay { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #fef3c7; color: #92400e; white-space: nowrap; }
 .vm-bk-paid { background: #d1fae5; color: #065f46; }
-.vm-bk-cancelled { opacity: 0.6; background: #f9fafb; }
+.vm-bk-cancelled { border-left-color: #dc2626; background: #f9fafb; }
+.vm-bk-cancelled .vm-bk-time { background: #9ca3af; }
+.vm-bk-cancelled .vm-bk-main, .vm-bk-cancelled .vm-bk-time { opacity: 0.7; }
 .vm-bk-cancelled .vm-bk-main strong, .vm-bk-cancelled .vm-bk-time strong { text-decoration: line-through; }
