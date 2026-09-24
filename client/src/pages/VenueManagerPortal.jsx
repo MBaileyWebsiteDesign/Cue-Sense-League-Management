@@ -377,7 +377,9 @@ function RegisteredPlayersList({ venueId }) {
 // Read-only list of today's and future bookings made on the venue's own
 // Wix site (Top Spin only for now - see /api/venue-manager/bookings in
 // server/src/index.js). Grouped by day, times in UK time. Cancelled
-// bookings stay in the list, greyed out with a Cancelled chip.
+// bookings stay in the list, greyed out with a Cancelled chip. The server
+// pulls from Wix at 09:00, 11:00 and 17:00 UK time only, so the card shows
+// when the list was last updated and when the next update is due.
 const UK_TZ = 'Europe/London';
 
 function ukDayKey(iso) {
@@ -399,6 +401,14 @@ function dayHeading(key) {
   if (key === today) return `Today · ${label}`;
   if (key === tomorrow) return `Tomorrow · ${label}`;
   return label;
+}
+
+// "11:00" for today, otherwise "Fri 11:00" - used for the last/next sync times.
+function syncLabel(iso) {
+  const sameDay = ukDayKey(iso) === ukDayKey(new Date().toISOString());
+  if (sameDay) return ukTime(iso);
+  const day = new Intl.DateTimeFormat('en-GB', { timeZone: UK_TZ, weekday: 'short' }).format(new Date(iso));
+  return `${day} ${ukTime(iso)}`;
 }
 
 const BOOKING_STATUS = {
@@ -423,19 +433,15 @@ function BookingsCard({ venueId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const load = (refresh = false) => {
+  useEffect(() => {
     if (typeof api.getVenueBookings !== 'function') return;
-    setLoading(true);
+    setData(null);
     setError('');
-    api.getVenueBookings(venueId, refresh)
+    setLoading(true);
+    api.getVenueBookings(venueId)
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    setData(null);
-    load(false);
   }, [venueId]);
 
   // Venues with no Wix site linked don't get the card at all.
@@ -455,16 +461,17 @@ function BookingsCard({ venueId }) {
     <section className="sx-card vm-bookings">
       <div className="sx-card-head">
         <h2>Table bookings</h2>
-        <button type="button" className="btn dv-small-btn" onClick={() => load(true)} disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
       </div>
-      <p className="muted vm-small">From your Wix website · today and upcoming · UK time</p>
+      <p className="muted vm-small">
+        From your Wix website · today and upcoming · UK time
+        {data && data.syncedAt && <><br />Updated {syncLabel(data.syncedAt)}{data.nextSyncAt && ` · next update ${syncLabel(data.nextSyncAt)}`}</>}
+      </p>
+      {data && data.warning && <p className="error vm-small">{data.warning} Showing the last list that loaded.</p>}
 
       {error && <p className="error">{error}</p>}
 
       {!data ? (
-        !error && <p className="muted">Loading bookings…</p>
+        !error && loading && <p className="muted">Loading bookings…</p>
       ) : data.configured === false ? (
         <p className="muted">
           {isAdmin

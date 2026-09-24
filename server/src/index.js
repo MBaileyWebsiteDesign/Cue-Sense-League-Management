@@ -3,7 +3,7 @@ import cors from 'cors';
 import compression from 'compression';
 import crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, readFileSync, writeFileSync } from 'fs';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1192,10 +1192,20 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
 // Only Top Spin is linked for now (Matt, 2026-09-24): its venue record
 // matches by name to the "Top Spin Pool And Sports Bar" Wix site. A venue
 // can also carry an explicit wixSiteId, which wins over the name match.
+//
+// Sync schedule (Matt, 2026-09-24): bookings are pulled from Wix at 09:00,
+// 11:00 and 17:00 UK time only, saved to DATA_DIR/wix-bookings.json, and
+// the page shows that saved list - no live Wix call per page view. Fly
+// stops idle machines (min_machines_running = 0), so a timer alone could
+// miss a slot while the machine sleeps; the page request also "catches up"
+// - if the most recent 09/11/17 slot is newer than the saved sync, it syncs
+// once before answering. Either way the list always reflects the latest
+// slot that has passed.
 const WIX_TOPSPIN_SITE_ID = process.env.WIX_TOPSPIN_SITE_ID || '80f3f389-3377-4c7f-882e-05b689a5cde0';
 const WIX_BOOKINGS_QUERY_URL = 'https://www.wixapis.com/bookings/bookings-reader/v2/extended-bookings/query';
-const WIX_BOOKINGS_CACHE_MS = 60 * 1000;
-const wixBookingsCache = new Map(); // siteId -> { at, fromIso, bookings }
+const WIX_SYNC_HOURS = [9, 11, 17]; // UK time
+const WIX_SYNC_RETRY_MS = 5 * 60 * 1000; // after a failed sync, wait before trying again
+const WIX_BOOKINGS_FILE = path.join(DATA_DIR, 'wix-bookings.json');
 
 function wixSiteIdForVenue(venue) {
   if (venue && typeof venue.wixSiteId === 'string' && venue.wixSiteId.trim()) return venue.wixSiteId.trim();
@@ -1267,6 +1277,100 @@ async function fetchWixBookings(siteId, fromIso) {
     .sort((x, y) => String(x.start).localeCompare(String(y.start)));
 }
 
+// Converts a UK wall-clock time (year, month 1-12, day, hour) to a UTC Date,
+// using the UK offset in force at that moment (handles BST/GMT).
+function londonWallTimeToUtc(year, month, day, hour) {
+  const guess = new Date(Date.UTC(year, month - 1, day, hour));
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(guess).map((p) => [p.type, p.value]));
+  const shownAsUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+  return new Date(guess.getTime() - (shownAsUtc - guess.getTime()));
+}
+
+// The most recent 09/11/17 UK sync slot at or before `now`, and the next one after it.
+function wixSyncSlots(now = new Date()) {
+  const slots = [];
+  for (let dayOffset = -1; dayOffset <= 1; dayOffset++) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000)).map((x) => [x.type, x.value]));
+    for (const h of WIX_SYNC_HOURS) slots.push(londonWallTimeToUtc(Number(p.year), Number(p.month), Number(p.day), h));
+  }
+  slots.sort((a, b) => a - b);
+  const past = slots.filter((s) => s <= now);
+  const future = slots.filter((s) => s > now);
+  return { latest: past[past.length - 1], next: future[0] };
+}
+
+let wixSnapshots = null; // siteId -> { syncedAt, slotAt, bookings, lastError, lastAttemptAt }
+const wixSyncInFlight = new Map(); // siteId -> Promise
+
+function loadWixSnapshots() {
+  if (wixSnapshots) return wixSnapshots;
+  wixSnapshots = {};
+  try {
+    if (existsSync(WIX_BOOKINGS_FILE)) wixSnapshots = JSON.parse(readFileSync(WIX_BOOKINGS_FILE, 'utf8')) || {};
+  } catch (err) {
+    console.warn('Could not read saved Wix bookings:', err.message);
+    wixSnapshots = {};
+  }
+  return wixSnapshots;
+}
+
+function saveWixSnapshots() {
+  try {
+    writeFileSync(WIX_BOOKINGS_FILE, JSON.stringify(wixSnapshots));
+  } catch (err) {
+    console.warn('Could not save Wix bookings:', err.message);
+  }
+}
+
+// Syncs one site if its saved list is older than the latest scheduled slot.
+// Never throws; a failure keeps the previous list and is retried after
+// WIX_SYNC_RETRY_MS (on the next timer tick or page view).
+async function syncWixSiteIfDue(siteId, now = new Date()) {
+  if (!process.env.WIX_API_KEY) return;
+  const snaps = loadWixSnapshots();
+  const snap = snaps[siteId];
+  const { latest } = wixSyncSlots(now);
+  if (snap && snap.slotAt && new Date(snap.slotAt) >= latest) return;
+  if (snap && snap.lastAttemptAt && now - new Date(snap.lastAttemptAt) < WIX_SYNC_RETRY_MS) return;
+  if (wixSyncInFlight.has(siteId)) return wixSyncInFlight.get(siteId);
+  const job = (async () => {
+    const attemptAt = new Date();
+    try {
+      const bookings = await fetchWixBookings(siteId, startOfTodayLondonIso(attemptAt));
+      snaps[siteId] = { syncedAt: attemptAt.toISOString(), slotAt: latest.toISOString(), bookings, lastError: null, lastAttemptAt: attemptAt.toISOString() };
+      console.log(`Wix bookings synced for site ${siteId}: ${bookings.length} booking(s)`);
+    } catch (err) {
+      console.warn('Wix bookings sync failed:', err.message);
+      snaps[siteId] = {
+        ...(snap || { bookings: [] }),
+        lastError: err.wixStatus === 401 || err.wixStatus === 403
+          ? 'Wix refused the API key - check it has Wix Bookings read permission for this site.'
+          : 'Could not load bookings from Wix at the last update.',
+        lastAttemptAt: attemptAt.toISOString(),
+      };
+    }
+    saveWixSnapshots();
+  })().finally(() => wixSyncInFlight.delete(siteId));
+  wixSyncInFlight.set(siteId, job);
+  return job;
+}
+
+// While the machine is awake, check every 5 minutes whether a slot has
+// passed. unref() so this timer never keeps the process alive by itself.
+setInterval(() => {
+  try {
+    const siteIds = new Set(readDb().venues.map(wixSiteIdForVenue).filter(Boolean));
+    for (const siteId of siteIds) syncWixSiteIfDue(siteId);
+  } catch (err) {
+    console.warn('Wix bookings timer error:', err.message);
+  }
+}, 5 * 60 * 1000).unref();
+
 // asyncRoute above only catches synchronous throws, so this async handler
 // forwards its own rejections (e.g. the ApiErrors below) to next().
 app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => (async () => {
@@ -1281,28 +1385,22 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
   if (!siteId) return res.json({ linked: false });
   if (!process.env.WIX_API_KEY) return res.json({ linked: true, configured: false });
 
+  await syncWixSiteIfDue(siteId);
+  const snap = loadWixSnapshots()[siteId] || { bookings: [] };
+  // Only today (UK) and later - a list saved yesterday evening still holds
+  // yesterday's bookings until the 09:00 sync.
   const fromIso = startOfTodayLondonIso();
-  const cached = wixBookingsCache.get(siteId);
-  const fresh = cached && cached.fromIso === fromIso && Date.now() - cached.at < WIX_BOOKINGS_CACHE_MS;
-  if (fresh && req.query.refresh !== '1') {
-    return res.json({ linked: true, configured: true, from: fromIso, fetchedAt: new Date(cached.at).toISOString(), bookings: cached.bookings });
-  }
-  try {
-    const bookings = await fetchWixBookings(siteId, fromIso);
-    const at = Date.now();
-    wixBookingsCache.set(siteId, { at, fromIso, bookings });
-    res.json({ linked: true, configured: true, from: fromIso, fetchedAt: new Date(at).toISOString(), bookings });
-  } catch (err) {
-    console.warn('Wix bookings fetch failed:', err.message);
-    res.json({
-      linked: true,
-      configured: true,
-      error: err.wixStatus === 401 || err.wixStatus === 403
-        ? 'Wix refused the API key - check it has Wix Bookings read permission for this site.'
-        : 'Could not load bookings from Wix right now.',
-      bookings: [],
-    });
-  }
+  const bookings = (snap.bookings || []).filter((b) => b.start && new Date(b.start) >= new Date(fromIso));
+  res.json({
+    linked: true,
+    configured: true,
+    syncedAt: snap.syncedAt || null,
+    nextSyncAt: wixSyncSlots().next.toISOString(),
+    syncHours: WIX_SYNC_HOURS,
+    error: snap.syncedAt ? null : snap.lastError || null,
+    warning: snap.syncedAt && snap.lastError ? snap.lastError : null,
+    bookings,
+  });
 })().catch(next));
 
 // Quick-renew buttons on the Search players results (client/src/pages/
