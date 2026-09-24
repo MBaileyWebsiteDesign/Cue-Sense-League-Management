@@ -1679,7 +1679,7 @@ async function walkinTableIsFree(siteId, table, start, end) {
   });
 }
 
-async function createWalkinPart(siteId, table, start, end, skipWixCheck) {
+async function createWalkinPart(siteId, table, start, end, skipWixCheck, contact = null) {
   const data = await wixPost(siteId, WIX_BOOKINGS_WRITE_URL, {
     booking: {
       bookedEntity: {
@@ -1693,7 +1693,9 @@ async function createWalkinPart(siteId, table, start, end, skipWixCheck) {
           location: { id: table.locationId, locationType: 'OWNER_BUSINESS' },
         },
       },
-      contactDetails: { firstName: 'Walk-in' },
+      contactDetails: contact && contact.firstName
+        ? { firstName: contact.firstName, ...(contact.lastName ? { lastName: contact.lastName } : {}) }
+        : { firstName: 'Walk-in' },
       totalParticipants: 1,
       selectedPaymentOption: 'OFFLINE',
       status: 'CONFIRMED',
@@ -1706,9 +1708,9 @@ async function createWalkinPart(siteId, table, start, end, skipWixCheck) {
   return data.booking;
 }
 
-async function bookWalkinPart(siteId, table, start, end) {
+async function bookWalkinPart(siteId, table, start, end, contact = null) {
   try {
-    return await createWalkinPart(siteId, table, start, end, false);
+    return await createWalkinPart(siteId, table, start, end, false, contact);
   } catch (err) {
     if (err.wixCode !== 'SLOT_NOT_AVAILABLE') throw err;
     if (start.getTime() > Date.now() + WALKIN_NOTICE_MS) {
@@ -1717,7 +1719,7 @@ async function bookWalkinPart(siteId, table, start, end) {
     if (!(await walkinTableIsFree(siteId, table, start, end))) {
       throw new ApiError(409, `${table.name} is already booked for part of that time.`);
     }
-    return createWalkinPart(siteId, table, start, end, true);
+    return createWalkinPart(siteId, table, start, end, true, contact);
   }
 }
 
@@ -1780,9 +1782,113 @@ app.get('/api/venue-manager/walkin-tables', requireVenueManager, (req, res, next
   res.json({ tables: tables.map((t) => ({ id: t.id, name: t.name })), lengths: WALKIN_LENGTHS });
 })().catch(next));
 
+// Walk-in player details (Matt, 2026-09-24): the walk-in form can also take
+// a first name, last name and email, with three independent tick boxes:
+//  - "Sign up": create a player account and email a welcome message with a
+//    single-use link (valid 7 days) to set their password;
+//  - "1 month membership" / "1 year membership": create the account the same
+//    way if there isn't one, then set membershipStartDate = today (UK) and
+//    membershipRenewalDate = today + 1 month / 1 year, and set the player's
+//    venue to the venue the booking is for (so they join its Registered
+//    players list). A new account made only for a membership also gets the
+//    welcome email - it can't be used without a password.
+// An email that already has an account never gets a second account or a
+// welcome email: with a membership box ticked, that account's membership
+// and venue are updated instead.
+const WALKIN_WELCOME_LINK_MS = 7 * 24 * 60 * 60 * 1000;
+const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function walkinPlayerRequest(body) {
+  const firstName = String(body.firstName || '').trim();
+  const lastName = String(body.lastName || '').trim();
+  const email = String(body.email || '').trim();
+  const signUp = !!body.signUp;
+  const membershipMonths = body.membership === '1m' ? 1 : body.membership === '12m' ? 12 : 0;
+  if (body.membership && !membershipMonths) throw new ApiError(400, 'Membership must be 1 month or 1 year.');
+  const wantsAccount = signUp || membershipMonths > 0;
+  if (wantsAccount) {
+    if (!firstName) throw new ApiError(400, 'First name is needed to sign up.');
+    if (!lastName) throw new ApiError(400, 'Last name is needed to sign up.');
+    if (!email) throw new ApiError(400, 'Email is needed to sign up.');
+  }
+  if (email && !SIMPLE_EMAIL_RE.test(email)) throw new ApiError(400, 'That email address doesn’t look right.');
+  if (firstName.length > 60 || lastName.length > 60 || email.length > 200) throw new ApiError(400, 'Name or email is too long.');
+  return { firstName, lastName, email, signUp, membershipMonths, wantsAccount };
+}
+
+// Returns a summary for the response; writes db (caller saves it) and sends
+// the welcome email in the background.
+function applyWalkinPlayer(db, req, venue, p, by) {
+  if (!p.wantsAccount) return null;
+  const normalized = p.email.toLowerCase();
+  let user = db.users.find((u) => (u.email || '').toLowerCase() === normalized);
+  const out = { email: p.email, accountCreated: false, alreadyRegistered: !!user, welcomeEmail: false, membership: null };
+  if (!user) {
+    user = createUserAccount(db, {
+      firstName: p.firstName,
+      lastName: p.lastName,
+      email: p.email,
+      // Random throwaway password - the player sets their own via the welcome link.
+      passwordHash: hashPassword(crypto.randomBytes(24).toString('hex')),
+      teamName: '',
+      isAdmin: false,
+      isCaptain: false,
+    });
+    out.accountCreated = true;
+    recordAudit(db, {
+      actor: by,
+      action: 'user.registeredByVenue',
+      targetType: 'user',
+      targetId: user.id,
+      details: `Signed up ${user.firstName} ${user.lastName} (${user.email}) from the Venue Manager walk-in form at ${venue.name}`,
+    });
+    const token = crypto.randomBytes(32).toString('hex');
+    db.passwordResets.push({
+      id: uuid(),
+      userId: user.id,
+      token,
+      createdAt: new Date().toISOString(),
+      expiresAt: Date.now() + WALKIN_WELCOME_LINK_MS,
+      usedAt: null,
+      requestedBy: 'welcome',
+    });
+    const link = `${baseUrlFor(req)}/reset-password?token=${token}`;
+    const first = user.firstName || 'there';
+    const venueName = venue.name || 'the venue';
+    out.welcomeEmail = true;
+    sendMail({
+      to: user.email,
+      toName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
+      subject: 'Welcome to Cue Sense - set your password',
+      text: `Hi ${first},\n\nWelcome to Cue Sense! ${venueName} has created a player account for you.\n\nUse this link to set your password and log in:\n${link}\n\nThe link works once and expires in 7 days. After that you can use "Forgot password" on the Log In page with this email address.`,
+      html: emailHtml('Welcome to Cue Sense', `<p>Hi ${escapeHtml(first)},</p><p>Welcome to Cue Sense! ${escapeHtml(venueName)} has created a player account for you.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Set your password</a></p><p style="color:#555;font-size:13px">The link works once and expires in 7 days. After that you can use "Forgot password" on the Log In page with this email address.</p>`),
+    }).catch((err) => console.warn('Welcome email failed:', err && err.message));
+  }
+  if (p.membershipMonths) {
+    const today = londonLocalString(new Date()).slice(0, 10);
+    const [y, m, d] = today.split('-').map(Number);
+    const end = addMonths(new Date(Date.UTC(y, m - 1, d, 12)), p.membershipMonths).toISOString().slice(0, 10);
+    const prev = { start: user.membershipStartDate, end: user.membershipRenewalDate, venueId: user.venueId };
+    user.membershipStartDate = today;
+    user.membershipRenewalDate = end;
+    user.venueId = venue.id;
+    out.membership = { months: p.membershipMonths, start: today, end };
+    recordAudit(db, {
+      actor: by,
+      action: 'user.membershipDates',
+      targetType: 'user',
+      targetId: user.id,
+      details: `${p.membershipMonths === 12 ? '1 year' : '1 month'} membership for ${user.firstName} ${user.lastName} at ${venue.name} from the walk-in form: ${today} to ${end} (was start=${prev.start || 'none'}, end=${prev.end || 'none'}${prev.venueId && prev.venueId !== venue.id ? ', other venue' : ''})`,
+    });
+  }
+  return out;
+}
+
 app.post('/api/venue-manager/walkins', requireVenueManager, (req, res, next) => (async () => {
   const { venueId, tableId, start, minutes } = req.body || {};
   const { venue, siteId } = walkinVenue(req, venueId);
+  const player = walkinPlayerRequest(req.body || {});
+  const contact = player.firstName ? { firstName: player.firstName, lastName: player.lastName } : null;
   const mins = Number(minutes);
   if (!WALKIN_LENGTHS.includes(mins)) throw new ApiError(400, 'Length must be 1, 2 or 3 hours.');
   const startAt = parseLondonLocal(start);
@@ -1808,7 +1914,7 @@ app.post('/api/venue-manager/walkins', requireVenueManager, (req, res, next) => 
   try {
     for (const len of parts) {
       const partEnd = new Date(cursor.getTime() + len * 60 * 1000);
-      created.push(await bookWalkinPart(siteId, table, cursor, partEnd));
+      created.push(await bookWalkinPart(siteId, table, cursor, partEnd, contact));
       cursor = partEnd;
     }
   } catch (err) {
@@ -1837,8 +1943,9 @@ app.post('/api/venue-manager/walkins', requireVenueManager, (req, res, next) => 
     action: 'venue.walkinBooking',
     targetType: 'venue',
     targetId: venue.id,
-    details: `Walk-in booked on Wix: ${table.name}, ${londonLocalString(startAt).slice(0, 16).replace('T', ' ')} to ${londonLocalString(endAt).slice(11, 16)} (${created.map((b) => b.id).join(', ')})`,
+    details: `Walk-in booked on Wix: ${table.name}, ${londonLocalString(startAt).slice(0, 16).replace('T', ' ')} to ${londonLocalString(endAt).slice(11, 16)}${contact ? ` for ${[contact.firstName, contact.lastName].filter(Boolean).join(' ')}` : ''} (${created.map((b) => b.id).join(', ')})`,
   });
+  const playerResult = applyWalkinPlayer(db, req, venue, player, by);
   writeDb(db);
   await resyncAfterWalkin(siteId);
   res.json({
@@ -1847,6 +1954,7 @@ app.post('/api/venue-manager/walkins', requireVenueManager, (req, res, next) => 
     start: startAt.toISOString(),
     end: endAt.toISOString(),
     bookingIds: created.map((b) => b.id),
+    player: playerResult,
   });
 })().catch(next));
 

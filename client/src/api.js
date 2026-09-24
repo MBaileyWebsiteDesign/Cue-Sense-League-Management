@@ -149,10 +149,11 @@ const networkApi = {
   // and cancel a walk-in made here. Creates/cancels real bookings on Wix.
   getWalkinTables: (venueId) =>
     request(`/venue-manager/walkin-tables?venueId=${encodeURIComponent(venueId)}`),
-  bookWalkin: (venueId, tableId, start, minutes) =>
+  // player (optional): { firstName, lastName, email, signUp, membership: '' | '1m' | '12m' }
+  bookWalkin: (venueId, tableId, start, minutes, player = {}) =>
     request('/venue-manager/walkins', {
       method: 'POST',
-      body: JSON.stringify({ venueId, tableId, start, minutes }),
+      body: JSON.stringify({ venueId, tableId, start, minutes, ...player }),
     }),
   // Cancels any booking on the venue's Wix site (walk-ins silently; online
   // bookings with Wix's customer cancellation email/SMS).

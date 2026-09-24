@@ -2302,3 +2302,11 @@ button.vm-tile { cursor: pointer; }
 .btn.vm-bk-more { align-self: stretch; min-height: 44px; margin-top: 8px; background: #fff; color: var(--primary); border: 2px solid var(--primary); font-weight: 700; }
 .btn.vm-bk-more:hover:not(:disabled) { background: #f0f7f2; }
 .btn.vm-bk-more:disabled { border-color: var(--border); color: var(--muted); background: #f9fafb; opacity: 1; cursor: default; }
+.vm-wi-player { border: 1px solid #e6d59e; border-radius: 10px; padding: 8px 10px 10px; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.vm-wi-player legend { font-size: 0.8rem; font-weight: 700; color: #4b5563; padding: 0 4px; }
+.vm-wi-player legend span { font-weight: 500; color: var(--muted); }
+.vm-wi-names { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vm-wi-field input { width: 100%; box-sizing: border-box; min-height: 44px; }
+.vm-wi-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.92rem; min-height: 32px; cursor: pointer; }
+.vm-wi-check input { width: 20px; height: 20px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--primary); }
+.vm-wi-help { margin: 0; font-size: 0.8rem; color: #4b5563; }
