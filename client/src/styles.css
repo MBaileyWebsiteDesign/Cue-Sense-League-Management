@@ -2299,3 +2299,5 @@ button.vm-tile { cursor: pointer; }
 .vm-bk-cancel-armed { background: #dc2626; color: #fff; }
 .vm-bk-cancel:disabled { opacity: 0.6; cursor: default; }
 .vm-bk-cancel-hint { grid-column: 1 / -1; font-size: 0.78rem; font-weight: 600; color: #b91c1c; }
+.btn.vm-bk-more { align-self: stretch; min-height: 44px; margin-top: 8px; background: #fff; color: var(--primary); border: 2px solid var(--primary); font-weight: 700; }
+.btn.vm-bk-more:hover:not(:disabled) { background: #f0f7f2; }
