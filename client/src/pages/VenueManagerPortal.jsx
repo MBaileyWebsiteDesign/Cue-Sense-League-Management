@@ -495,6 +495,12 @@ function WalkinForm({ venueId, onDone, onClose }) {
   const [minutes, setMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [signUp, setSignUp] = useState(false);
+  const [membership, setMembership] = useState(''); // '' | '1m' | '12m'
+  const wantsAccount = signUp || !!membership;
 
   useEffect(() => {
     api.getWalkinTables(venueId)
@@ -508,10 +514,25 @@ function WalkinForm({ venueId, onDone, onClose }) {
   const submit = (e) => {
     e.preventDefault();
     if (!tableId) { setError('Choose a table.'); return; }
+    if (wantsAccount && (!firstName.trim() || !lastName.trim() || !email.trim())) {
+      setError('First name, last name and email are needed to sign up or add a membership.');
+      return;
+    }
     setBusy(true);
     setError('');
-    api.bookWalkin(venueId, tableId, start, minutes)
-      .then((r) => onDone(`${r.table} booked ${ukTime(r.start)}–${ukTime(r.end)} as a walk-in. It can't be booked online now.`))
+    const player = { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim(), signUp, membership };
+    api.bookWalkin(venueId, tableId, start, minutes, player)
+      .then((r) => {
+        const who = [player.firstName, player.lastName].filter(Boolean).join(' ');
+        const parts = [`${r.table} booked ${ukTime(r.start)}–${ukTime(r.end)}${who ? ` for ${who}` : ' as a walk-in'}. It can't be booked online now.`];
+        const p = r.player;
+        if (p) {
+          if (p.accountCreated) parts.push(`Account created - a welcome email with a link to set their password has been sent to ${p.email}.`);
+          else if (p.alreadyRegistered) parts.push(`${p.email} already has an account, so no welcome email was sent.`);
+          if (p.membership) parts.push(`${p.membership.months === 12 ? '1 year' : '1 month'} membership set: ${formatDateUK(p.membership.start)} to ${formatDateUK(p.membership.end)}, added to Registered players.`);
+        }
+        onDone(parts.join(' '));
+      })
       .catch((err) => setError(err.message))
       .finally(() => setBusy(false));
   };
@@ -548,6 +569,36 @@ function WalkinForm({ venueId, onDone, onClose }) {
           ))}
         </div>
       </div>
+      <fieldset className="vm-wi-player">
+        <legend>Player details <span>(optional)</span></legend>
+        <div className="vm-wi-names">
+          <label className="vm-wi-field">
+            <span>First name</span>
+            <input className="mm-input" value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="off" maxLength={60} disabled={busy} />
+          </label>
+          <label className="vm-wi-field">
+            <span>Last name</span>
+            <input className="mm-input" value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="off" maxLength={60} disabled={busy} />
+          </label>
+        </div>
+        <label className="vm-wi-field">
+          <span>Email</span>
+          <input className="mm-input" type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" maxLength={200} disabled={busy} />
+        </label>
+        <label className="vm-wi-check">
+          <input type="checkbox" checked={signUp} onChange={(e) => setSignUp(e.target.checked)} disabled={busy} />
+          <span>Sign up - create a player account and email a link to set a password</span>
+        </label>
+        <label className="vm-wi-check">
+          <input type="checkbox" checked={membership === '1m'} onChange={(e) => setMembership(e.target.checked ? '1m' : '')} disabled={busy} />
+          <span>1 month membership (starts today)</span>
+        </label>
+        <label className="vm-wi-check">
+          <input type="checkbox" checked={membership === '12m'} onChange={(e) => setMembership(e.target.checked ? '12m' : '')} disabled={busy} />
+          <span>1 year membership (starts today)</span>
+        </label>
+        {wantsAccount && <p className="vm-wi-help">First name, last name and email are needed. A membership also adds them to this venue's Registered players.</p>}
+      </fieldset>
       {error && <p className="error vm-small">{error}</p>}
       <div className="vm-wi-actions">
         <button type="submit" className="btn btn-primary" disabled={busy || !tables}>
