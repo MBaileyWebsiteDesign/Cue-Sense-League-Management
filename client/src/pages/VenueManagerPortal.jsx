@@ -74,7 +74,9 @@ function PlayerLink({ playerId, children }) {
 // real interactive control under the hood. `tint` sets the card's pale
 // traffic-light background.
 function DueTile({ label, count, active, onClick, caption, tint }) {
-  const clickable = count > 0 && !!onClick;
+  // Every tile with an onClick is clickable, even at 0 (Matt, 2026-09-24) -
+  // the list then says nobody is in that window.
+  const clickable = !!onClick;
   const inner = (
     <>
       <span className="vm-tile-top">
@@ -130,33 +132,46 @@ function PlayerCard({ p, busy, onRenew, showStatus = true }) {
 // selected - same table pattern as PlayerSearchBox's results below, minus
 // the Status column (Registered-players-only players are already filtered
 // to non-suspended by the API, so it'd always read the same thing).
+// `months` is 2, 4 or 6 for a renewal window, or 'all' for the Registered
+// players tile - that one lists everyone at the venue except suspended
+// accounts, matching how the tile's count is worked out on the server.
 function DuePlayersPanel({ venueId, months, onClose }) {
   const [players, setPlayers] = useState(null);
   const [error, setError] = useState('');
+  const isAll = months === 'all';
 
   useEffect(() => {
     let cancelled = false;
     setPlayers(null);
     setError('');
-    api.getVenueManagerDuePlayers(venueId, months)
+    const load = isAll
+      ? api.searchVenuePlayers(venueId, '').then((list) => list.filter((p) => p.status !== 'suspended'))
+      : api.getVenueManagerDuePlayers(venueId, months);
+    load
       .then((p) => { if (!cancelled) setPlayers(p); })
       .catch((e) => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
-  }, [venueId, months]);
+  }, [venueId, months, isAll]);
 
   return (
     <div className="vm-due-panel">
       <div className="sx-card-head">
-        <h3 style={{ margin: 0 }}>Due in {months} months</h3>
+        <h3 style={{ margin: 0 }}>{isAll ? 'Registered players' : `Due in ${months} months`}</h3>
         <button className="btn dv-small-btn" type="button" onClick={onClose}>Close</button>
       </div>
       {error && <p className="error">{error}</p>}
       {!players && !error ? (
         <p>Loading…</p>
       ) : players && (
-        <ul className="vm-players">
-          {players.map((p) => <PlayerCard key={p.id} p={p} showStatus={false} />)}
-        </ul>
+        players.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            {isAll ? 'No players are registered to this venue yet.' : 'No players are due for renewal in this window.'}
+          </p>
+        ) : (
+          <ul className="vm-players">
+            {players.map((p) => <PlayerCard key={p.id} p={p} showStatus={isAll} />)}
+          </ul>
+        )
       )}
     </div>
   );
@@ -182,6 +197,8 @@ function StatusBox({ status, loading, venueId }) {
           <DueTile
             label="Registered players"
             count={status.registeredPlayers}
+            active={openBucket === 'all'}
+            onClick={() => toggleBucket('all')}
             caption="at this venue"
             tint={registeredPlayersTint(status.registeredPlayers)}
           />
@@ -215,7 +232,7 @@ function StatusBox({ status, loading, venueId }) {
         <DuePlayersPanel venueId={venueId} months={openBucket} onClose={() => setOpenBucket(null)} />
       )}
       <p className="muted vm-small" style={{ margin: 0 }}>
-        Each player is counted in one window only. Tap a tile with players to see who's due.
+        Each player is counted in one window only. Tap a tile to see the players.
       </p>
       </div>
     </section>
