@@ -1551,6 +1551,37 @@ const WIX_SERVICES_QUERY_URL = 'https://www.wixapis.com/bookings/v2/services/que
 const WIX_BOOKINGS_WRITE_URL = 'https://www.wixapis.com/_api/bookings-service/v2/bookings';
 const WIX_WALKINS_FILE = path.join(DATA_DIR, 'wix-walkins.json');
 const WALKIN_LENGTHS = [60, 120, 180]; // minutes; 180 = 120 + 60
+// Top Spin opening hours (Matt, 2026-09-24), UK time, as minutes after
+// midnight, indexed by day of week (0 = Sunday). Walk-ins must start at or
+// after opening and finish by closing, so nothing can start at closing time.
+// Mon-Sat 11:00-24:00, Sun 11:00-22:00.
+const WALKIN_OPENING_HOURS = [
+  { open: 11 * 60, close: 22 * 60 }, // Sun
+  { open: 11 * 60, close: 24 * 60 }, // Mon
+  { open: 11 * 60, close: 24 * 60 }, // Tue
+  { open: 11 * 60, close: 24 * 60 }, // Wed
+  { open: 11 * 60, close: 24 * 60 }, // Thu
+  { open: 11 * 60, close: 24 * 60 }, // Fri
+  { open: 11 * 60, close: 24 * 60 }, // Sat
+];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function hhmm(mins) {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+// start = "YYYY-MM-DDTHH:MM" UK wall-clock time; throws if the walk-in would
+// start before opening or run past closing that day.
+function assertWithinOpeningHours(start, mins) {
+  const [datePart, timePart] = String(start).split('T');
+  const [y, mo, d] = datePart.split('-').map(Number);
+  const [h, mi] = timePart.split(':').map(Number);
+  const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  const hours = WALKIN_OPENING_HOURS[dow];
+  const startMin = h * 60 + mi;
+  if (startMin < hours.open || startMin + mins > hours.close) {
+    const close = hhmm(hours.close) === '24:00' ? 'midnight' : hhmm(hours.close);
+    throw new ApiError(400, `On ${DAY_NAMES[dow]}s tables can be booked from ${hhmm(hours.open)} and must finish by ${close}.`);
+  }
+}
 const WALKIN_NOTICE_MS = 15 * 60 * 1000; // a little wider than Wix's 10-minute online notice
 const WALKIN_MAX_AHEAD_MS = 7 * 24 * 60 * 60 * 1000; // Wix's own 7-day booking limit
 const WALKIN_TABLES_CACHE_MS = 10 * 60 * 1000;
@@ -1779,7 +1810,7 @@ app.get('/api/venue-manager/walkin-tables', requireVenueManager, (req, res, next
   } catch (err) {
     throw walkinWixError(err, 'Could not load the tables from Wix');
   }
-  res.json({ tables: tables.map((t) => ({ id: t.id, name: t.name })), lengths: WALKIN_LENGTHS });
+  res.json({ tables: tables.map((t) => ({ id: t.id, name: t.name })), lengths: WALKIN_LENGTHS, openingHours: WALKIN_OPENING_HOURS });
 })().catch(next));
 
 // Walk-in player details (Matt, 2026-09-24): the walk-in form can also take
@@ -1898,6 +1929,7 @@ app.post('/api/venue-manager/walkins', requireVenueManager, (req, res, next) => 
   const now = Date.now();
   if (startAt.getTime() + 30 * 60 * 1000 <= now) throw new ApiError(400, 'That start time has already passed.');
   if (startAt.getTime() > now + WALKIN_MAX_AHEAD_MS) throw new ApiError(400, 'Walk-ins can be booked up to 7 days ahead.');
+  assertWithinOpeningHours(start, mins);
 
   let tables;
   try {

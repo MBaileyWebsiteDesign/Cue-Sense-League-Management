@@ -463,17 +463,40 @@ const PAYMENT_LABEL = {
   EXEMPT: 'No charge',
 };
 
-// Start-time choices for a walk-in: the current half hour ("Now") and the
-// next 6 hours in 30-minute steps, as UK wall-clock "YYYY-MM-DDTHH:MM".
-// UK offsets are whole hours, so flooring to 30 minutes in UTC matches UK.
-function walkinStartOptions() {
-  const first = Math.floor(Date.now() / (30 * 60 * 1000)) * 30 * 60 * 1000;
+// Fallback if the server doesn't send opening hours (minutes after midnight,
+// 0 = Sunday): Mon-Sat 11:00-24:00, Sun 11:00-22:00.
+const DEFAULT_OPENING_HOURS = [
+  { open: 660, close: 1320 },
+  { open: 660, close: 1440 }, { open: 660, close: 1440 }, { open: 660, close: 1440 },
+  { open: 660, close: 1440 }, { open: 660, close: 1440 }, { open: 660, close: 1440 },
+];
+
+// Opening hours for the UK day of a "YYYY-MM-DDTHH:MM" value, plus its start minute.
+function walkinSlotInfo(value, hours) {
+  const [datePart, timePart] = value.split('T');
+  const [y, m, d] = datePart.split('-').map(Number);
+  const [h, mi] = timePart.split(':').map(Number);
+  const day = hours[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] || { open: 0, close: 0 };
+  return { startMin: h * 60 + mi, open: day.open, close: day.close };
+}
+
+// Start-time choices for a walk-in: the next 13 half-hour starts (the current
+// half hour first, as "Now") that fall inside opening hours and leave at
+// least an hour before closing - skipping closed times, so outside opening
+// hours the list begins at the next opening. Values are UK wall-clock
+// "YYYY-MM-DDTHH:MM". UK offsets are whole hours, so flooring to 30 minutes
+// in UTC matches UK.
+function walkinStartOptions(hours = DEFAULT_OPENING_HOURS) {
+  const step = 30 * 60 * 1000;
+  const first = Math.floor(Date.now() / step) * step;
   const todayKey = ukDayKey(new Date().toISOString());
   const opts = [];
-  for (let i = 0; i <= 12; i++) {
-    const d = new Date(first + i * 30 * 60 * 1000);
+  for (let i = 0; i < 7 * 48 && opts.length < 13; i++) {
+    const d = new Date(first + i * step);
     const iso = d.toISOString();
     const value = `${ukDayKey(iso)}T${ukTime(iso)}`;
+    const { startMin, open, close } = walkinSlotInfo(value, hours);
+    if (startMin < open || startMin + 60 > close) continue;
     const dayPrefix = ukDayKey(iso) === todayKey
       ? ''
       : `${new Intl.DateTimeFormat('en-GB', { timeZone: UK_TZ, weekday: 'short' }).format(d)} `;
@@ -490,8 +513,9 @@ function WalkinForm({ venueId, onDone, onClose }) {
   const [tables, setTables] = useState(null);
   const [lengths, setLengths] = useState([60, 120, 180]);
   const [tableId, setTableId] = useState('');
-  const [startOpts] = useState(walkinStartOptions);
-  const [start, setStart] = useState(() => startOpts[0].value);
+  const [openingHours, setOpeningHours] = useState(DEFAULT_OPENING_HOURS);
+  const [startOpts, setStartOpts] = useState(() => walkinStartOptions());
+  const [start, setStart] = useState(() => (startOpts[0] ? startOpts[0].value : ''));
   const [minutes, setMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -501,12 +525,27 @@ function WalkinForm({ venueId, onDone, onClose }) {
   const [signUp, setSignUp] = useState(false);
   const [membership, setMembership] = useState(''); // '' | '1m' | '12m'
   const wantsAccount = signUp || !!membership;
+  // Minutes between the chosen start and closing - lengths that would run
+  // past closing are disabled.
+  const minutesToClose = start ? (() => { const i = walkinSlotInfo(start, openingHours); return i.close - i.startMin; })() : 0;
+  useEffect(() => {
+    if (minutes > minutesToClose) {
+      const fit = lengths.filter((m) => m <= minutesToClose);
+      if (fit.length) setMinutes(fit[fit.length - 1]);
+    }
+  }, [start, minutesToClose]);
 
   useEffect(() => {
     api.getWalkinTables(venueId)
       .then((d) => {
         setTables(d.tables || []);
         if (Array.isArray(d.lengths) && d.lengths.length) setLengths(d.lengths);
+        if (Array.isArray(d.openingHours) && d.openingHours.length === 7) {
+          setOpeningHours(d.openingHours);
+          const opts = walkinStartOptions(d.openingHours);
+          setStartOpts(opts);
+          setStart((cur) => (opts.some((o) => o.value === cur) ? cur : (opts[0] ? opts[0].value : '')));
+        }
       })
       .catch((e) => setError(e.message));
   }, [venueId]);
@@ -514,6 +553,8 @@ function WalkinForm({ venueId, onDone, onClose }) {
   const submit = (e) => {
     e.preventDefault();
     if (!tableId) { setError('Choose a table.'); return; }
+    if (!start) { setError('Choose a start time.'); return; }
+    if (minutes > minutesToClose) { setError('That would run past closing time - choose a shorter length.'); return; }
     if (wantsAccount && (!firstName.trim() || !lastName.trim() || !email.trim())) {
       setError('First name, last name and email are needed to sign up or add a membership.');
       return;
@@ -551,6 +592,7 @@ function WalkinForm({ venueId, onDone, onClose }) {
         <select className="mm-input" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy}>
           {startOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+        <span className="vm-wi-hours">Open Mon–Sat 11:00–midnight, Sun 11:00–22:00. Games must finish by closing.</span>
       </label>
       <div className="vm-wi-field">
         <span>How long</span>
@@ -562,7 +604,8 @@ function WalkinForm({ venueId, onDone, onClose }) {
               className={`vm-wi-len${minutes === m ? ' vm-wi-len-on' : ''}`}
               aria-pressed={minutes === m}
               onClick={() => setMinutes(m)}
-              disabled={busy}
+              disabled={busy || m > minutesToClose}
+              title={m > minutesToClose ? 'Would run past closing time' : undefined}
             >
               {WALKIN_LENGTH_LABEL[m] || `${m} min`}
             </button>

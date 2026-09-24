@@ -2310,3 +2310,5 @@ button.vm-tile { cursor: pointer; }
 .vm-wi-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.92rem; min-height: 32px; cursor: pointer; }
 .vm-wi-check input { width: 20px; height: 20px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--primary); }
 .vm-wi-help { margin: 0; font-size: 0.8rem; color: #4b5563; }
+.vm-wi-field > .vm-wi-hours { font-size: 0.75rem; font-weight: 500; color: var(--muted); }
+.vm-wi-len:disabled { text-decoration: line-through; }
