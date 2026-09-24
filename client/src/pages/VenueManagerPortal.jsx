@@ -433,15 +433,21 @@ function BookingsCard({ venueId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
+  // refresh=true asks the server to pull from Wix now rather than waiting
+  // for the next 09:00/11:00/17:00 update (the server allows one a minute).
+  const load = (refresh) => {
     if (typeof api.getVenueBookings !== 'function') return;
-    setData(null);
     setError('');
     setLoading(true);
-    api.getVenueBookings(venueId)
+    api.getVenueBookings(venueId, refresh)
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    setData(null);
+    load(false);
   }, [venueId]);
 
   // Venues with no Wix site linked don't get the card at all.
@@ -461,6 +467,11 @@ function BookingsCard({ venueId }) {
     <section className="sx-card vm-bookings">
       <div className="sx-card-head">
         <h2>Table bookings</h2>
+        {data && data.configured !== false && (
+          <button type="button" className="btn dv-small-btn" onClick={() => load(true)} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        )}
       </div>
       <p className="muted vm-small">
         From your Wix website · today and upcoming · UK time

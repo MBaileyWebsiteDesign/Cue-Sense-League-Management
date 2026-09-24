@@ -113,7 +113,9 @@ const networkApi = {
   getVenueManagerStatus: (venueId) => request(`/venue-manager/status?venueId=${encodeURIComponent(venueId)}`),
   // Today's and future table bookings from the venue's Wix site (read-only;
   // the server syncs from Wix at 09:00, 11:00 and 17:00 UK time).
-  getVenueBookings: (venueId) => request(`/venue-manager/bookings?venueId=${encodeURIComponent(venueId)}`),
+  // refresh=true asks for an immediate sync (Refresh button; max once a minute).
+  getVenueBookings: (venueId, refresh = false) =>
+    request(`/venue-manager/bookings?venueId=${encodeURIComponent(venueId)}${refresh ? '&refresh=1' : ''}`),
   // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
   getVenueManagerDuePlayers: (venueId, months) =>
     request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
