@@ -779,9 +779,16 @@ function BookingsCard({ venueId }) {
             </div>
           ))
         )}
-        {hiddenDays > 0 && (
-          <button type="button" className="btn vm-bk-more" onClick={() => setDaysShown((n) => n + BOOKING_DAYS_STEP)}>
-            Show more ({Math.min(hiddenDays, BOOKING_DAYS_STEP)} more {Math.min(hiddenDays, BOOKING_DAYS_STEP) === 1 ? 'day' : 'days'})
+        {data && data.configured !== false && !data.error && bookings.length > 0 && (
+          <button
+            type="button"
+            className="btn vm-bk-more"
+            onClick={() => setDaysShown((n) => n + BOOKING_DAYS_STEP)}
+            disabled={hiddenDays === 0}
+          >
+            {hiddenDays > 0
+              ? `Show more (${Math.min(hiddenDays, BOOKING_DAYS_STEP)} more ${Math.min(hiddenDays, BOOKING_DAYS_STEP) === 1 ? 'day' : 'days'})`
+              : 'No more bookings'}
           </button>
         )}
       </div>
