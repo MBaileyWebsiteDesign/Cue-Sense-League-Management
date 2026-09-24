@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
@@ -28,7 +28,7 @@ const FILTERS = ['open', 'closed', 'all'];
 // the same live content directly - one feature-request/bug system, reused
 // rather than duplicated. No breadcrumbs or <h1> here; those are the
 // standalone page's job.
-export function IssuesBugsFeaturesBody() {
+export function IssuesBugsFeaturesBody({ requestsFirst = false, trackerCollapsed = false, openFormToken = 0 } = {}) {
   const { isAdmin } = useAuth();
   const [issues, setIssues] = useState(null);
   const [issuesError, setIssuesError] = useState('');
@@ -42,6 +42,16 @@ export function IssuesBugsFeaturesBody() {
   const [submitError, setSubmitError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [trackerOpen, setTrackerOpen] = useState(!trackerCollapsed);
+  const requestsRef = useRef(null);
+
+  // The Help page's "Request a feature" tile bumps openFormToken - open the
+  // form and bring the requests card into view.
+  useEffect(() => {
+    if (!openFormToken) return;
+    setFormOpen(true);
+    requestsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [openFormToken]);
 
   useEffect(() => {
     // Issue / Bug Tracker is Overall-Admin-only (see the note above the
@@ -94,61 +104,9 @@ export function IssuesBugsFeaturesBody() {
 
   return (
     <div className="sx-stack dv-page">
-      {isAdmin && (
-      <section className="card sx-card">
-        <div className="sx-card-head">
-          <h2>Issue / Bug tracker</h2>
-          <span className="muted sx-small">from GitHub</span>
-        </div>
-
-        {issuesError && <p className="error">{issuesError}</p>}
-
-        <div className="division-tabs" role="tablist">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              role="tab"
-              aria-selected={filter === f}
-              className={`division-tab${filter === f ? ' division-tab-active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}{issues ? ` (${countOf(f)})` : ''}
-            </button>
-          ))}
-        </div>
-
-        {!issues && !issuesError ? (
-          <p className="muted">Loading&hellip;</p>
-        ) : filtered ? (
-          <ul className="sx-issues">
-            {filtered.map((issue) => (
-              <li key={issue.number}>
-                <a href={issue.htmlUrl} target="_blank" rel="noopener noreferrer" className="sx-issue">
-                  <span className="sx-issue-top">
-                    <span className={`sx-state sx-state-${issue.state}`}>{issue.state === 'open' ? 'Open' : 'Closed'}</span>
-                    <span className="muted sx-small">#{issue.number}</span>
-                  </span>
-                  <strong className="sx-issue-title">{issue.title}</strong>
-                  <span className="sx-issue-meta">
-                    {issue.labels.map((l) => (
-                      <span key={l.name} className="sx-label" style={{ background: `#${l.color}` }}>{l.name}</span>
-                    ))}
-                    <span className="muted sx-small">
-                      opened {new Date(issue.createdAt).toLocaleDateString('en-GB')}
-                      {issue.commentCount > 0 ? ` · ${issue.commentCount} comment${issue.commentCount === 1 ? '' : 's'}` : ''}
-                    </span>
-                  </span>
-                </a>
-              </li>
-            ))}
-            {filtered.length === 0 && <li className="muted">No {filter === 'all' ? '' : filter} issues.</li>}
-          </ul>
-        ) : null}
-      </section>
-      )}
-
-      <section className="card sx-card">
+      {requestsFirst ? (
+        <>
+      <section className="card sx-card" ref={requestsRef} id="feature-requests">
         <div className="sx-card-head">
           <h2>Feature requests</h2>
           {requests && <span className="muted">{requests.length}</span>}
@@ -210,6 +168,199 @@ export function IssuesBugsFeaturesBody() {
           </ul>
         )}
       </section>
+      {isAdmin && (
+      <section className="card sx-card">
+        {trackerCollapsed ? (
+          <button type="button" className="au-add-toggle" aria-expanded={trackerOpen} onClick={() => setTrackerOpen((o) => !o)}>
+            <span>Issue tracker{issues ? ` (${countOf('open')} open)` : ''}</span>
+            <span aria-hidden="true">{trackerOpen ? '−' : '+'}</span>
+          </button>
+        ) : (
+          <div className="sx-card-head">
+            <h2>Issue / Bug tracker</h2>
+            <span className="muted sx-small">from GitHub</span>
+          </div>
+        )}
+        {trackerOpen && (
+        <>
+        {issuesError && <p className="error">{issuesError}</p>}
+
+        <div className="division-tabs" role="tablist">
+          {FILTERS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="tab"
+              aria-selected={filter === f}
+              className={`division-tab${filter === f ? ' division-tab-active' : ''}`}
+              onClick={() => setFilter(f)}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}{issues ? ` (${countOf(f)})` : ''}
+            </button>
+          ))}
+        </div>
+
+        {!issues && !issuesError ? (
+          <p className="muted">Loading&hellip;</p>
+        ) : filtered ? (
+          <ul className="sx-issues">
+            {filtered.map((issue) => (
+              <li key={issue.number}>
+                <a href={issue.htmlUrl} target="_blank" rel="noopener noreferrer" className="sx-issue">
+                  <span className="sx-issue-top">
+                    <span className={`sx-state sx-state-${issue.state}`}>{issue.state === 'open' ? 'Open' : 'Closed'}</span>
+                    <span className="muted sx-small">#{issue.number}</span>
+                  </span>
+                  <strong className="sx-issue-title">{issue.title}</strong>
+                  <span className="sx-issue-meta">
+                    {issue.labels.map((l) => (
+                      <span key={l.name} className="sx-label" style={{ background: `#${l.color}` }}>{l.name}</span>
+                    ))}
+                    <span className="muted sx-small">
+                      opened {new Date(issue.createdAt).toLocaleDateString('en-GB')}
+                      {issue.commentCount > 0 ? ` · ${issue.commentCount} comment${issue.commentCount === 1 ? '' : 's'}` : ''}
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+            {filtered.length === 0 && <li className="muted">No {filter === 'all' ? '' : filter} issues.</li>}
+          </ul>
+        ) : null}
+        </>
+        )}
+      </section>
+      )}
+        </>
+      ) : (
+        <>
+      {isAdmin && (
+      <section className="card sx-card">
+        {trackerCollapsed ? (
+          <button type="button" className="au-add-toggle" aria-expanded={trackerOpen} onClick={() => setTrackerOpen((o) => !o)}>
+            <span>Issue tracker{issues ? ` (${countOf('open')} open)` : ''}</span>
+            <span aria-hidden="true">{trackerOpen ? '−' : '+'}</span>
+          </button>
+        ) : (
+          <div className="sx-card-head">
+            <h2>Issue / Bug tracker</h2>
+            <span className="muted sx-small">from GitHub</span>
+          </div>
+        )}
+        {trackerOpen && (
+        <>
+        {issuesError && <p className="error">{issuesError}</p>}
+
+        <div className="division-tabs" role="tablist">
+          {FILTERS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="tab"
+              aria-selected={filter === f}
+              className={`division-tab${filter === f ? ' division-tab-active' : ''}`}
+              onClick={() => setFilter(f)}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}{issues ? ` (${countOf(f)})` : ''}
+            </button>
+          ))}
+        </div>
+
+        {!issues && !issuesError ? (
+          <p className="muted">Loading&hellip;</p>
+        ) : filtered ? (
+          <ul className="sx-issues">
+            {filtered.map((issue) => (
+              <li key={issue.number}>
+                <a href={issue.htmlUrl} target="_blank" rel="noopener noreferrer" className="sx-issue">
+                  <span className="sx-issue-top">
+                    <span className={`sx-state sx-state-${issue.state}`}>{issue.state === 'open' ? 'Open' : 'Closed'}</span>
+                    <span className="muted sx-small">#{issue.number}</span>
+                  </span>
+                  <strong className="sx-issue-title">{issue.title}</strong>
+                  <span className="sx-issue-meta">
+                    {issue.labels.map((l) => (
+                      <span key={l.name} className="sx-label" style={{ background: `#${l.color}` }}>{l.name}</span>
+                    ))}
+                    <span className="muted sx-small">
+                      opened {new Date(issue.createdAt).toLocaleDateString('en-GB')}
+                      {issue.commentCount > 0 ? ` · ${issue.commentCount} comment${issue.commentCount === 1 ? '' : 's'}` : ''}
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+            {filtered.length === 0 && <li className="muted">No {filter === 'all' ? '' : filter} issues.</li>}
+          </ul>
+        ) : null}
+        </>
+        )}
+      </section>
+      )}
+      <section className="card sx-card" ref={requestsRef} id="feature-requests">
+        <div className="sx-card-head">
+          <h2>Feature requests</h2>
+          {requests && <span className="muted">{requests.length}</span>}
+        </div>
+
+        <div className="ah-walkin sx-request">
+          <button type="button" className="ah-walkin-toggle" aria-expanded={formOpen} onClick={() => setFormOpen((o) => !o)}>
+            <span>Request a feature</span>
+            <span aria-hidden="true">{formOpen ? '−' : '+'}</span>
+          </button>
+          {formOpen && (
+            <form className="sx-form" onSubmit={onSubmit}>
+              <label className="ll-field">
+                Title
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
+              </label>
+              <label className="ll-field">
+                <span>Details</span>
+                <textarea className="sx-textarea" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} rows={5} required />
+              </label>
+              {submitError && <p className="error">{submitError}</p>}
+              <button className="btn btn-primary cs-btn-block" type="submit" disabled={submitting}>
+                {submitting ? 'Submitting…' : 'Submit request'}
+              </button>
+            </form>
+          )}
+        </div>
+
+        {requestsError && <p className="error">{requestsError}</p>}
+
+        {!requests ? (
+          <p className="muted">Loading&hellip;</p>
+        ) : requests.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>No requests yet &mdash; be the first.</p>
+        ) : (
+          <ul className="sx-issues">
+            {requests.map((r) => (
+              <li key={r.id} className="sx-request-row">
+                <strong className="sx-issue-title">{r.title}</strong>
+                {r.description && <span className="muted sx-small sx-request-desc">{r.description}</span>}
+                <span className="sx-issue-meta">
+                  <span className="muted sx-small">{r.createdByName} &middot; {new Date(r.createdAt).toLocaleDateString('en-GB')}</span>
+                  {r.githubIssueUrl && (
+                    <a className="sx-small" href={r.githubIssueUrl} target="_blank" rel="noopener noreferrer">GitHub #{r.githubIssueNumber}</a>
+                  )}
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="btn btn-danger dv-small-btn"
+                      onClick={() => { if (window.confirm(`Remove request "${r.title}"?`)) onDelete(r.id); }}
+                      disabled={deletingId === r.id}
+                    >
+                      {deletingId === r.id ? 'Removing…' : 'Remove'}
+                    </button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+        </>
+      )}
     </div>
   );
 }

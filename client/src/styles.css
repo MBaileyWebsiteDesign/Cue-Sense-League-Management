@@ -2133,3 +2133,6 @@ a.dv-roster-name:hover { text-decoration: underline; }
 .sx-caution { border-color: #e6d59e; padding-top: 4px; padding-bottom: 4px; }
 .sx-caution-toggle { color: #7a5a10; }
 .sx-danger-body { display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; }
+
+.sx-tile-btn { font: inherit; text-align: left; cursor: pointer; }
+.sx-card .au-add-toggle { min-height: 44px; }
