@@ -2170,3 +2170,19 @@ button.vm-tile { cursor: pointer; }
 @media (min-width: 900px) {
   .vm-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* Venue Manager - Wix table bookings card */
+.vm-bookings .vm-small { margin: 2px 0 8px; }
+.vm-bk-day { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.vm-bk-day-head { margin: 0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280; }
+.vm-bk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vm-bk { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px; }
+.vm-bk-time { display: flex; flex-direction: column; align-items: flex-start; font-variant-numeric: tabular-nums; min-width: 44px; }
+.vm-bk-time .muted { font-size: 0.8rem; }
+.vm-bk-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.vm-bk-main > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-bk-chips { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.vm-bk-pay { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #f1efe8; color: #4b5563; white-space: nowrap; }
+.vm-bk-paid { background: #d1fae5; color: #065f46; }
+.vm-bk-cancelled { opacity: 0.6; background: #f9fafb; }
+.vm-bk-cancelled .vm-bk-main strong, .vm-bk-cancelled .vm-bk-time strong { text-decoration: line-through; }

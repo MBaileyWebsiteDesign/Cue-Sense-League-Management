@@ -1180,6 +1180,131 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
   })));
 }));
 
+// ---------- Wix table bookings (Venue Manager Portal) ----------
+// Reads the table bookings customers make on a venue's own Wix website
+// (Wix Bookings) so the Venue Manager Portal can list today's and future
+// bookings. Read-only: nothing here creates, changes or cancels a booking.
+// Auth is a Wix API key (Wix dashboard > API Keys, with Wix Bookings read
+// permission) set as the WIX_API_KEY runtime secret; every request also
+// names the target site with the wix-site-id header, per Wix's REST API
+// Authentication article. With no key set the endpoint just reports
+// configured:false and the page says so - nothing breaks.
+// Only Top Spin is linked for now (Matt, 2026-09-24): its venue record
+// matches by name to the "Top Spin Pool And Sports Bar" Wix site. A venue
+// can also carry an explicit wixSiteId, which wins over the name match.
+const WIX_TOPSPIN_SITE_ID = process.env.WIX_TOPSPIN_SITE_ID || '80f3f389-3377-4c7f-882e-05b689a5cde0';
+const WIX_BOOKINGS_QUERY_URL = 'https://www.wixapis.com/bookings/bookings-reader/v2/extended-bookings/query';
+const WIX_BOOKINGS_CACHE_MS = 60 * 1000;
+const wixBookingsCache = new Map(); // siteId -> { at, fromIso, bookings }
+
+function wixSiteIdForVenue(venue) {
+  if (venue && typeof venue.wixSiteId === 'string' && venue.wixSiteId.trim()) return venue.wixSiteId.trim();
+  if (venue && /^\s*top\s*spin\b/i.test(venue.name || '')) return WIX_TOPSPIN_SITE_ID;
+  return null;
+}
+
+// Midnight at the start of today in UK time (Europe/London), as a UTC ISO
+// string - Wix date filters must be UTC. Works across BST/GMT changes.
+function startOfTodayLondonIso(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(now).map((p) => [p.type, p.value]));
+  const asUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second));
+  const offsetMs = asUtc - Math.floor(now.getTime() / 1000) * 1000; // London minus UTC
+  const midnightLocalAsUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+  return new Date(midnightLocalAsUtc - offsetMs).toISOString();
+}
+
+async function fetchWixBookings(siteId, fromIso) {
+  const apiKey = process.env.WIX_API_KEY;
+  const all = [];
+  let cursor = null;
+  for (let page = 0; page < 5; page++) {
+    const query = cursor
+      ? { cursorPaging: { limit: 100, cursor } }
+      : { filter: { startDate: { $gte: fromIso } }, cursorPaging: { limit: 100 } };
+    const resp = await fetch(WIX_BOOKINGS_QUERY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: apiKey, 'wix-site-id': siteId },
+      body: JSON.stringify({ query }),
+    });
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = (await resp.text()).slice(0, 300); } catch { /* ignore */ }
+      const err = new Error(`Wix returned ${resp.status}${detail ? `: ${detail}` : ''}`);
+      err.wixStatus = resp.status;
+      throw err;
+    }
+    const data = await resp.json();
+    const items = Array.isArray(data.extendedBookings) ? data.extendedBookings : [];
+    all.push(...items);
+    const next = data.pagingMetadata && data.pagingMetadata.cursors && data.pagingMetadata.cursors.next;
+    if (!next || items.length === 0) break;
+    cursor = next;
+  }
+  return all.map((e) => {
+    const b = (e && e.booking) || {};
+    const entity = b.bookedEntity || {};
+    const slot = entity.slot || {};
+    const contact = b.contactDetails || {};
+    const title = entity.title || '';
+    return {
+      id: b.id,
+      table: (slot.resource && slot.resource.name) || title.replace(/^book\s+/i, '') || 'Table',
+      start: b.startDate || slot.startDate || null,
+      end: b.endDate || slot.endDate || null,
+      status: b.status || null,
+      paymentStatus: b.paymentStatus || null,
+      customerName: [contact.firstName, contact.lastName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
+      participants: b.totalParticipants || null,
+    };
+  })
+    // Bookings the customer never finished (status CREATED) don't appear in
+    // the Wix booking calendar either, so they're left out here too.
+    .filter((b) => b.start && b.status !== 'CREATED')
+    .sort((x, y) => String(x.start).localeCompare(String(y.start)));
+}
+
+// asyncRoute above only catches synchronous throws, so this async handler
+// forwards its own rejections (e.g. the ApiErrors below) to next().
+app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => (async () => {
+  const { venueId } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const siteId = wixSiteIdForVenue(venue);
+  if (!siteId) return res.json({ linked: false });
+  if (!process.env.WIX_API_KEY) return res.json({ linked: true, configured: false });
+
+  const fromIso = startOfTodayLondonIso();
+  const cached = wixBookingsCache.get(siteId);
+  const fresh = cached && cached.fromIso === fromIso && Date.now() - cached.at < WIX_BOOKINGS_CACHE_MS;
+  if (fresh && req.query.refresh !== '1') {
+    return res.json({ linked: true, configured: true, from: fromIso, fetchedAt: new Date(cached.at).toISOString(), bookings: cached.bookings });
+  }
+  try {
+    const bookings = await fetchWixBookings(siteId, fromIso);
+    const at = Date.now();
+    wixBookingsCache.set(siteId, { at, fromIso, bookings });
+    res.json({ linked: true, configured: true, from: fromIso, fetchedAt: new Date(at).toISOString(), bookings });
+  } catch (err) {
+    console.warn('Wix bookings fetch failed:', err.message);
+    res.json({
+      linked: true,
+      configured: true,
+      error: err.wixStatus === 401 || err.wixStatus === 403
+        ? 'Wix refused the API key - check it has Wix Bookings read permission for this site.'
+        : 'Could not load bookings from Wix right now.',
+      bookings: [],
+    });
+  }
+})().catch(next));
+
 // Quick-renew buttons on the Search players results (client/src/pages/
 // VenueManagerPortal.jsx's PlayerSearchBox) - 1/6/12 months. Extends
 // (doesn't replace) the player's existing membershipRenewalDate by the

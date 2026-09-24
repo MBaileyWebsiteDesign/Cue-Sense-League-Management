@@ -373,6 +373,148 @@ function RegisteredPlayersList({ venueId }) {
   );
 }
 
+// ---------- Table bookings (from the venue's Wix website) ----------
+// Read-only list of today's and future bookings made on the venue's own
+// Wix site (Top Spin only for now - see /api/venue-manager/bookings in
+// server/src/index.js). Grouped by day, times in UK time. Cancelled
+// bookings stay in the list, greyed out with a Cancelled chip.
+const UK_TZ = 'Europe/London';
+
+function ukDayKey(iso) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: UK_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+}
+
+function ukTime(iso) {
+  return iso
+    ? new Intl.DateTimeFormat('en-GB', { timeZone: UK_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso))
+    : '';
+}
+
+function dayHeading(key) {
+  const today = ukDayKey(new Date().toISOString());
+  const tomorrow = ukDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  const [y, m, d] = key.split('-').map(Number);
+  const label = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })
+    .format(new Date(Date.UTC(y, m - 1, d, 12)));
+  if (key === today) return `Today · ${label}`;
+  if (key === tomorrow) return `Tomorrow · ${label}`;
+  return label;
+}
+
+const BOOKING_STATUS = {
+  CONFIRMED: { label: 'Confirmed', cls: 'status-completed' },
+  PENDING: { label: 'Pending', cls: '' },
+  WAITING_LIST: { label: 'Waiting list', cls: '' },
+  CANCELED: { label: 'Cancelled', cls: 'status-disputed' },
+  DECLINED: { label: 'Declined', cls: 'status-disputed' },
+};
+
+const PAYMENT_LABEL = {
+  PAID: 'Paid',
+  NOT_PAID: 'Not paid',
+  PARTIALLY_PAID: 'Part paid',
+  REFUNDED: 'Refunded',
+  EXEMPT: 'No charge',
+};
+
+function BookingsCard({ venueId }) {
+  const { isAdmin } = useAuth();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = (refresh = false) => {
+    if (typeof api.getVenueBookings !== 'function') return;
+    setLoading(true);
+    setError('');
+    api.getVenueBookings(venueId, refresh)
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    setData(null);
+    load(false);
+  }, [venueId]);
+
+  // Venues with no Wix site linked don't get the card at all.
+  if (data && data.linked === false) return null;
+
+  const bookings = (data && data.bookings) || [];
+  const groups = [];
+  for (const b of bookings) {
+    const key = ukDayKey(b.start);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.items.push(b);
+    else groups.push({ key, items: [b] });
+  }
+  const activeCount = bookings.filter((b) => b.status !== 'CANCELED' && b.status !== 'DECLINED').length;
+
+  return (
+    <section className="sx-card vm-bookings">
+      <div className="sx-card-head">
+        <h2>Table bookings</h2>
+        <button type="button" className="btn dv-small-btn" onClick={() => load(true)} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+      <p className="muted vm-small">From your Wix website · today and upcoming · UK time</p>
+
+      {error && <p className="error">{error}</p>}
+
+      {!data ? (
+        !error && <p className="muted">Loading bookings…</p>
+      ) : data.configured === false ? (
+        <p className="muted">
+          {isAdmin
+            ? 'Not connected yet - the WIX_API_KEY secret still needs adding on the server.'
+            : 'Bookings aren’t available yet.'}
+        </p>
+      ) : data.error ? (
+        <p className="error">{data.error}</p>
+      ) : bookings.length === 0 ? (
+        <p className="muted">No bookings today or coming up.</p>
+      ) : (
+        <>
+          <p className="vm-small"><strong>{activeCount}</strong> {activeCount === 1 ? 'booking' : 'bookings'}{activeCount !== bookings.length ? ` (+${bookings.length - activeCount} cancelled)` : ''}</p>
+          {groups.map((g) => (
+            <div key={g.key} className="vm-bk-day">
+              <h3 className="vm-bk-day-head">{dayHeading(g.key)}</h3>
+              <ul className="vm-bk-list">
+                {g.items.map((b) => {
+                  const st = BOOKING_STATUS[b.status] || { label: b.status || 'Unknown', cls: '' };
+                  const cancelled = b.status === 'CANCELED' || b.status === 'DECLINED';
+                  return (
+                    <li key={b.id} className={`vm-bk${cancelled ? ' vm-bk-cancelled' : ''}`}>
+                      <span className="vm-bk-time">
+                        <strong>{ukTime(b.start)}</strong>
+                        {b.end && <span className="muted">{ukTime(b.end)}</span>}
+                      </span>
+                      <span className="vm-bk-main">
+                        <strong>{b.table}</strong>
+                        <span className="muted">{b.customerName || 'No name given'}</span>
+                      </span>
+                      <span className="vm-bk-chips">
+                        <span className={`status ${st.cls}`}>{st.label}</span>
+                        {!cancelled && b.paymentStatus && (
+                          <span className={`vm-bk-pay${b.paymentStatus === 'PAID' ? ' vm-bk-paid' : ''}`}>
+                            {PAYMENT_LABEL[b.paymentStatus] || b.paymentStatus}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function VenueManagerPortal() {
   const { user, isAdmin } = useAuth();
   const [venues, setVenues] = useState(null);
@@ -443,6 +585,7 @@ export default function VenueManagerPortal() {
             </div>
           )}
           <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
+          {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
           {selectedVenueId && <PlayerSearchBox venueId={selectedVenueId} />}
           {selectedVenueId && <RegisteredPlayersList venueId={selectedVenueId} />}
         </>
