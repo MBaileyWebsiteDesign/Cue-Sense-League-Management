@@ -582,8 +582,10 @@ function BookingsCard({ venueId }) {
     setCancelling(b.id);
     setError('');
     api.cancelWalkin(venueId, b.id)
-      .then(() => {
-        setNotice(`Walk-in on ${b.table} at ${ukTime(b.start)} cancelled - the table is free to book online again.`);
+      .then((r) => {
+        setNotice(b.walkIn
+          ? `Walk-in on ${b.table} at ${ukTime(b.start)} cancelled - the table is free to book online again.`
+          : `${b.customerName || 'Booking'} on ${b.table} at ${ukTime(b.start)} cancelled${r && r.notified ? ' - Wix will let the customer know' : ''}. The table is free to book online again.`);
         return api.getVenueBookings(venueId).then(setData);
       })
       .catch((e) => setError(e.message))
@@ -742,12 +744,13 @@ function BookingsCard({ venueId }) {
                       <span className="vm-bk-chips">
                         <span className={`status ${st.cls}`}>{st.label}</span>
                         {b.walkIn && <span className="vm-bk-walkin">Walk-in</span>}
-                        {b.walkIn && !cancelled && (
+                        {data.walkIns && !cancelled && (
                           <button
                             type="button"
                             className={`vm-bk-cancel${armedCancel === b.id ? ' vm-bk-cancel-armed' : ''}`}
                             onClick={() => cancelWalkin(b)}
                             disabled={cancelling === b.id}
+                            aria-label={armedCancel === b.id ? `Confirm cancelling ${b.table} at ${ukTime(b.start)}` : `Cancel ${b.table} at ${ukTime(b.start)}`}
                           >
                             {cancelling === b.id ? 'Cancelling…' : armedCancel === b.id ? 'Tap to confirm' : 'Cancel'}
                           </button>
@@ -758,6 +761,9 @@ function BookingsCard({ venueId }) {
                           </span>
                         )}
                       </span>
+                      {armedCancel === b.id && !b.walkIn && (
+                        <span className="vm-bk-cancel-hint">Wix will email/text {b.customerName || 'the customer'} to say it's cancelled.</span>
+                      )}
                     </li>
                   );
                 })}

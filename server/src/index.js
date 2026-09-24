@@ -1721,15 +1721,21 @@ async function bookWalkinPart(siteId, table, start, end) {
   }
 }
 
-async function cancelWixBooking(siteId, bookingId) {
+async function getWixBooking(siteId, bookingId) {
   const data = await wixPost(siteId, WIX_BOOKINGS_QUERY_URL, { query: { filter: { id: bookingId } } });
-  const b = ((data.extendedBookings || [])[0] || {}).booking;
+  return ((data.extendedBookings || [])[0] || {}).booking || null;
+}
+
+// notify=true lets Wix send the customer its standard cancellation
+// email/SMS (used for bookings customers made online); walk-ins stay silent.
+async function cancelWixBooking(siteId, bookingId, notify = false, existing = null) {
+  const b = existing || await getWixBooking(siteId, bookingId);
   if (!b) throw new ApiError(404, 'That booking was not found on Wix.');
   if (b.status === 'CANCELED') return b;
   const out = await wixPost(siteId, `${WIX_BOOKINGS_WRITE_URL}/${encodeURIComponent(bookingId)}/cancel`, {
     bookingId,
     revision: b.revision,
-    participantNotification: { notifyParticipants: false },
+    participantNotification: { notifyParticipants: !!notify },
     flowControlSettings: { ignoreCancellationPolicy: true },
   });
   return out.booking || b;
@@ -1844,32 +1850,62 @@ app.post('/api/venue-manager/walkins', requireVenueManager, (req, res, next) => 
   });
 })().catch(next));
 
-app.post('/api/venue-manager/walkins/:id/cancel', requireVenueManager, (req, res, next) => (async () => {
-  const { venue, siteId } = walkinVenue(req, (req.body || {}).venueId);
-  const bookingId = String(req.params.id || '');
-  const store = loadWalkins();
-  const rec = store[bookingId];
-  if (!rec || rec.siteId !== siteId) throw new ApiError(404, 'Only walk-ins booked from this page can be cancelled here.');
-  try {
-    await cancelWixBooking(siteId, bookingId);
-  } catch (err) {
-    throw walkinWixError(err, 'Wix would not cancel the walk-in');
-  }
-  rec.cancelledAt = new Date().toISOString();
-  saveWalkins();
-  const db = readDb();
-  const by = (req.adminSession && req.adminSession.label) || null;
-  recordAudit(db, {
-    actor: by,
-    action: 'venue.walkinCancel',
-    targetType: 'venue',
-    targetId: venue.id,
-    details: `Walk-in cancelled on Wix: ${rec.table || 'table'} (${bookingId})`,
-  });
-  writeDb(db);
-  await resyncAfterWalkin(siteId);
-  res.json({ ok: true });
-})().catch(next));
+// Cancel any booking on the venue's Wix site from the Table bookings card
+// (Matt, 2026-09-24): walk-ins made here are cancelled silently; bookings
+// customers made online are cancelled with Wix's standard customer
+// cancellation email/SMS. Top Spin's tables are pay-in-person only, so there
+// is no online payment to refund. The booking is looked up on the venue's
+// own Wix site (wix-site-id header), so a manager can only cancel bookings
+// for their own venue.
+function cancelVenueBookingHandler(req, res, next) {
+  return (async () => {
+    const { venue, siteId } = walkinVenue(req, (req.body || {}).venueId);
+    const bookingId = String(req.params.id || '');
+    const store = loadWalkins();
+    const rec = store[bookingId] && store[bookingId].siteId === siteId ? store[bookingId] : null;
+    let booking;
+    try {
+      booking = await getWixBooking(siteId, bookingId);
+    } catch (err) {
+      throw walkinWixError(err, 'Could not look up the booking on Wix');
+    }
+    if (!booking) throw new ApiError(404, 'That booking was not found on Wix.');
+    if (booking.status === 'DECLINED') throw new ApiError(400, 'That booking was already declined.');
+    const slot = (booking.bookedEntity && booking.bookedEntity.slot) || {};
+    const table = (slot.resource && slot.resource.name) || rec?.table || 'table';
+    const contact = booking.contactDetails || {};
+    const who = [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'customer';
+    const notify = !rec;
+    if (booking.status !== 'CANCELED') {
+      try {
+        await cancelWixBooking(siteId, bookingId, notify, booking);
+      } catch (err) {
+        throw walkinWixError(err, 'Wix would not cancel the booking');
+      }
+    }
+    if (rec) {
+      rec.cancelledAt = new Date().toISOString();
+      saveWalkins();
+    }
+    const db = readDb();
+    const by = (req.adminSession && req.adminSession.label) || null;
+    recordAudit(db, {
+      actor: by,
+      action: rec ? 'venue.walkinCancel' : 'venue.bookingCancel',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: rec
+        ? `Walk-in cancelled on Wix: ${table} (${bookingId})`
+        : `Online booking cancelled on Wix: ${table}, ${who}, ${booking.startDate || ''} - customer notified by Wix (${bookingId})`,
+    });
+    writeDb(db);
+    await resyncAfterWalkin(siteId);
+    res.json({ ok: true, notified: notify });
+  })().catch(next);
+}
+app.post('/api/venue-manager/bookings/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
+// Older clients (cached by the service worker) still call this path.
+app.post('/api/venue-manager/walkins/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
 
 // Quick-renew buttons on the Search players results (client/src/pages/
 // VenueManagerPortal.jsx's PlayerSearchBox) - 1/6/12 months. Extends
