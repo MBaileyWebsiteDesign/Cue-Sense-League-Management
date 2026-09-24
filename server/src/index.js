@@ -1200,11 +1200,13 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
 // miss a slot while the machine sleeps; the page request also "catches up"
 // - if the most recent 09/11/17 slot is newer than the saved sync, it syncs
 // once before answering. Either way the list always reflects the latest
-// slot that has passed.
+// slot that has passed. The page's Refresh button (Matt, 2026-09-24) can
+// also ask for an immediate sync, limited to once a minute per site.
 const WIX_TOPSPIN_SITE_ID = process.env.WIX_TOPSPIN_SITE_ID || '80f3f389-3377-4c7f-882e-05b689a5cde0';
 const WIX_BOOKINGS_QUERY_URL = 'https://www.wixapis.com/bookings/bookings-reader/v2/extended-bookings/query';
 const WIX_SYNC_HOURS = [9, 11, 17]; // UK time
 const WIX_SYNC_RETRY_MS = 5 * 60 * 1000; // after a failed sync, wait before trying again
+const WIX_REFRESH_MIN_MS = 60 * 1000; // Refresh button: at most one Wix call a minute per site
 const WIX_BOOKINGS_FILE = path.join(DATA_DIR, 'wix-bookings.json');
 
 function wixSiteIdForVenue(venue) {
@@ -1330,13 +1332,21 @@ function saveWixSnapshots() {
 // Syncs one site if its saved list is older than the latest scheduled slot.
 // Never throws; a failure keeps the previous list and is retried after
 // WIX_SYNC_RETRY_MS (on the next timer tick or page view).
-async function syncWixSiteIfDue(siteId, now = new Date()) {
+// `force` (the page's Refresh button) skips the schedule check but is still
+// limited to one Wix call per WIX_REFRESH_MIN_MS per site, so repeated
+// taps can't hammer Wix.
+async function syncWixSiteIfDue(siteId, now = new Date(), force = false) {
   if (!process.env.WIX_API_KEY) return;
   const snaps = loadWixSnapshots();
   const snap = snaps[siteId];
   const { latest } = wixSyncSlots(now);
-  if (snap && snap.slotAt && new Date(snap.slotAt) >= latest) return;
-  if (snap && snap.lastAttemptAt && now - new Date(snap.lastAttemptAt) < WIX_SYNC_RETRY_MS) return;
+  const sinceAttempt = snap && snap.lastAttemptAt ? now - new Date(snap.lastAttemptAt) : Infinity;
+  if (force) {
+    if (sinceAttempt < WIX_REFRESH_MIN_MS) return;
+  } else {
+    if (snap && snap.slotAt && new Date(snap.slotAt) >= latest) return;
+    if (sinceAttempt < WIX_SYNC_RETRY_MS) return;
+  }
   if (wixSyncInFlight.has(siteId)) return wixSyncInFlight.get(siteId);
   const job = (async () => {
     const attemptAt = new Date();
@@ -1385,7 +1395,7 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
   if (!siteId) return res.json({ linked: false });
   if (!process.env.WIX_API_KEY) return res.json({ linked: true, configured: false });
 
-  await syncWixSiteIfDue(siteId);
+  await syncWixSiteIfDue(siteId, new Date(), req.query.refresh === '1');
   const snap = loadWixSnapshots()[siteId] || { bookings: [] };
   // Only today (UK) and later - a list saved yesterday evening still holds
   // yesterday's bookings until the 09:00 sync.
