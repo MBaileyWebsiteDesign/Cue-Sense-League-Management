@@ -465,53 +465,60 @@ function BookingsCard({ venueId }) {
 
   return (
     <section className="sx-card vm-bookings">
-      <div className="sx-card-head">
-        <h2>Table bookings</h2>
+      <div className="vm-bk-band">
+        <span className="vm-bk-band-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+          <h2>Table bookings</h2>
+          {data && data.configured !== false && !data.error && (
+            <span className="vm-bk-count" aria-label={`${activeCount} bookings`}>{activeCount}</span>
+          )}
+        </span>
         {data && data.configured !== false && (
-          <button type="button" className="btn dv-small-btn" onClick={() => load(true)} disabled={loading}>
+          <button type="button" className="btn vm-bk-refresh" onClick={() => load(true)} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         )}
+        {data && data.syncedAt && (
+          <span className="vm-bk-sync">
+            Updated {syncLabel(data.syncedAt)}{data.nextSyncAt && ` · next ${syncLabel(data.nextSyncAt)}`}
+          </span>
+        )}
       </div>
-      <p className="muted vm-small">
-        From your Wix website · today and upcoming · UK time
-        {data && data.syncedAt && <><br />Updated {syncLabel(data.syncedAt)}{data.nextSyncAt && ` · next update ${syncLabel(data.nextSyncAt)}`}</>}
-      </p>
-      {data && data.warning && <p className="error vm-small">{data.warning} Showing the last list that loaded.</p>}
 
-      {error && <p className="error">{error}</p>}
+      <div className="vm-bk-body">
+        {data && data.warning && <p className="error vm-small">{data.warning} Showing the last list that loaded.</p>}
+        {error && <p className="error">{error}</p>}
 
-      {!data ? (
-        !error && loading && <p className="muted">Loading bookings…</p>
-      ) : data.configured === false ? (
-        <p className="muted">
-          {isAdmin
-            ? 'Not connected yet - the WIX_API_KEY secret still needs adding on the server.'
-            : 'Bookings aren’t available yet.'}
-        </p>
-      ) : data.error ? (
-        <p className="error">{data.error}</p>
-      ) : bookings.length === 0 ? (
-        <p className="muted">No bookings today or coming up.</p>
-      ) : (
-        <>
-          <p className="vm-small"><strong>{activeCount}</strong> {activeCount === 1 ? 'booking' : 'bookings'}{activeCount !== bookings.length ? ` (+${bookings.length - activeCount} cancelled)` : ''}</p>
-          {groups.map((g) => (
+        {!data ? (
+          !error && loading && <p className="muted">Loading bookings…</p>
+        ) : data.configured === false ? (
+          <p className="muted">
+            {isAdmin
+              ? 'Not connected yet - the WIX_API_KEY secret still needs adding on the server.'
+              : 'Bookings aren’t available yet.'}
+          </p>
+        ) : data.error ? (
+          <p className="error">{data.error}</p>
+        ) : bookings.length === 0 ? (
+          <p className="vm-bk-empty">No bookings today or coming up.</p>
+        ) : (
+          groups.map((g) => (
             <div key={g.key} className="vm-bk-day">
               <h3 className="vm-bk-day-head">{dayHeading(g.key)}</h3>
               <ul className="vm-bk-list">
                 {g.items.map((b) => {
                   const st = BOOKING_STATUS[b.status] || { label: b.status || 'Unknown', cls: '' };
                   const cancelled = b.status === 'CANCELED' || b.status === 'DECLINED';
+                  const tone = cancelled ? 'cancelled' : b.status === 'CONFIRMED' ? 'confirmed' : 'pending';
                   return (
-                    <li key={b.id} className={`vm-bk${cancelled ? ' vm-bk-cancelled' : ''}`}>
+                    <li key={b.id} className={`vm-bk vm-bk-${tone}`}>
                       <span className="vm-bk-time">
                         <strong>{ukTime(b.start)}</strong>
-                        {b.end && <span className="muted">{ukTime(b.end)}</span>}
+                        {b.end && <span>{ukTime(b.end)}</span>}
                       </span>
                       <span className="vm-bk-main">
                         <strong>{b.table}</strong>
-                        <span className="muted">{b.customerName || 'No name given'}</span>
+                        <span>{b.customerName || 'No name given'}</span>
                       </span>
                       <span className="vm-bk-chips">
                         <span className={`status ${st.cls}`}>{st.label}</span>
@@ -526,9 +533,9 @@ function BookingsCard({ venueId }) {
                 })}
               </ul>
             </div>
-          ))}
-        </>
-      )}
+          ))
+        )}
+      </div>
     </section>
   );
 }
@@ -602,8 +609,8 @@ export default function VenueManagerPortal() {
               </label>
             </div>
           )}
-          <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
           {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
+          <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
           {selectedVenueId && <PlayerSearchBox venueId={selectedVenueId} />}
           {selectedVenueId && <RegisteredPlayersList venueId={selectedVenueId} />}
         </>
