@@ -463,11 +463,132 @@ const PAYMENT_LABEL = {
   EXEMPT: 'No charge',
 };
 
+// Start-time choices for a walk-in: the current half hour ("Now") and the
+// next 6 hours in 30-minute steps, as UK wall-clock "YYYY-MM-DDTHH:MM".
+// UK offsets are whole hours, so flooring to 30 minutes in UTC matches UK.
+function walkinStartOptions() {
+  const first = Math.floor(Date.now() / (30 * 60 * 1000)) * 30 * 60 * 1000;
+  const todayKey = ukDayKey(new Date().toISOString());
+  const opts = [];
+  for (let i = 0; i <= 12; i++) {
+    const d = new Date(first + i * 30 * 60 * 1000);
+    const iso = d.toISOString();
+    const value = `${ukDayKey(iso)}T${ukTime(iso)}`;
+    const dayPrefix = ukDayKey(iso) === todayKey
+      ? ''
+      : `${new Intl.DateTimeFormat('en-GB', { timeZone: UK_TZ, weekday: 'short' }).format(d)} `;
+    opts.push({ value, label: i === 0 ? `Now (${ukTime(iso)})` : `${dayPrefix}${ukTime(iso)}` });
+  }
+  return opts;
+}
+
+const WALKIN_LENGTH_LABEL = { 60: '1 hr', 120: '2 hrs', 180: '3 hrs' };
+
+// "Book walk-in" form: books a table on the venue's Wix site straight away
+// (a confirmed booking named "Walk-in"), so it can't be booked online.
+function WalkinForm({ venueId, onDone, onClose }) {
+  const [tables, setTables] = useState(null);
+  const [lengths, setLengths] = useState([60, 120, 180]);
+  const [tableId, setTableId] = useState('');
+  const [startOpts] = useState(walkinStartOptions);
+  const [start, setStart] = useState(() => startOpts[0].value);
+  const [minutes, setMinutes] = useState(60);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getWalkinTables(venueId)
+      .then((d) => {
+        setTables(d.tables || []);
+        if (Array.isArray(d.lengths) && d.lengths.length) setLengths(d.lengths);
+      })
+      .catch((e) => setError(e.message));
+  }, [venueId]);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!tableId) { setError('Choose a table.'); return; }
+    setBusy(true);
+    setError('');
+    api.bookWalkin(venueId, tableId, start, minutes)
+      .then((r) => onDone(`${r.table} booked ${ukTime(r.start)}–${ukTime(r.end)} as a walk-in. It can't be booked online now.`))
+      .catch((err) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <form className="vm-wi" onSubmit={submit}>
+      <label className="vm-wi-field">
+        <span>Table</span>
+        <select className="mm-input" value={tableId} onChange={(e) => setTableId(e.target.value)} disabled={!tables || busy}>
+          <option value="">{tables ? 'Choose a table' : 'Loading tables…'}</option>
+          {(tables || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </label>
+      <label className="vm-wi-field">
+        <span>Start</span>
+        <select className="mm-input" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy}>
+          {startOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </label>
+      <div className="vm-wi-field">
+        <span>How long</span>
+        <div className="vm-wi-lengths" role="group" aria-label="How long">
+          {lengths.map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`vm-wi-len${minutes === m ? ' vm-wi-len-on' : ''}`}
+              aria-pressed={minutes === m}
+              onClick={() => setMinutes(m)}
+              disabled={busy}
+            >
+              {WALKIN_LENGTH_LABEL[m] || `${m} min`}
+            </button>
+          ))}
+        </div>
+      </div>
+      {error && <p className="error vm-small">{error}</p>}
+      <div className="vm-wi-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || !tables}>
+          {busy ? 'Booking…' : 'Book table'}
+        </button>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Close</button>
+      </div>
+    </form>
+  );
+}
+
 function BookingsCard({ venueId }) {
   const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [walkinOpen, setWalkinOpen] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
+  const [cancelling, setCancelling] = useState(null);
+
+  // Two taps to cancel a walk-in: the first arms the button for 5 seconds.
+  useEffect(() => {
+    if (!armedCancel) return undefined;
+    const t = setTimeout(() => setArmedCancel(null), 5000);
+    return () => clearTimeout(t);
+  }, [armedCancel]);
+
+  const cancelWalkin = (b) => {
+    if (armedCancel !== b.id) { setArmedCancel(b.id); return; }
+    setArmedCancel(null);
+    setCancelling(b.id);
+    setError('');
+    api.cancelWalkin(venueId, b.id)
+      .then(() => {
+        setNotice(`Walk-in on ${b.table} at ${ukTime(b.start)} cancelled - the table is free to book online again.`);
+        return api.getVenueBookings(venueId).then(setData);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setCancelling(null));
+  };
 
   // refresh=true asks the server to pull from Wix now rather than waiting
   // for the next 09:00/11:00/17:00 update (the server allows one a minute).
@@ -568,6 +689,24 @@ function BookingsCard({ venueId }) {
       <div className="vm-bk-body">
         {data && data.warning && <p className="error vm-small">{data.warning} Showing the last list that loaded.</p>}
         {error && <p className="error">{error}</p>}
+        {notice && <p className="vm-wi-notice" role="status">{notice}</p>}
+        {data && data.walkIns && data.configured !== false && !data.error && (
+          walkinOpen ? (
+            <WalkinForm
+              venueId={venueId}
+              onClose={() => setWalkinOpen(false)}
+              onDone={(msg) => {
+                setWalkinOpen(false);
+                setNotice(msg);
+                api.getVenueBookings(venueId).then(setData).catch(() => {});
+              }}
+            />
+          ) : (
+            <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setWalkinOpen(true); }}>
+              + Book walk-in
+            </button>
+          )
+        )}
 
         {!data ? (
           !error && loading && <p className="muted">Loading bookings…</p>
@@ -602,7 +741,18 @@ function BookingsCard({ venueId }) {
                       </span>
                       <span className="vm-bk-chips">
                         <span className={`status ${st.cls}`}>{st.label}</span>
-                        {!cancelled && b.paymentStatus && (
+                        {b.walkIn && <span className="vm-bk-walkin">Walk-in</span>}
+                        {b.walkIn && !cancelled && (
+                          <button
+                            type="button"
+                            className={`vm-bk-cancel${armedCancel === b.id ? ' vm-bk-cancel-armed' : ''}`}
+                            onClick={() => cancelWalkin(b)}
+                            disabled={cancelling === b.id}
+                          >
+                            {cancelling === b.id ? 'Cancelling…' : armedCancel === b.id ? 'Tap to confirm' : 'Cancel'}
+                          </button>
+                        )}
+                        {!cancelled && !b.walkIn && b.paymentStatus && (
                           <span className={`vm-bk-pay${b.paymentStatus === 'PAID' ? ' vm-bk-paid' : ''}`}>
                             {PAYMENT_LABEL[b.paymentStatus] || b.paymentStatus}
                           </span>

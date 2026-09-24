@@ -1512,9 +1512,13 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
   // Only today (UK) and later - a list saved yesterday evening still holds
   // yesterday's bookings until the 09:00 sync.
   const fromIso = startOfTodayLondonIso();
-  const bookings = (snap.bookings || []).filter((b) => b.start && new Date(b.start) >= new Date(fromIso));
+  const walkins = loadWalkins();
+  const bookings = (snap.bookings || [])
+    .filter((b) => b.start && new Date(b.start) >= new Date(fromIso))
+    .map((b) => (walkins[b.id] ? { ...b, walkIn: true } : b));
   res.json({
     linked: true,
+    walkIns: true,
     configured: true,
     syncedAt: snap.syncedAt || null,
     nextSyncAt: wixSyncSlots().next.toISOString(),
@@ -1523,6 +1527,348 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
     warning: snap.syncedAt && snap.lastError ? snap.lastError : null,
     bookings,
   });
+})().catch(next));
+
+// ---------- Walk-in table bookings (Matt, 2026-09-24) ----------
+// "Book walk-in" on the Venue Manager Table bookings card creates a real,
+// confirmed booking on the venue's Wix site (name "Walk-in", no customer
+// messages) so the table drops out of online booking and can't be double
+// booked. What Wix accepts was checked with live test bookings on
+// 2026-09-24 (all cancelled straight after):
+// - every table is its own APPOINTMENT service with one resource;
+// - only 60- or 120-minute bookings starting on :00 or :30 are accepted, so
+//   a 3-hour walk-in is booked as 2h + 1h back to back;
+// - the slot's location must carry the business location id, otherwise Wix
+//   answers SLOT_NOT_AVAILABLE;
+// - Wix's own availability check refuses slots that have already started or
+//   start inside the 10-minute online notice window. Only for those, the
+//   server checks the table itself against a fresh read of the Wix bookings
+//   and then books with Wix's check skipped (online customers can't book
+//   those slots anyway). Later slots always go through Wix's own check.
+// Walk-ins made here are remembered in DATA_DIR/wix-walkins.json so only
+// they get a Cancel button on the card.
+const WIX_SERVICES_QUERY_URL = 'https://www.wixapis.com/bookings/v2/services/query';
+const WIX_BOOKINGS_WRITE_URL = 'https://www.wixapis.com/_api/bookings-service/v2/bookings';
+const WIX_WALKINS_FILE = path.join(DATA_DIR, 'wix-walkins.json');
+const WALKIN_LENGTHS = [60, 120, 180]; // minutes; 180 = 120 + 60
+const WALKIN_NOTICE_MS = 15 * 60 * 1000; // a little wider than Wix's 10-minute online notice
+const WALKIN_MAX_AHEAD_MS = 7 * 24 * 60 * 60 * 1000; // Wix's own 7-day booking limit
+const WALKIN_TABLES_CACHE_MS = 10 * 60 * 1000;
+const walkinTablesCache = new Map(); // siteId -> { at, tables }
+
+async function wixPost(siteId, url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: process.env.WIX_API_KEY, 'wix-site-id': siteId },
+    body: JSON.stringify(body),
+  });
+  const text = await resp.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
+  if (!resp.ok) {
+    const appErr = data && data.details && data.details.applicationError;
+    const err = new Error(`Wix returned ${resp.status}: ${(data && data.message) || text.slice(0, 200)}`);
+    err.wixStatus = resp.status;
+    err.wixCode = (appErr && appErr.code) || null;
+    throw err;
+  }
+  return data;
+}
+
+// The venue's bookable tables = its Wix appointment services with exactly
+// one resource (the table). Cached for 10 minutes.
+async function getWalkinTables(siteId) {
+  const hit = walkinTablesCache.get(siteId);
+  if (hit && Date.now() - hit.at < WALKIN_TABLES_CACHE_MS) return hit.tables;
+  const data = await wixPost(siteId, WIX_SERVICES_QUERY_URL, { query: { paging: { limit: 100 } } });
+  const tables = (data.services || [])
+    .filter((s) => s && s.type === 'APPOINTMENT' && !s.hidden && s.schedule && s.schedule.id
+      && Array.isArray(s.staffMemberIds) && s.staffMemberIds.length === 1)
+    .map((s) => {
+      const loc = (s.locations || []).find((l) => l && l.type === 'BUSINESS');
+      return {
+        id: s.id,
+        name: String(s.name || '').replace(/^book\s+/i, '').trim() || s.name,
+        scheduleId: s.schedule.id,
+        resourceId: s.staffMemberIds[0],
+        locationId: loc ? (loc.id || (loc.business && loc.business.id) || null) : null,
+        sortOrder: Number(s.sortOrder) || 0,
+      };
+    })
+    .filter((t) => t.locationId)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  walkinTablesCache.set(siteId, { at: Date.now(), tables });
+  return tables;
+}
+
+let walkinStore = null; // bookingId -> { siteId, venueId, table, start, end, createdAt, by, cancelledAt? }
+function loadWalkins() {
+  if (walkinStore) return walkinStore;
+  walkinStore = {};
+  try {
+    if (existsSync(WIX_WALKINS_FILE)) walkinStore = JSON.parse(readFileSync(WIX_WALKINS_FILE, 'utf8')) || {};
+  } catch (err) {
+    console.warn('Could not read saved walk-ins:', err.message);
+    walkinStore = {};
+  }
+  return walkinStore;
+}
+function saveWalkins() {
+  const store = loadWalkins();
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000; // forget walk-ins that ended over 30 days ago
+  for (const [id, w] of Object.entries(store)) {
+    if (new Date(w.end || w.createdAt).getTime() < cutoff) delete store[id];
+  }
+  try {
+    writeFileSync(WIX_WALKINS_FILE, JSON.stringify(store));
+  } catch (err) {
+    console.warn('Could not save walk-ins:', err.message);
+  }
+}
+
+// "YYYY-MM-DDTHH:MM:00" in UK time, as Wix's slot dates expect.
+function londonLocalString(date) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:00`;
+}
+
+// "YYYY-MM-DDTHH:MM" in UK time -> Date (null if malformed or impossible).
+function parseLondonLocal(str) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(String(str || ''));
+  if (!m) return null;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  const dt = new Date(londonWallTimeToUtc(y, mo, d, h).getTime() + mi * 60 * 1000);
+  return londonLocalString(dt).slice(0, 16) === str ? dt : null;
+}
+
+// Every Wix booking whose start falls in [from, to).
+async function wixBookingsStartingBetween(siteId, from, to) {
+  const all = [];
+  let cursor = null;
+  for (let page = 0; page < 5; page++) {
+    const query = cursor
+      ? { cursorPaging: { limit: 100, cursor } }
+      : {
+        filter: { $and: [{ startDate: { $gte: from.toISOString() } }, { startDate: { $lt: to.toISOString() } }] },
+        cursorPaging: { limit: 100 },
+      };
+    const data = await wixPost(siteId, WIX_BOOKINGS_QUERY_URL, { query });
+    const items = Array.isArray(data.extendedBookings) ? data.extendedBookings : [];
+    all.push(...items.map((e) => (e && e.booking) || {}));
+    const next = data.pagingMetadata && data.pagingMetadata.cursors && data.pagingMetadata.cursors.next;
+    if (!next || items.length === 0) break;
+    cursor = next;
+  }
+  return all;
+}
+
+// True if no live booking on this table overlaps [start, end).
+async function walkinTableIsFree(siteId, table, start, end) {
+  const list = await wixBookingsStartingBetween(siteId, new Date(start.getTime() - 4 * 60 * 60 * 1000), end);
+  return !list.some((b) => {
+    if (['CANCELED', 'DECLINED', 'CREATED'].includes(b.status)) return false;
+    const slot = (b.bookedEntity && b.bookedEntity.slot) || {};
+    const sameTable = (slot.resource && slot.resource.id === table.resourceId) || slot.serviceId === table.id;
+    if (!sameTable) return false;
+    const bs = new Date(b.startDate).getTime();
+    const be = new Date(b.endDate).getTime();
+    return bs < end.getTime() && be > start.getTime();
+  });
+}
+
+async function createWalkinPart(siteId, table, start, end, skipWixCheck) {
+  const data = await wixPost(siteId, WIX_BOOKINGS_WRITE_URL, {
+    booking: {
+      bookedEntity: {
+        slot: {
+          serviceId: table.id,
+          scheduleId: table.scheduleId,
+          startDate: londonLocalString(start),
+          endDate: londonLocalString(end),
+          timezone: 'Europe/London',
+          resource: { id: table.resourceId, name: table.name },
+          location: { id: table.locationId, locationType: 'OWNER_BUSINESS' },
+        },
+      },
+      contactDetails: { firstName: 'Walk-in' },
+      totalParticipants: 1,
+      selectedPaymentOption: 'OFFLINE',
+      status: 'CONFIRMED',
+    },
+    participantNotification: { notifyParticipants: false },
+    sendSmsReminder: false,
+    flowControlSettings: { skipAvailabilityValidation: !!skipWixCheck },
+  });
+  if (!data.booking || !data.booking.id) throw new Error('Wix did not return the new booking');
+  return data.booking;
+}
+
+async function bookWalkinPart(siteId, table, start, end) {
+  try {
+    return await createWalkinPart(siteId, table, start, end, false);
+  } catch (err) {
+    if (err.wixCode !== 'SLOT_NOT_AVAILABLE') throw err;
+    if (start.getTime() > Date.now() + WALKIN_NOTICE_MS) {
+      throw new ApiError(409, `${table.name} can't be booked from ${londonLocalString(start).slice(11, 16)} - it's already booked or outside opening hours on Wix.`);
+    }
+    if (!(await walkinTableIsFree(siteId, table, start, end))) {
+      throw new ApiError(409, `${table.name} is already booked for part of that time.`);
+    }
+    return createWalkinPart(siteId, table, start, end, true);
+  }
+}
+
+async function cancelWixBooking(siteId, bookingId) {
+  const data = await wixPost(siteId, WIX_BOOKINGS_QUERY_URL, { query: { filter: { id: bookingId } } });
+  const b = ((data.extendedBookings || [])[0] || {}).booking;
+  if (!b) throw new ApiError(404, 'That booking was not found on Wix.');
+  if (b.status === 'CANCELED') return b;
+  const out = await wixPost(siteId, `${WIX_BOOKINGS_WRITE_URL}/${encodeURIComponent(bookingId)}/cancel`, {
+    bookingId,
+    revision: b.revision,
+    participantNotification: { notifyParticipants: false },
+    flowControlSettings: { ignoreCancellationPolicy: true },
+  });
+  return out.booking || b;
+}
+
+// Pull the list again straight after a change so the card (and any other
+// open copy of it, via the live stream) shows it at once.
+async function resyncAfterWalkin(siteId) {
+  try {
+    if (wixSyncInFlight.has(siteId)) await wixSyncInFlight.get(siteId);
+    await syncWixSiteIfDue(siteId, new Date(), true, 0);
+  } catch (err) {
+    console.warn('Wix re-sync after walk-in failed:', err.message);
+  }
+}
+
+function walkinVenue(req, venueId) {
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const venue = readDb().venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  const siteId = wixSiteIdForVenue(venue);
+  if (!siteId) throw new ApiError(400, 'This venue is not linked to a Wix booking site.');
+  if (!process.env.WIX_API_KEY) throw new ApiError(503, 'Wix bookings are not connected yet.');
+  return { venue, siteId };
+}
+
+function walkinWixError(err, fallback) {
+  if (err instanceof ApiError) return err;
+  console.warn(`${fallback}:`, err.message);
+  return new ApiError(502, `${fallback}. Please try again, or use the Wix dashboard.`);
+}
+
+app.get('/api/venue-manager/walkin-tables', requireVenueManager, (req, res, next) => (async () => {
+  const { siteId } = walkinVenue(req, req.query.venueId);
+  let tables;
+  try {
+    tables = await getWalkinTables(siteId);
+  } catch (err) {
+    throw walkinWixError(err, 'Could not load the tables from Wix');
+  }
+  res.json({ tables: tables.map((t) => ({ id: t.id, name: t.name })), lengths: WALKIN_LENGTHS });
+})().catch(next));
+
+app.post('/api/venue-manager/walkins', requireVenueManager, (req, res, next) => (async () => {
+  const { venueId, tableId, start, minutes } = req.body || {};
+  const { venue, siteId } = walkinVenue(req, venueId);
+  const mins = Number(minutes);
+  if (!WALKIN_LENGTHS.includes(mins)) throw new ApiError(400, 'Length must be 1, 2 or 3 hours.');
+  const startAt = parseLondonLocal(start);
+  if (!startAt || ![0, 30].includes(startAt.getUTCMinutes())) {
+    throw new ApiError(400, 'Start time must be on the hour or half past (UK time).');
+  }
+  const now = Date.now();
+  if (startAt.getTime() + 30 * 60 * 1000 <= now) throw new ApiError(400, 'That start time has already passed.');
+  if (startAt.getTime() > now + WALKIN_MAX_AHEAD_MS) throw new ApiError(400, 'Walk-ins can be booked up to 7 days ahead.');
+
+  let tables;
+  try {
+    tables = await getWalkinTables(siteId);
+  } catch (err) {
+    throw walkinWixError(err, 'Could not load the tables from Wix');
+  }
+  const table = tables.find((t) => t.id === tableId);
+  if (!table) throw new ApiError(400, 'Choose a table.');
+
+  const parts = mins === 180 ? [120, 60] : [mins];
+  const created = [];
+  let cursor = startAt;
+  try {
+    for (const len of parts) {
+      const partEnd = new Date(cursor.getTime() + len * 60 * 1000);
+      created.push(await bookWalkinPart(siteId, table, cursor, partEnd));
+      cursor = partEnd;
+    }
+  } catch (err) {
+    // Don't leave half a walk-in behind (e.g. the 2h part of a 3h booking).
+    for (const b of created) {
+      try { await cancelWixBooking(siteId, b.id); } catch (e) { console.warn('Could not undo walk-in part:', e.message); }
+    }
+    if (created.length) resyncAfterWalkin(siteId);
+    throw walkinWixError(err, 'Wix would not take the walk-in booking');
+  }
+
+  const store = loadWalkins();
+  const by = (req.adminSession && req.adminSession.label) || null;
+  for (const b of created) {
+    store[b.id] = {
+      siteId, venueId: venue.id, table: table.name,
+      start: b.startDate || null, end: b.endDate || null,
+      createdAt: new Date().toISOString(), by,
+    };
+  }
+  saveWalkins();
+  const endAt = cursor;
+  const db = readDb();
+  recordAudit(db, {
+    actor: by,
+    action: 'venue.walkinBooking',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Walk-in booked on Wix: ${table.name}, ${londonLocalString(startAt).slice(0, 16).replace('T', ' ')} to ${londonLocalString(endAt).slice(11, 16)} (${created.map((b) => b.id).join(', ')})`,
+  });
+  writeDb(db);
+  await resyncAfterWalkin(siteId);
+  res.json({
+    ok: true,
+    table: table.name,
+    start: startAt.toISOString(),
+    end: endAt.toISOString(),
+    bookingIds: created.map((b) => b.id),
+  });
+})().catch(next));
+
+app.post('/api/venue-manager/walkins/:id/cancel', requireVenueManager, (req, res, next) => (async () => {
+  const { venue, siteId } = walkinVenue(req, (req.body || {}).venueId);
+  const bookingId = String(req.params.id || '');
+  const store = loadWalkins();
+  const rec = store[bookingId];
+  if (!rec || rec.siteId !== siteId) throw new ApiError(404, 'Only walk-ins booked from this page can be cancelled here.');
+  try {
+    await cancelWixBooking(siteId, bookingId);
+  } catch (err) {
+    throw walkinWixError(err, 'Wix would not cancel the walk-in');
+  }
+  rec.cancelledAt = new Date().toISOString();
+  saveWalkins();
+  const db = readDb();
+  const by = (req.adminSession && req.adminSession.label) || null;
+  recordAudit(db, {
+    actor: by,
+    action: 'venue.walkinCancel',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Walk-in cancelled on Wix: ${rec.table || 'table'} (${bookingId})`,
+  });
+  writeDb(db);
+  await resyncAfterWalkin(siteId);
+  res.json({ ok: true });
 })().catch(next));
 
 // Quick-renew buttons on the Search players results (client/src/pages/

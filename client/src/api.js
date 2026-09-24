@@ -144,6 +144,21 @@ const networkApi = {
       }
     }
   },
+  // Walk-in bookings (Table bookings card): the venue's bookable Wix tables,
+  // book one (start = "YYYY-MM-DDTHH:MM" UK time on :00/:30, minutes 60/120/180),
+  // and cancel a walk-in made here. Creates/cancels real bookings on Wix.
+  getWalkinTables: (venueId) =>
+    request(`/venue-manager/walkin-tables?venueId=${encodeURIComponent(venueId)}`),
+  bookWalkin: (venueId, tableId, start, minutes) =>
+    request('/venue-manager/walkins', {
+      method: 'POST',
+      body: JSON.stringify({ venueId, tableId, start, minutes }),
+    }),
+  cancelWalkin: (venueId, bookingId) =>
+    request(`/venue-manager/walkins/${encodeURIComponent(bookingId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId }),
+    }),
   // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
   getVenueManagerDuePlayers: (venueId, months) =>
     request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
