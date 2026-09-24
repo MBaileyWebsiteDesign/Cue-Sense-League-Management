@@ -13,8 +13,9 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 // what's coming.
 //
 // Mobile layout (2026-09-24): back button, a status chip that reflects the
-// real flag (Captain / Viewing as admin), upcoming matches first as cards,
-// Guides tile with a live count, and the coming-soon note last.
+// real flag (Captain / Viewing as admin), the coming-soon note at the top
+// (per Matt), then upcoming matches as cards and a Guides tile with a live
+// count.
 export default function CaptainPortal() {
   const { user, isAdmin, isCaptain } = useAuth();
   const [fixtures, setFixtures] = useState(null);
@@ -44,6 +45,13 @@ export default function CaptainPortal() {
         ) : null}
       </div>
       <p className="muted mm-intro">Signed in as <strong>{user.firstName} {user.lastName}</strong>.</p>
+
+      <section className="card sx-card cp-soon">
+        <span className="ol-chip lg-chip-open" style={{ alignSelf: 'flex-start' }}>Coming soon</span>
+        <p style={{ margin: 0 }}>
+          Captain tools - managing your team's roster and nominating players for each leg - are on the way.
+        </p>
+      </section>
 
       <section className="card sx-card">
         <div className="sx-card-head">
@@ -98,12 +106,6 @@ export default function CaptainPortal() {
         </Link>
       </div>
 
-      <section className="card sx-card cp-soon">
-        <span className="ol-chip lg-chip-open" style={{ alignSelf: 'flex-start' }}>Coming soon</span>
-        <p style={{ margin: 0 }}>
-          Captain tools - managing your team's roster and nominating players for each leg - are on the way.
-        </p>
-      </section>
     </div>
   );
 }
