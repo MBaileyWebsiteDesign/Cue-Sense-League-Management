@@ -559,12 +559,16 @@ function WalkinForm({ venueId, onDone, onClose }) {
   );
 }
 
+// Table bookings shows this many days that have bookings at a time.
+const BOOKING_DAYS_STEP = 5;
+
 function BookingsCard({ venueId }) {
   const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [walkinOpen, setWalkinOpen] = useState(false);
+  const [daysShown, setDaysShown] = useState(BOOKING_DAYS_STEP);
   const [notice, setNotice] = useState('');
   const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
   const [cancelling, setCancelling] = useState(null);
@@ -606,6 +610,7 @@ function BookingsCard({ venueId }) {
 
   useEffect(() => {
     setData(null);
+    setDaysShown(BOOKING_DAYS_STEP);
     load(false);
   }, [venueId]);
 
@@ -664,6 +669,9 @@ function BookingsCard({ venueId }) {
     else groups.push({ key, items: [b] });
   }
   const activeCount = bookings.filter((b) => b.status !== 'CANCELED' && b.status !== 'DECLINED').length;
+  // Show the first 5 days that have bookings; "Show more" adds 5 more each tap.
+  const shownGroups = groups.slice(0, daysShown);
+  const hiddenDays = groups.length - shownGroups.length;
 
   return (
     <section className="sx-card vm-bookings">
@@ -723,7 +731,7 @@ function BookingsCard({ venueId }) {
         ) : bookings.length === 0 ? (
           <p className="vm-bk-empty">No bookings today or coming up.</p>
         ) : (
-          groups.map((g) => (
+          shownGroups.map((g) => (
             <div key={g.key} className="vm-bk-day">
               <h3 className="vm-bk-day-head">{dayHeading(g.key)}</h3>
               <ul className="vm-bk-list">
@@ -770,6 +778,11 @@ function BookingsCard({ venueId }) {
               </ul>
             </div>
           ))
+        )}
+        {hiddenDays > 0 && (
+          <button type="button" className="btn vm-bk-more" onClick={() => setDaysShown((n) => n + BOOKING_DAYS_STEP)}>
+            Show more ({Math.min(hiddenDays, BOOKING_DAYS_STEP)} more {Math.min(hiddenDays, BOOKING_DAYS_STEP) === 1 ? 'day' : 'days'})
+          </button>
         )}
       </div>
     </section>
