@@ -2172,8 +2172,10 @@ button.vm-tile { cursor: pointer; }
 }
 
 /* Venue Manager - Wix table bookings card (top of the page, brand-green
-   header band so it stands out next to the coloured status tiles) */
-.sx-card.vm-bookings { padding: 0; gap: 0; overflow: hidden; background: #fff; border-radius: 14px; border: 2px solid var(--primary); box-shadow: 0 2px 8px rgba(18, 61, 36, 0.12); }
+   header band so it stands out next to the coloured status tiles). The
+   other Venue Manager cards (Status, Search players, Registered players)
+   reuse the same outline + band via .vm-panel / .vm-panel-body. */
+.sx-card.vm-bookings, .sx-card.vm-panel { padding: 0; gap: 0; overflow: hidden; background: #fff; border-radius: 14px; border: 2px solid var(--primary); box-shadow: 0 2px 8px rgba(18, 61, 36, 0.12); }
 .vm-bk-band { background: var(--primary); color: #fff; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; }
 .vm-bk-band-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .vm-bk-band-title svg { color: var(--cta); flex-shrink: 0; }
@@ -2183,6 +2185,7 @@ button.vm-tile { cursor: pointer; }
 .btn.vm-bk-refresh:hover:not(:disabled) { background: var(--cta-dark); color: #fff; }
 .vm-bk-sync { grid-column: 1 / -1; font-size: 0.8rem; color: rgba(255, 255, 255, 0.78); }
 .vm-bk-body { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.vm-panel-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
 .vm-bk-body > p { margin: 4px 2px; }
 .vm-bk-empty { color: var(--muted); font-weight: 600; }
 .vm-bk-day { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }

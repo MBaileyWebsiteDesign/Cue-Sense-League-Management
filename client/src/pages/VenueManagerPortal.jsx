@@ -167,8 +167,14 @@ function StatusBox({ status, loading, venueId }) {
   const toggleBucket = (months) => setOpenBucket((prev) => (prev === months ? null : months));
 
   return (
-    <section className="card sx-card">
-      <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Status</h2>
+    <section className="card sx-card vm-panel">
+      <div className="vm-bk-band">
+        <span className="vm-bk-band-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>
+          <h2>Status</h2>
+        </span>
+      </div>
+      <div className="vm-panel-body">
       {loading || !status ? (
         <p className="muted">Loading…</p>
       ) : (
@@ -211,6 +217,7 @@ function StatusBox({ status, loading, venueId }) {
       <p className="muted vm-small" style={{ margin: 0 }}>
         Each player is counted in one window only. Tap a tile with players to see who's due.
       </p>
+      </div>
     </section>
   );
 }
@@ -282,8 +289,14 @@ function PlayerSearchBox({ venueId }) {
   };
 
   return (
-    <section className="card sx-card">
-      <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Search players</h2>
+    <section className="card sx-card vm-panel">
+      <div className="vm-bk-band">
+        <span className="vm-bk-band-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
+          <h2>Search players</h2>
+        </span>
+      </div>
+      <div className="vm-panel-body">
       <form className="au-search" onSubmit={onSearch} role="search">
         <input
           type="search"
@@ -310,6 +323,7 @@ function PlayerSearchBox({ venueId }) {
           </ul>
         )
       )}
+      </div>
     </section>
   );
 }
@@ -349,11 +363,15 @@ function RegisteredPlayersList({ venueId }) {
   };
 
   return (
-    <section className="card sx-card">
-      <div className="sx-card-head">
-        <h2>Registered players</h2>
-        {players && <span className="muted">{players.length}</span>}
+    <section className="card sx-card vm-panel">
+      <div className="vm-bk-band">
+        <span className="vm-bk-band-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.6 3.5 6" /></svg>
+          <h2>Registered players</h2>
+          {players && <span className="vm-bk-count" aria-label={`${players.length} registered players`}>{players.length}</span>}
+        </span>
       </div>
+      <div className="vm-panel-body">
       {error && <p className="error">{error}</p>}
       {renewError && <p className="error">{renewError}</p>}
       {!players && !error ? (
@@ -369,6 +387,7 @@ function RegisteredPlayersList({ venueId }) {
           </ul>
         )
       )}
+      </div>
     </section>
   );
 }
