@@ -16,6 +16,20 @@ function formatDateUK(isoDate) {
   return `${day}-${month}-${year}`;
 }
 
+// 'red' within 2 months, 'amber' within 4, otherwise '' - same windows as
+// the Due in 2 / 4 month tiles.
+function renewalUrgency(isoDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate || '');
+  if (!match) return '';
+  const due = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const today = new Date();
+  const in2 = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
+  const in4 = new Date(today.getFullYear(), today.getMonth() + 4, today.getDate());
+  if (due <= in2) return 'red';
+  if (due <= in4) return 'amber';
+  return '';
+}
+
 // The Venue Manager Portal - a Venue Manager's home base for the one (or
 // more) venue(s) an Overall Admin has granted them access to (see
 // assertVenueAccess in server/src/userAuth.js and the "Venue Managers"
@@ -60,42 +74,55 @@ function PlayerLink({ playerId, children }) {
 // real interactive control under the hood. `tint` sets the card's pale
 // traffic-light background.
 function DueTile({ label, count, active, onClick, caption, tint }) {
-  const clickable = count > 0;
-  return (
-    <div
-      className="card"
-      role={clickable ? 'button' : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onClick={clickable ? onClick : undefined}
-      onKeyDown={
-        clickable
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onClick();
-              }
-            }
-          : undefined
-      }
-      style={{
-        cursor: clickable ? 'pointer' : 'default',
-        backgroundColor: tint,
-        boxShadow: active ? 'inset 0 0 0 2px var(--accent, #2563eb)' : undefined,
-      }}
+  const clickable = count > 0 && !!onClick;
+  const inner = (
+    <>
+      <span className="vm-tile-top">
+        <span className="vm-tile-label">{label}</span>
+        {clickable && (
+          <svg className={`vm-tile-chev${active ? ' vm-tile-chev-open' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+        )}
+      </span>
+      <span className="vm-tile-num">{count}</span>
+      <span className="vm-tile-caption">{caption}</span>
+    </>
+  );
+  return clickable ? (
+    <button
+      type="button"
+      className={`vm-tile${active ? ' vm-tile-active' : ''}`}
+      style={{ backgroundColor: tint }}
+      aria-expanded={active}
+      onClick={onClick}
     >
-      <h3 style={{ marginTop: 0 }}>{label}</h3>
-      <p
-        style={{
-          fontSize: '2rem',
-          fontWeight: 700,
-          margin: 0,
-          color: active ? 'var(--accent, #2563eb)' : 'inherit',
-        }}
-      >
-        {count}
-      </p>
-      <p className="muted" style={{ margin: 0 }}>{caption}</p>
-    </div>
+      {inner}
+    </button>
+  ) : (
+    <div className="vm-tile" style={{ backgroundColor: tint }}>{inner}</div>
+  );
+}
+
+// One player as a card: name/email (links to their profile when they have
+// one), status, renewal date (tinted as it gets close) and - when renewals
+// are allowed here - the three quick-renew buttons.
+function PlayerCard({ p, busy, onRenew, showStatus = true }) {
+  const urgency = renewalUrgency(p.membershipRenewalDate);
+  return (
+    <li className="vm-player">
+      <span className="vm-player-top">
+        <span className="vm-player-main">
+          <strong><PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink></strong>
+          <span className="muted vm-small">{p.email}</span>
+        </span>
+        {showStatus && p.status && (
+          <span className={`status ${p.status === 'suspended' ? 'status-disputed' : 'status-completed'}`}>{p.status}</span>
+        )}
+      </span>
+      <span className={`vm-renews${urgency ? ` vm-renews-${urgency}` : ''}`}>
+        {p.membershipRenewalDate ? `Renews ${formatDateUK(p.membershipRenewalDate)}` : 'No renewal date set'}
+      </span>
+      {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
+    </li>
   );
 }
 
@@ -118,33 +145,18 @@ function DuePlayersPanel({ venueId, months, onClose }) {
   }, [venueId, months]);
 
   return (
-    <div className="card" style={{ marginTop: 12 }}>
-      <div className="page-header" style={{ marginBottom: 8 }}>
+    <div className="vm-due-panel">
+      <div className="sx-card-head">
         <h3 style={{ margin: 0 }}>Due in {months} months</h3>
-        <button className="btn" type="button" onClick={onClose}>Close</button>
+        <button className="btn dv-small-btn" type="button" onClick={onClose}>Close</button>
       </div>
       {error && <p className="error">{error}</p>}
       {!players && !error ? (
         <p>Loading…</p>
       ) : players && (
-        <table className="standings-table">
-          <thead>
-            <tr><th>Name</th><th>Email</th><th>Renewal due</th></tr>
-          </thead>
-          <tbody>
-            {players.map((p) => (
-              <tr key={p.id}>
-                <td style={{ textAlign: 'left' }}>
-                  <PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink>
-                </td>
-                <td style={{ textAlign: 'left' }}>
-                  <PlayerLink playerId={p.playerId}>{p.email}</PlayerLink>
-                </td>
-                <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ul className="vm-players">
+          {players.map((p) => <PlayerCard key={p.id} p={p} showStatus={false} />)}
+        </ul>
       )}
     </div>
   );
@@ -155,51 +167,49 @@ function StatusBox({ status, loading, venueId }) {
   const toggleBucket = (months) => setOpenBucket((prev) => (prev === months ? null : months));
 
   return (
-    <section className="card">
-      <h2>Status</h2>
+    <section className="card sx-card">
+      <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Status</h2>
       {loading || !status ? (
-        <p>Loading…</p>
+        <p className="muted">Loading…</p>
       ) : (
-        <div className="card-grid">
-          <div className="card" style={{ backgroundColor: registeredPlayersTint(status.registeredPlayers) }}>
-            <h3 style={{ marginTop: 0 }}>Registered players</h3>
-            <p style={{ fontSize: '2rem', fontWeight: 700, margin: 0 }}>{status.registeredPlayers}</p>
-            <p className="muted" style={{ margin: 0 }}>at this venue</p>
-          </div>
+        <div className="vm-tiles">
           <DueTile
-            label="Due in 6 months"
-            count={status.dueIn6Months}
-            active={openBucket === 6}
-            onClick={() => toggleBucket(6)}
-            caption="membership renewal"
-            tint={TINT_GREEN}
-          />
-          <DueTile
-            label="Due in 4 months"
-            count={status.dueIn4Months}
-            active={openBucket === 4}
-            onClick={() => toggleBucket(4)}
-            caption="membership renewal"
-            tint={TINT_YELLOW}
+            label="Registered players"
+            count={status.registeredPlayers}
+            caption="at this venue"
+            tint={registeredPlayersTint(status.registeredPlayers)}
           />
           <DueTile
             label="Due in 2 months"
             count={status.dueIn2Months}
             active={openBucket === 2}
             onClick={() => toggleBucket(2)}
-            caption="membership renewal"
+            caption="renewals"
             tint={TINT_RED}
+          />
+          <DueTile
+            label="Due in 4 months"
+            count={status.dueIn4Months}
+            active={openBucket === 4}
+            onClick={() => toggleBucket(4)}
+            caption="renewals"
+            tint={TINT_YELLOW}
+          />
+          <DueTile
+            label="Due in 6 months"
+            count={status.dueIn6Months}
+            active={openBucket === 6}
+            onClick={() => toggleBucket(6)}
+            caption="renewals"
+            tint={TINT_GREEN}
           />
         </div>
       )}
       {openBucket && (
         <DuePlayersPanel venueId={venueId} months={openBucket} onClose={() => setOpenBucket(null)} />
       )}
-      <p className="muted" style={{ fontSize: '0.8rem', marginTop: 12 }}>
-        Each "Due in N months" tile now counts only players whose renewal falls in that specific
-        window (2 months: within the next 2 months; 4 months: more than 2 but within 4; 6 months:
-        more than 4 but within 6) - a player only ever appears in one tile, not every tile up to
-        their actual renewal window.
+      <p className="muted vm-small" style={{ margin: 0 }}>
+        Each player is counted in one window only. Tap a tile with players to see who's due.
       </p>
     </section>
   );
@@ -219,7 +229,7 @@ const RENEW_BUTTON_CLASS = { 1: 'btn-danger', 6: 'btn-renew-yellow', 12: 'btn-re
 
 function RenewButtons({ player, busy, onRenew }) {
   return (
-    <span style={{ display: 'inline-flex', gap: 6 }}>
+    <span className="vm-renew-row">
       {[1, 6, 12].map((months) => (
         <button
           key={months}
@@ -229,7 +239,7 @@ function RenewButtons({ player, busy, onRenew }) {
           onClick={() => onRenew(player, months)}
           title={`Extend ${player.firstName} ${player.lastName}'s membership by ${months} month${months === 1 ? '' : 's'}`}
         >
-          {busy ? '…' : `Renew ${months}mo`}
+          {busy ? '…' : `+${months} mo`}
         </button>
       ))}
     </span>
@@ -272,14 +282,16 @@ function PlayerSearchBox({ venueId }) {
   };
 
   return (
-    <section className="card">
-      <h2>Search players</h2>
-      <p className="muted">Search by first name, last name, or both.</p>
-      <form className="inline-form" onSubmit={onSearch}>
+    <section className="card sx-card">
+      <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Search players</h2>
+      <form className="au-search" onSubmit={onSearch} role="search">
         <input
+          type="search"
+          className="ah-search"
+          aria-label="Search players by first name, last name or both"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name…"
+          placeholder="First name, last name or both"
         />
         <button className="btn btn-primary" type="submit" disabled={searching}>
           {searching ? 'Searching…' : 'Search'}
@@ -291,28 +303,11 @@ function PlayerSearchBox({ venueId }) {
         results.length === 0 ? (
           <p className="muted">No players at this venue match that search.</p>
         ) : (
-          <table className="standings-table">
-            <thead>
-              <tr><th>Name</th><th>Email</th><th>Status</th><th>Renewal due</th><th>Renew</th></tr>
-            </thead>
-            <tbody>
-              {results.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ textAlign: 'left' }}>
-                    <PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink>
-                  </td>
-                  <td style={{ textAlign: 'left' }}>
-                    <PlayerLink playerId={p.playerId}>{p.email}</PlayerLink>
-                  </td>
-                  <td>{p.status}</td>
-                  <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
-                  <td>
-                    <RenewButtons player={p} busy={renewingId === p.id} onRenew={onRenew} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="vm-players">
+            {results.map((p) => (
+              <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} />
+            ))}
+          </ul>
         )
       )}
     </section>
@@ -354,9 +349,11 @@ function RegisteredPlayersList({ venueId }) {
   };
 
   return (
-    <section className="card">
-      <h2>Registered players</h2>
-      <p className="muted">Everyone currently registered to this venue.</p>
+    <section className="card sx-card">
+      <div className="sx-card-head">
+        <h2>Registered players</h2>
+        {players && <span className="muted">{players.length}</span>}
+      </div>
       {error && <p className="error">{error}</p>}
       {renewError && <p className="error">{renewError}</p>}
       {!players && !error ? (
@@ -365,28 +362,11 @@ function RegisteredPlayersList({ venueId }) {
         players.length === 0 ? (
           <p className="muted">No players are registered to this venue yet.</p>
         ) : (
-          <table className="standings-table">
-            <thead>
-              <tr><th>Name</th><th>Email</th><th>Status</th><th>Renewal due</th><th>Renew</th></tr>
-            </thead>
-            <tbody>
-              {players.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ textAlign: 'left' }}>
-                    <PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink>
-                  </td>
-                  <td style={{ textAlign: 'left' }}>
-                    <PlayerLink playerId={p.playerId}>{p.email}</PlayerLink>
-                  </td>
-                  <td>{p.status}</td>
-                  <td>{formatDateUK(p.membershipRenewalDate) || '—'}</td>
-                  <td>
-                    <RenewButtons player={p} busy={renewingId === p.id} onRenew={onRenew} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="vm-players">
+            {players.map((p) => (
+              <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} />
+            ))}
+          </ul>
         )
       )}
     </section>
@@ -394,7 +374,7 @@ function RegisteredPlayersList({ venueId }) {
 }
 
 export default function VenueManagerPortal() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [venues, setVenues] = useState(null);
   const [selectedVenueId, setSelectedVenueId] = useState('');
   const [status, setStatus] = useState(null);
@@ -402,6 +382,7 @@ export default function VenueManagerPortal() {
   const [error, setError] = useState('');
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal' }]);
+  const selectedVenue = (venues || []).find((v) => v.id === selectedVenueId);
 
   useEffect(() => {
     api.getMyManagedVenues()
@@ -422,11 +403,21 @@ export default function VenueManagerPortal() {
   }, [selectedVenueId]);
 
   return (
-    <div>
-      <h1>Venue Manager Portal</h1>
-      <p className="muted">
-        Signed in as <strong>{user.firstName} {user.lastName}</strong> · flagged as a Venue Manager.
-      </p>
+    <div className="sx-page">
+      <div className="au-head">
+        <Link to="/" className="msg-icon-btn" aria-label="Back to home">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <span className="vm-title">
+          <h1>Venue Manager</h1>
+          {selectedVenue && <span className="muted">{selectedVenue.name}</span>}
+        </span>
+        {user?.isVenueManager ? (
+          <span className="status status-completed">Venue Manager</span>
+        ) : isAdmin ? (
+          <span className="status">Viewing as admin</span>
+        ) : null}
+      </div>
 
       {error && <p className="error">{error}</p>}
 
@@ -440,10 +431,10 @@ export default function VenueManagerPortal() {
       ) : (
         <>
           {venues.length > 1 && (
-            <div className="inline-form">
-              <label>
+            <div className="vm-switch">
+              <label className="ll-field">
                 Venue
-                <select value={selectedVenueId} onChange={(e) => setSelectedVenueId(e.target.value)}>
+                <select className="mm-input" value={selectedVenueId} onChange={(e) => setSelectedVenueId(e.target.value)}>
                   {venues.map((v) => (
                     <option key={v.id} value={v.id}>{v.name}</option>
                   ))}
