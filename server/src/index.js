@@ -1333,16 +1333,17 @@ function saveWixSnapshots() {
 // Never throws; a failure keeps the previous list and is retried after
 // WIX_SYNC_RETRY_MS (on the next timer tick or page view).
 // `force` (the page's Refresh button) skips the schedule check but is still
-// limited to one Wix call per WIX_REFRESH_MIN_MS per site, so repeated
-// taps can't hammer Wix.
-async function syncWixSiteIfDue(siteId, now = new Date(), force = false) {
+// limited to one Wix call per `minGapMs` (WIX_REFRESH_MIN_MS by default) per
+// site, so repeated taps can't hammer Wix. The Wix booking webhook passes
+// minGapMs = 0 so a new booking is always picked up.
+async function syncWixSiteIfDue(siteId, now = new Date(), force = false, minGapMs = WIX_REFRESH_MIN_MS) {
   if (!process.env.WIX_API_KEY) return;
   const snaps = loadWixSnapshots();
   const snap = snaps[siteId];
   const { latest } = wixSyncSlots(now);
   const sinceAttempt = snap && snap.lastAttemptAt ? now - new Date(snap.lastAttemptAt) : Infinity;
   if (force) {
-    if (sinceAttempt < WIX_REFRESH_MIN_MS) return;
+    if (sinceAttempt < minGapMs) return;
   } else {
     if (snap && snap.slotAt && new Date(snap.slotAt) >= latest) return;
     if (sinceAttempt < WIX_SYNC_RETRY_MS) return;
@@ -1354,6 +1355,7 @@ async function syncWixSiteIfDue(siteId, now = new Date(), force = false) {
       const bookings = await fetchWixBookings(siteId, startOfTodayLondonIso(attemptAt));
       snaps[siteId] = { syncedAt: attemptAt.toISOString(), slotAt: latest.toISOString(), bookings, lastError: null, lastAttemptAt: attemptAt.toISOString() };
       console.log(`Wix bookings synced for site ${siteId}: ${bookings.length} booking(s)`);
+      notifyWixBookingStreams(siteId, attemptAt.toISOString());
     } catch (err) {
       console.warn('Wix bookings sync failed:', err.message);
       snaps[siteId] = {
@@ -1380,6 +1382,116 @@ setInterval(() => {
     console.warn('Wix bookings timer error:', err.message);
   }
 }, 5 * 60 * 1000).unref();
+
+
+// ---------- Wix bookings: instant updates (Matt, 2026-09-24) ----------
+// 1) Wix -> server: a Wix Automation on the venue's site ("booking created",
+//    plus cancelled/changed if wanted) uses the "Send HTTP request" action
+//    to call POST /api/wix/booking-hook/<WIX_HOOK_TOKEN>. The token is a
+//    long random secret set as the WIX_HOOK_TOKEN runtime secret; with it
+//    unset the hook answers 404. The request body isn't trusted or needed -
+//    the hook just triggers a fresh read from Wix a few seconds later (so
+//    duplicate / out-of-order / partial webhook calls can't corrupt the
+//    list). Scheduled 09/11/17 syncs stay as a backstop.
+// 2) server -> open page: GET /api/venue-manager/bookings/stream is a
+//    Server-Sent Events stream. After every successful sync it sends
+//    "event: bookings" and the page re-reads the saved list. Cache-Control
+//    no-transform stops the compression middleware buffering the stream;
+//    a comment line every 25s keeps proxies from closing it. The page
+//    disconnects while its tab is hidden so an idle phone doesn't keep the
+//    Fly machine awake.
+const wixBookingStreams = new Map(); // siteId -> Set<res>
+const WIX_HOOK_DELAY_MS = 3000;
+const wixHookTimers = new Map(); // siteId -> timeout
+
+function notifyWixBookingStreams(siteId, syncedAt) {
+  const set = wixBookingStreams.get(siteId);
+  if (!set || set.size === 0) return;
+  const msg = `event: bookings\ndata: ${JSON.stringify({ syncedAt })}\n\n`;
+  for (const res of set) {
+    try {
+      res.write(msg);
+      if (typeof res.flush === 'function') res.flush();
+    } catch {
+      set.delete(res);
+    }
+  }
+}
+
+function scheduleWixHookSync(siteId) {
+  clearTimeout(wixHookTimers.get(siteId));
+  wixHookTimers.set(siteId, setTimeout(async () => {
+    wixHookTimers.delete(siteId);
+    try {
+      // If a sync is already running it may have started before the new
+      // booking existed, so wait for it and then read again.
+      if (wixSyncInFlight.has(siteId)) await wixSyncInFlight.get(siteId);
+      await syncWixSiteIfDue(siteId, new Date(), true, 0);
+    } catch (err) {
+      console.warn('Wix booking hook sync failed:', err.message);
+    }
+  }, WIX_HOOK_DELAY_MS));
+}
+
+function wixHookHandler(req, res) {
+  const expected = process.env.WIX_HOOK_TOKEN || '';
+  const given = Buffer.from(String(req.params.token || ''));
+  const want = Buffer.from(expected);
+  if (!expected || given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  if (!process.env.WIX_API_KEY) return res.json({ ok: true, synced: false });
+  let siteIds = [];
+  try {
+    siteIds = [...new Set(readDb().venues.map(wixSiteIdForVenue).filter(Boolean))];
+  } catch (err) {
+    console.warn('Wix booking hook: could not read venues:', err.message);
+  }
+  siteIds.forEach(scheduleWixHookSync);
+  console.log(`Wix booking hook received; refreshing ${siteIds.length} site(s)`);
+  res.json({ ok: true });
+}
+app.post('/api/wix/booking-hook/:token', wixHookHandler);
+app.get('/api/wix/booking-hook/:token', wixHookHandler);
+
+app.get('/api/venue-manager/bookings/stream', requireVenueManager, (req, res, next) => {
+  try {
+    const { venueId } = req.query;
+    if (!venueId) throw new ApiError(400, 'venueId is required');
+    const venue = readDb().venues.find((v) => v.id === venueId);
+    if (!venue) throw new ApiError(404, 'Venue not found');
+    assertVenueAccess(req, venue);
+    const siteId = wixSiteIdForVenue(venue);
+    if (!siteId) return res.status(204).end();
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write('retry: 5000\n: connected\n\n');
+    if (typeof res.flush === 'function') res.flush();
+
+    if (!wixBookingStreams.has(siteId)) wixBookingStreams.set(siteId, new Set());
+    const set = wixBookingStreams.get(siteId);
+    set.add(res);
+    const ping = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+        if (typeof res.flush === 'function') res.flush();
+      } catch {
+        /* closed - cleaned up below */
+      }
+    }, 25 * 1000);
+    req.on('close', () => {
+      clearInterval(ping);
+      set.delete(res);
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // asyncRoute above only catches synchronous throws, so this async handler
 // forwards its own rejections (e.g. the ApiErrors below) to next().

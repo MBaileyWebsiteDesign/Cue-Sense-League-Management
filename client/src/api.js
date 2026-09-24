@@ -116,6 +116,34 @@ const networkApi = {
   // refresh=true asks for an immediate sync (Refresh button; max once a minute).
   getVenueBookings: (venueId, refresh = false) =>
     request(`/venue-manager/bookings?venueId=${encodeURIComponent(venueId)}${refresh ? '&refresh=1' : ''}`),
+  // Live updates for the Table bookings card: a Server-Sent Events stream
+  // read with fetch (so the login token can go in the Authorization header,
+  // which EventSource can't send). Calls onOpen once connected and onUpdate
+  // each time the server says the saved bookings changed; resolves when the
+  // stream ends and rejects on a network error - the caller reconnects.
+  streamVenueBookings: async (venueId, { onUpdate, onOpen, signal } = {}) => {
+    const token = getStoredToken();
+    const res = await fetch(`${BASE}/venue-manager/bookings/stream?venueId=${encodeURIComponent(venueId)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`Live updates unavailable (${res.status})`);
+    if (onOpen) onOpen();
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf('\n\n')) >= 0) {
+        const chunk = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        if (/^event: bookings$/m.test(chunk) && onUpdate) onUpdate();
+      }
+    }
+  },
   // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
   getVenueManagerDuePlayers: (venueId, months) =>
     request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),

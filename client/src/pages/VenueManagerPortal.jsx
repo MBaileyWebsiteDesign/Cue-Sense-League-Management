@@ -486,6 +486,49 @@ function BookingsCard({ venueId }) {
     load(false);
   }, [venueId]);
 
+  // Live updates: while the card is on screen, hold a stream open to the
+  // server; when Wix reports a new booking the server re-syncs and pings the
+  // stream, and the card re-reads the list. Disconnects while the tab is
+  // hidden (reloading and reconnecting when it's shown again) and retries
+  // every 5s if the connection drops.
+  const [live, setLive] = useState(false);
+  const liveOk = !!data && data.linked !== false && data.configured !== false;
+  useEffect(() => {
+    if (!liveOk || typeof api.streamVenueBookings !== 'function') return undefined;
+    let stopped = false;
+    let ctrl = null;
+    let retry = null;
+    const reload = () => api.getVenueBookings(venueId).then(setData).catch(() => {});
+    const connect = () => {
+      if (stopped || document.hidden) return;
+      const mine = new AbortController();
+      ctrl = mine;
+      api.streamVenueBookings(venueId, { onUpdate: reload, onOpen: () => setLive(true), signal: mine.signal })
+        .catch(() => {})
+        .finally(() => {
+          setLive(false);
+          if (!stopped && !mine.signal.aborted) retry = setTimeout(connect, 5000);
+        });
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearTimeout(retry);
+        if (ctrl) ctrl.abort();
+      } else if (!stopped) {
+        reload();
+        if (!ctrl || ctrl.signal.aborted) connect();
+      }
+    };
+    connect();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      if (ctrl) ctrl.abort();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [venueId, liveOk]);
+
   // Venues with no Wix site linked don't get the card at all.
   if (data && data.linked === false) return null;
 
@@ -516,7 +559,8 @@ function BookingsCard({ venueId }) {
         )}
         {data && data.syncedAt && (
           <span className="vm-bk-sync">
-            Updated {syncLabel(data.syncedAt)}{data.nextSyncAt && ` · next ${syncLabel(data.nextSyncAt)}`}
+            {live && <span className="vm-bk-live"><span className="vm-bk-live-dot" aria-hidden="true" />Live · </span>}
+            Updated {syncLabel(data.syncedAt)}
           </span>
         )}
       </div>
