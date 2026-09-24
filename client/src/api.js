@@ -154,8 +154,10 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId, tableId, start, minutes }),
     }),
+  // Cancels any booking on the venue's Wix site (walk-ins silently; online
+  // bookings with Wix's customer cancellation email/SMS).
   cancelWalkin: (venueId, bookingId) =>
-    request(`/venue-manager/walkins/${encodeURIComponent(bookingId)}/cancel`, {
+    request(`/venue-manager/bookings/${encodeURIComponent(bookingId)}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ venueId }),
     }),
