@@ -28,7 +28,7 @@ function summarizeRounds(division) {
     .map((r) => ({ ...r, visible: visible.has(r.round) }));
 }
 
-function RoundRow({ round, divisionId, onChanged, setError }) {
+function RoundCard({ round, divisionId, onChanged, setError }) {
   const [busy, setBusy] = useState(false);
 
   const toggle = async () => {
@@ -45,23 +45,21 @@ function RoundRow({ round, divisionId, onChanged, setError }) {
   };
 
   return (
-    <li>
-      <span>
-        Round {round.round}
-        {round.bracketRole && round.bracketRole !== 'single' && (
-          <span className="muted"> · {BRACKET_ROLE_LABEL[round.bracketRole] || round.bracketRole}</span>
-        )}
-        <span className="muted"> · {round.count} fixture{round.count === 1 ? '' : 's'}</span>
-      </span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span className={`status status-${round.visible ? 'completed' : 'scheduled'}`}>
+    <div className="mf-round">
+      <div className="mf-round-top">
+        <strong>Round {round.round}</strong>
+        <span className={`mf-vis-chip ${round.visible ? 'mf-vis-yes' : 'mf-vis-no'}`}>
           {round.visible ? 'Visible to players' : 'Hidden from players'}
         </span>
-        <button className="btn" disabled={busy} onClick={toggle}>
-          {busy ? 'Saving…' : round.visible ? 'Hide from Players' : 'Make Visible'}
-        </button>
-      </span>
-    </li>
+      </div>
+      <p className="muted mf-round-meta">
+        {round.bracketRole && round.bracketRole !== 'single' && `${BRACKET_ROLE_LABEL[round.bracketRole] || round.bracketRole} · `}
+        {round.count} fixture{round.count === 1 ? '' : 's'}
+      </p>
+      <button className="btn cs-btn-block" disabled={busy} onClick={toggle}>
+        {busy ? 'Saving…' : round.visible ? 'Hide from Players' : 'Make Visible'}
+      </button>
+    </div>
   );
 }
 
@@ -82,10 +80,15 @@ function DivisionRounds({ divisionId }) {
 
   if (!division.fixturesGenerated) {
     return (
-      <p className="muted">
-        Fixtures haven't been generated for this division yet - do that from{' '}
-        <Link to={`/divisions/${division.id}`}>its own page</Link> first.
-      </p>
+      <section className="card mf-panel">
+        <p className="mf-back-links">
+          <Link to="/admin/manage-fixtures">&larr; Manage Fixtures</Link>
+        </p>
+        <p className="muted">
+          Fixtures haven't been generated for this division yet - do that from{' '}
+          <Link to={`/divisions/${division.id}`}>its own page</Link> first.
+        </p>
+      </section>
     );
   }
 
@@ -109,35 +112,33 @@ function DivisionRounds({ divisionId }) {
   };
 
   return (
-    <section className="card">
-      <p>
-        <Link to="/admin/manage-fixtures">&larr; Back to Manage Fixtures</Link>
+    <section className="card mf-panel">
+      <p className="mf-back-links muted">
+        <Link to="/admin/manage-fixtures">&larr; Manage Fixtures</Link>
         {' · '}
-        <Link to={`/divisions/${division.id}`}>&larr; Back to {division.name}</Link>
+        <Link to={`/divisions/${division.id}`}>&larr; {division.name}</Link>
       </p>
       <div className="page-header">
         <h2>{division.name} — Rounds</h2>
-        <Link to={`/divisions/${division.id}`}>Open division page</Link>
       </div>
-      <p className="muted">
+      <p className="mf-open-link"><Link to={`/divisions/${division.id}`}>Open division page &rarr;</Link></p>
+      <p className="muted mf-intro">
         Players never see the whole season up front - a round's fixtures (and the ability to
         play or score them) only appear in the Player Portal once you release that round here.
         Release Round 1 now, then come back and release Round 2 the following week, and so on.
       </p>
       {error && <p className="error">{error}</p>}
       {anyVisible && (
-        <p>
-          <button className="btn" disabled={hidingAll} onClick={hideAll}>
-            {hidingAll ? 'Hiding…' : 'Hide All Rounds'}
-          </button>
-        </p>
+        <button className="btn cs-btn-block mf-hide-all" disabled={hidingAll} onClick={hideAll}>
+          {hidingAll ? 'Hiding…' : 'Hide All Rounds'}
+        </button>
       )}
-      <ul className="fixture-list">
+      <div className="mf-round-list">
         {rounds.map((round) => (
-          <RoundRow key={round.round} round={round} divisionId={division.id} onChanged={load} setError={setError} />
+          <RoundCard key={round.round} round={round} divisionId={division.id} onChanged={load} setError={setError} />
         ))}
-        {rounds.length === 0 && <li className="muted">No fixtures in this division yet.</li>}
-      </ul>
+        {rounds.length === 0 && <p className="muted">No fixtures in this division yet.</p>}
+      </div>
     </section>
   );
 }
@@ -194,19 +195,28 @@ export default function ManageFixtures() {
     navigate(`/admin/manage-fixtures/${division.id}`);
   };
 
+  const backTo = isAdmin ? '/admin' : '/league-manager';
+
   return (
-    <div>
-      <h1>Manage Fixtures</h1>
-      <p className="muted">
-        Control which rounds of a division's fixtures are visible to players. Only admins ever
-        see the whole season's fixtures at once - everyone else only sees the rounds you've
-        released here.
-      </p>
+    <div className="mf-page">
+      <div className="mf-head">
+        <Link to={backTo} className="msg-icon-btn" aria-label="Back to the portal">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <div className="mf-head-text">
+          <h1>Manage Fixtures</h1>
+          <p className="muted">
+            Control which rounds of a division's fixtures are visible to players. Only admins
+            ever see the whole season's fixtures at once - everyone else only sees the rounds
+            you've released here.
+          </p>
+        </div>
+      </div>
       {error && <p className="error">{error}</p>}
 
-      <section className="card">
+      <section className="card mf-panel">
         <h2>1. Pick a league</h2>
-        <select value={selectedLeagueId} onChange={selectLeague}>
+        <select className="mm-input" value={selectedLeagueId} onChange={selectLeague}>
           <option value="" disabled>Select a league…</option>
           {leagues.map((l) => (
             <option key={l.id} value={l.id}>{l.name}</option>
@@ -215,21 +225,24 @@ export default function ManageFixtures() {
       </section>
 
       {league && !routedDivisionId && (
-        <section className="card">
+        <section className="card mf-panel">
           <h2>2. Pick a division</h2>
           {league.divisions.length === 0 ? (
             <p className="muted">This league has no divisions yet.</p>
           ) : (
-            <ul className="fixture-list">
+            <div className="lg-div-list mf-div-list">
               {league.divisions.map((d) => (
-                <li key={d.id}>
-                  <button className="btn" onClick={() => selectDivision(d)}>{d.name}</button>
-                  <span className={`status status-${d.fixturesGenerated ? 'completed' : 'scheduled'}`}>
+                <button key={d.id} type="button" className="lg-div-row mf-div-row" onClick={() => selectDivision(d)}>
+                  <span className="lg-div-main">
+                    <strong>{d.name}</strong>
+                  </span>
+                  <span className={`lg-div-status lg-div-status-${d.fixturesGenerated ? 'live' : 'idle'}`}>
                     {d.fixturesGenerated ? 'Fixtures generated' : 'No fixtures yet'}
                   </span>
-                </li>
+                  <svg className="lg-div-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+                </button>
               ))}
-            </ul>
+            </div>
           )}
         </section>
       )}
