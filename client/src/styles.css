@@ -2382,3 +2382,5 @@ button.vm-tile { cursor: pointer; }
    sits flush inside them, so undo the -20px pull the rule above applies. */
 .card.cs-settings:not(.card-link):not(.card-center):not(.scoreboard):not(.portal-card) > h2:first-child,
 .card.cs-tools:not(.card-link):not(.card-center):not(.scoreboard):not(.portal-card) > h2:first-child { margin: 0 !important; padding: 12px 16px; border-radius: 0; }
+.vmm-join { display: flex; flex-direction: column; gap: 6px; }
+.vmm-join .btn { min-height: 48px; font-weight: 700; }

@@ -58,6 +58,17 @@ export default function VenueMember() {
       .finally(() => setBusy(0));
   };
 
+  const [joining, setJoining] = useState(false);
+  const [armJoin, setArmJoin] = useState(false);
+  const addToVenue = () => {
+    if (!armJoin) { setArmJoin(true); return; }
+    setArmJoin(false); setJoining(true); setError(''); setNotice('');
+    api.addPlayerToVenue(venueId, userId)
+      .then(() => { setNotice(`Added to ${data.venueName}. They're now in Registered players, with no membership dates yet.`); return load(); })
+      .catch((e) => setError(e.message))
+      .finally(() => setJoining(false));
+  };
+
   const p = data && data.player;
   const m = (p && p.membership) || {};
   const st = p ? (STATUS[p.membershipStatus] || STATUS['not-member']) : null;
@@ -95,6 +106,14 @@ export default function VenueMember() {
               </dl>
 
               {notice && <p className="vm-wi-notice" role="status">{notice}</p>}
+              {p.membershipStatus === 'not-member' && (
+                <div className="vmm-join">
+                  <button type="button" className={`btn ${armJoin ? 'btn-primary' : ''} cs-btn-block`} disabled={joining || !!busy} onClick={addToVenue}>
+                    {joining ? 'Adding…' : armJoin ? 'Tap again to confirm' : `Add to ${data.venueName}`}
+                  </button>
+                  <p className="muted vm-small">Adds them to this venue's Registered players with no membership dates. Use Add 1 month or Add 1 year below when they pay.</p>
+                </div>
+              )}
               <div className="vmm-plans">
                 {PLANS.map((plan) => (
                   <button
