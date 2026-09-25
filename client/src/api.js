@@ -173,6 +173,21 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId, months }),
     }),
+  // NFC cards and bar check-in (Venue Manager Portal "Tap to check in").
+  // uid is the card's serial number as read by Web NFC or typed/scanned.
+  venueCheckin: (venueId, uid) =>
+    request('/venue-manager/checkins', { method: 'POST', body: JSON.stringify({ venueId, uid }) }),
+  getVenueCheckinsToday: (venueId) =>
+    request(`/venue-manager/checkins?venueId=${encodeURIComponent(venueId)}`),
+  linkVenueCard: (venueId, playerId, uid, label = '') =>
+    request(`/venue-manager/players/${playerId}/cards`, { method: 'POST', body: JSON.stringify({ venueId, uid, label }) }),
+  unlinkVenueCard: (venueId, playerId, uid) =>
+    request(`/venue-manager/players/${playerId}/cards/${encodeURIComponent(uid)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  getCheckinTag: (venueId, rotate = false) =>
+    request('/venue-manager/checkin-tag', { method: 'POST', body: JSON.stringify({ venueId, rotate }) }),
+  // Player's phone opened the bar tag's link (/checkin/:token).
+  selfCheckin: (token) =>
+    request(`/checkin/${encodeURIComponent(token)}`, { method: 'POST' }),
 
   // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
   // - visible to every logged-in account, not just admins.

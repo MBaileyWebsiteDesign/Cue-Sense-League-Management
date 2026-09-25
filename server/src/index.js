@@ -1271,6 +1271,8 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
     email: u.email,
     status: u.status,
     membershipRenewalDate: membershipAt(u, venue.id).renewalDate,
+    // Linked NFC cards (see "NFC cards and bar check-in" below).
+    cards: (Array.isArray(u.nfcCards) ? u.nfcCards : []).map((c) => ({ uid: c.uid, label: c.label || '' })),
   })));
 }));
 
@@ -2188,6 +2190,249 @@ app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute
     email: player.email,
     status: player.status,
     membershipRenewalDate: mem.renewalDate,
+  });
+}));
+
+// ---------- NFC cards and bar check-in (2026-09-25) ----------
+// Players "sign in" at the bar in two ways (Matt, 2026-09-25):
+//  1. Bar phone reads the player's card: a Venue Manager opens "Tap to check
+//     in" on the Venue Manager Portal (Web NFC, Chrome on Android) and the
+//     player taps their NFC card/sticker on it. The card's serial number
+//     (UID) is looked up in user.nfcCards, a visit is logged, and the page
+//     shows the player's membership status at this venue, with renew and
+//     walk-in buttons. The same route takes a typed card number, so a USB
+//     desk reader that types the number (keyboard wedge) can replace the
+//     phone later with no change to the cards.
+//  2. Player's phone taps a tag on the bar: the tag holds a link to
+//     /checkin/<venue.checkinTagToken>. Opening it while logged in logs a
+//     visit for that player (source 'tag'). Renewing is never offered here -
+//     membership is behind a paywall, so only the venue does that.
+// Cards are linked to players by a Venue Manager (a player of that venue).
+// Visits live in db.venueVisits: { id, venueId, userId, source ('card' |
+// 'tag'), cardUid, membershipStatus, at, by }. A repeat check-in by the same
+// player at the same venue within CHECKIN_REPEAT_MS returns the earlier
+// visit instead of logging another. Visits older than VISIT_KEEP_DAYS are
+// dropped when a new one is logged, so the JSON file doesn't grow forever.
+const CHECKIN_REPEAT_MS = 2 * 60 * 1000;
+const VISIT_KEEP_DAYS = 400;
+const CARD_UID_RE = /^[0-9A-F]{6,40}$/;
+
+// Web NFC gives "04:a2:3b:..."; readers and people type "04A23B..." or
+// "04-a2-3b". All become upper-case hex with no separators.
+function normalizeCardUid(raw) {
+  const uid = String(raw || '').replace(/[\s:\-]/g, '').toUpperCase();
+  if (!CARD_UID_RE.test(uid)) throw new ApiError(400, "That card number doesn't look right.");
+  return uid;
+}
+
+function cardsOf(user) {
+  return Array.isArray(user.nfcCards) ? user.nfcCards : [];
+}
+
+function findUserByCard(db, uid) {
+  return db.users.find((u) => cardsOf(u).some((c) => c.uid === uid)) || null;
+}
+
+function todayUkString() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+}
+
+// 'active' (end date today or later), 'expired', 'no-dates' (a member entry
+// with no end date yet) or 'not-member' (no entry at this venue).
+function membershipStatusAt(user, venueId) {
+  const m = membershipAt(user, venueId);
+  if (!m) return 'not-member';
+  if (!m.renewalDate) return 'no-dates';
+  return membershipActive(m) ? 'active' : 'expired';
+}
+
+function checkinPlayerView(db, user, venueId) {
+  const m = membershipAt(user, venueId);
+  const visits = (db.venueVisits || []).filter((v) => v.venueId === venueId && v.userId === user.id);
+  return {
+    id: user.id,
+    playerId: user.playerId || null,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    status: user.status,
+    membership: m ? { startDate: m.startDate || null, renewalDate: m.renewalDate || null } : null,
+    membershipStatus: membershipStatusAt(user, venueId),
+    membershipRenewalDate: m ? m.renewalDate || null : null,
+    visitCount: visits.length,
+    cards: cardsOf(user).map((c) => ({ uid: c.uid, label: c.label || '', linkedAt: c.linkedAt || null })),
+  };
+}
+
+// Logs (or reuses a very recent) visit. Returns { visit, repeat }.
+function logVenueVisit(db, { venueId, user, source, cardUid = null, by = null }) {
+  if (!Array.isArray(db.venueVisits)) db.venueVisits = [];
+  const now = Date.now();
+  const recent = db.venueVisits.find((v) => v.venueId === venueId && v.userId === user.id && now - new Date(v.at).getTime() < CHECKIN_REPEAT_MS);
+  if (recent) return { visit: recent, repeat: true };
+  const cutoff = now - VISIT_KEEP_DAYS * 24 * 60 * 60 * 1000;
+  db.venueVisits = db.venueVisits.filter((v) => new Date(v.at).getTime() >= cutoff);
+  const visit = {
+    id: uuid(),
+    venueId,
+    userId: user.id,
+    source,
+    cardUid,
+    membershipStatus: membershipStatusAt(user, venueId),
+    at: new Date(now).toISOString(),
+    by,
+  };
+  db.venueVisits.push(visit);
+  return { visit, repeat: false };
+}
+
+function managedVenueOr404(req, db, venueId) {
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  return venue;
+}
+
+// Bar phone / desk reader: a card was tapped. Logs a visit and answers with
+// the player and their membership status here. An unknown card answers
+// { found: false, uid } (not an error) so the page can offer to link it.
+app.post('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, uid: rawUid } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  const uid = normalizeCardUid(rawUid);
+  const user = findUserByCard(db, uid);
+  if (!user) return res.json({ found: false, uid });
+  const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'card', cardUid: uid, by: req.adminSession.label });
+  if (!repeat) writeDb(db);
+  res.json({ found: true, uid, repeat, visit, player: checkinPlayerView(db, user, venue.id) });
+}));
+
+// Today's check-ins (UK day) at a venue, newest first - card and bar tag.
+app.get('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, req.query.venueId);
+  const today = todayUkString();
+  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date(iso));
+  const usersById = new Map(db.users.map((u) => [u.id, u]));
+  const list = (db.venueVisits || [])
+    .filter((v) => v.venueId === venue.id && dayOf(v.at) === today)
+    .sort((a, b) => (a.at < b.at ? 1 : -1))
+    .map((v) => {
+      const u = usersById.get(v.userId);
+      return {
+        id: v.id,
+        at: v.at,
+        source: v.source,
+        membershipStatus: v.membershipStatus,
+        userId: v.userId,
+        playerId: u ? u.playerId || null : null,
+        name: u ? `${u.firstName} ${u.lastName}` : 'Deleted account',
+      };
+    });
+  res.json(list);
+}));
+
+// Link a card to a player of this venue. A card can only belong to one
+// account; the name of its current owner is only shown when that owner is
+// also a player of this venue.
+app.post('/api/venue-manager/players/:id/cards', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, uid: rawUid, label = '' } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (!membershipAt(player, venue.id)) throw new ApiError(403, 'Player is not registered to this venue');
+  const uid = normalizeCardUid(rawUid);
+  const owner = findUserByCard(db, uid);
+  if (owner && owner.id === player.id) return res.json(checkinPlayerView(db, player, venue.id));
+  if (owner) {
+    const who = membershipAt(owner, venue.id) ? `${owner.firstName} ${owner.lastName}` : 'another player';
+    throw new ApiError(409, `This card is already linked to ${who}. Unlink it from them first.`);
+  }
+  if (!Array.isArray(player.nfcCards)) player.nfcCards = [];
+  player.nfcCards.push({
+    uid,
+    label: String(label || '').trim().slice(0, 40),
+    linkedAt: new Date().toISOString(),
+    linkedBy: req.adminSession.label,
+    linkedAtVenueId: venue.id,
+  });
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.nfcCardLinked',
+    targetType: 'user',
+    targetId: player.id,
+    details: `Linked card ${uid} to ${player.firstName} ${player.lastName} at ${venue.name}`,
+  });
+  writeDb(db);
+  res.json(checkinPlayerView(db, player, venue.id));
+}));
+
+app.delete('/api/venue-manager/players/:id/cards/:uid', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, req.query.venueId);
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (!membershipAt(player, venue.id)) throw new ApiError(403, 'Player is not registered to this venue');
+  const uid = normalizeCardUid(req.params.uid);
+  const before = cardsOf(player).length;
+  player.nfcCards = cardsOf(player).filter((c) => c.uid !== uid);
+  if (player.nfcCards.length !== before) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.nfcCardUnlinked',
+      targetType: 'user',
+      targetId: player.id,
+      details: `Unlinked card ${uid} from ${player.firstName} ${player.lastName} at ${venue.name}`,
+    });
+    writeDb(db);
+  }
+  res.json(checkinPlayerView(db, player, venue.id));
+}));
+
+// The bar tag's link. Created the first time it's asked for; rotate=true
+// makes a new one (any tag written with the old link stops working).
+app.post('/api/venue-manager/checkin-tag', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, rotate = false } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  if (!venue.checkinTagToken || rotate) {
+    const had = !!venue.checkinTagToken;
+    venue.checkinTagToken = crypto.randomBytes(12).toString('hex');
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.checkinTag',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: had ? `New bar check-in tag link for ${venue.name} (the old tag link no longer works)` : `Bar check-in tag link created for ${venue.name}`,
+    });
+    writeDb(db);
+  }
+  res.json({ token: venue.checkinTagToken, url: `${baseUrlFor(req)}/checkin/${venue.checkinTagToken}` });
+}));
+
+// Player's phone tapped the bar tag (opens /checkin/:token). Logs a visit
+// for the logged-in account and answers with their status at that venue.
+// No renew option here - renewals are done by the venue.
+app.post('/api/checkin/:token', requireAuth, asyncRoute((req, res) => {
+  const token = String(req.params.token || '');
+  const db = readDb();
+  const venue = token ? db.venues.find((v) => v.checkinTagToken && v.checkinTagToken === token) : null;
+  if (!venue) throw new ApiError(404, "This check-in tag isn't recognised. Please ask the bar staff.");
+  const user = db.users.find((u) => u.id === req.auth.user.id);
+  if (!user) throw new ApiError(404, 'Account not found');
+  const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'tag' });
+  if (!repeat) writeDb(db);
+  const m = membershipAt(user, venue.id);
+  res.json({
+    venueName: venue.name,
+    repeat,
+    at: visit.at,
+    firstName: user.firstName,
+    membershipStatus: membershipStatusAt(user, venue.id),
+    membership: m ? { startDate: m.startDate || null, renewalDate: m.renewalDate || null } : null,
   });
 }));
 
