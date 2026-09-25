@@ -54,6 +54,9 @@ const EMPTY_STATE = {
   // Abuse reports on a conversation - { id, reporterUserId, reportedUserId,
   // reason, snapshot[], leagueIds[], status, createdAt, handledAt, handledBy, note }.
   messageReports: [],
+  // Bar check-ins (NFC card or bar tag) - see "NFC cards and bar check-in"
+  // in index.js: { id, venueId, userId, source, cardUid, membershipStatus, at, by }.
+  venueVisits: [],
   passwordResets: [],
   tours: [],
   rollOfHonour: [],
@@ -133,6 +136,7 @@ export function readDb() {
   if (!state.messages) state.messages = [];
   if (!state.userBlocks) state.userBlocks = [];
   if (!state.messageReports) state.messageReports = [];
+  if (!state.venueVisits) state.venueVisits = [];
   if (!state.passwordResets) state.passwordResets = [];
   if (!state.divisions) state.divisions = [];
   if (!state.fixtures) state.fixtures = [];
@@ -275,6 +279,23 @@ export function readDb() {
     // the existing membershipRenewalDate field above) - see AdminUserEdit.jsx's
     // MembershipDatesPanel and POST /api/admin/users/:id/membership-dates.
     if (user.membershipStartDate === undefined) user.membershipStartDate = null;
+    // Multi-venue memberships (2026-09-25): an account can belong to several
+    // venues, each with its own dates, in user.venueMemberships. Accounts
+    // from before this get one entry built from the old single venueId +
+    // membershipStartDate/membershipRenewalDate. Those old fields are left
+    // as they were (no longer read) so a rollback still has them.
+    // NFC cards linked by a Venue Manager (2026-09-25): [{ uid, label, linkedAt, linkedBy, linkedAtVenueId }].
+    if (!Array.isArray(user.nfcCards)) user.nfcCards = [];
+    if (!Array.isArray(user.venueMemberships)) {
+      user.venueMemberships = user.venueId
+        ? [{
+          venueId: user.venueId,
+          startDate: user.membershipStartDate || null,
+          renewalDate: user.membershipRenewalDate || null,
+          joinedAt: user.createdAt || null,
+        }]
+        : [];
+    }
   }
 
   cache = { mtimeMs, state };

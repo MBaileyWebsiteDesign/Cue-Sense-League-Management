@@ -217,7 +217,7 @@ function VenueManagersPanel({ venue, users, onChange, setError }) {
 function VenueCard({ venue, users, onChange, setError }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const registeredCount = users.filter((u) => u.venueId === venue.id).length;
+  const registeredCount = users.filter((u) => (u.venueMemberships || []).some((m) => m.venueId === venue.id)).length;
 
   const onDelete = async () => {
     if (!window.confirm(`Delete venue "${venue.name}"? This can't be undone.`)) return;

@@ -3,124 +3,111 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
-// Membership Management: which Venue this account belongs to - a plain data
-// field on every account type, admin-set only (see POST
-// /api/admin/users/:id/venue). Kept as its own small card, separate from
-// ProfileForm above, since it isn't part of applyProfileFields (that
-// function also backs the self-service PATCH /api/users/me, and Venue is
-// deliberately never self-editable).
-function VenuePanel({ user, venues, onSaved, setError, setSuccess }) {
-  const [venueId, setVenueId] = useState(user.venueId || '');
-  const [submitting, setSubmitting] = useState(false);
-  const dirty = venueId !== (user.venueId || '');
+// Venue memberships (Matt, 2026-09-25): an account can be a member of several
+// venues, each with its own optional start and end date (the end date is what
+// the Venue Manager Portal's renewal counts use). One row per venue with its
+// own Save and Remove; "Add venue" adds a row with no dates.
+function addOneYear(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+}
 
-  const onSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    setSubmitting(true);
+function MembershipRow({ user, membership, venueName, onSaved, setError, setSuccess }) {
+  const [startDate, setStartDate] = useState(membership.startDate || '');
+  const [endDate, setEndDate] = useState(membership.renewalDate || '');
+  const [busy, setBusy] = useState(false);
+  const dirty = startDate !== (membership.startDate || '') || endDate !== (membership.renewalDate || '');
+
+  const save = async () => {
+    setError(''); setSuccess(''); setBusy(true);
     try {
-      const updated = await api.adminSetUserVenue(user.id, venueId || null);
+      const updated = await api.adminSetVenueMembership(user.id, { venueId: membership.venueId, startDate: startDate || null, renewalDate: endDate || null });
       onSaved(updated);
-      setSuccess('Venue updated.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+      setSuccess(`${venueName} membership updated.`);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    if (!window.confirm(`Remove ${user.firstName} ${user.lastName} from ${venueName}? Their membership dates there will be deleted.`)) return;
+    setError(''); setSuccess(''); setBusy(true);
+    try {
+      const updated = await api.adminRemoveVenueMembership(user.id, membership.venueId);
+      onSaved(updated);
+      setSuccess(`Removed from ${venueName}.`);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
   return (
-    <form className="card form" onSubmit={onSubmit}>
-      <h2>Venue</h2>
+    <div className="aue-mem">
+      <h3 style={{ margin: '0 0 6px' }}>{venueName}</h3>
       <label>
-        Venue <span className="muted">(optional)</span>
-        <select value={venueId} onChange={(e) => setVenueId(e.target.value)}>
-          <option value="">Not set</option>
-          {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
+        Start date <span className="muted">(optional)</span>
+        <input type="date" value={startDate} onChange={(ev) => { setStartDate(ev.target.value); if (ev.target.value && !endDate) setEndDate(addOneYear(ev.target.value)); }} />
       </label>
-      <button className="btn btn-primary" type="submit" disabled={!dirty || submitting}>
-        {submitting ? 'Saving…' : 'Save Venue'}
-      </button>
+      <label>
+        End date <span className="muted">(optional)</span>
+        <input type="date" value={endDate} onChange={(ev) => setEndDate(ev.target.value)} />
+      </label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" type="button" onClick={save} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save dates'}</button>
+        <button className="btn btn-danger" type="button" onClick={remove} disabled={busy}>Remove from venue</button>
+      </div>
+    </div>
+  );
+}
+
+function VenueMembershipsPanel({ user, venues, onSaved, setError, setSuccess }) {
+  const [addId, setAddId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const memberships = Array.isArray(user.venueMemberships) ? user.venueMemberships : [];
+  const nameOf = (id) => venues.find((v) => v.id === id)?.name || 'Unknown venue';
+  const available = venues.filter((v) => !memberships.some((m) => m.venueId === v.id));
+
+  const add = async () => {
+    if (!addId) return;
+    setError(''); setSuccess(''); setBusy(true);
+    try {
+      const updated = await api.adminSetVenueMembership(user.id, { venueId: addId });
+      onSaved(updated);
+      setSuccess(`Added to ${nameOf(addId)}.`);
+      setAddId('');
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card form">
+      <h2>Venues &amp; memberships</h2>
+      <p className="muted" style={{ margin: '0 0 8px', fontSize: '0.85rem' }}>
+        A player can be a member of more than one venue. Setting a start date fills in an end date one year later if none is set.
+      </p>
+      {memberships.length === 0 && <p className="muted">Not a member of any venue.</p>}
+      {memberships.map((m) => (
+        <MembershipRow
+          key={`${m.venueId}:${m.startDate || ''}:${m.renewalDate || ''}`}
+          user={user}
+          membership={m}
+          venueName={nameOf(m.venueId)}
+          onSaved={onSaved}
+          setError={setError}
+          setSuccess={setSuccess}
+        />
+      ))}
+      {available.length > 0 && (
+        <label>
+          Add a venue
+          <select value={addId} onChange={(ev) => setAddId(ev.target.value)} disabled={busy}>
+            <option value="">Choose a venue</option>
+            {available.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </label>
+      )}
+      {addId && <button className="btn btn-primary" type="button" onClick={add} disabled={busy}>{busy ? 'Adding…' : 'Add venue'}</button>}
       {venues.length === 0 && (
         <p className="muted" style={{ fontSize: '0.85rem' }}>
           No venues exist yet - create one from Admin Portal &rarr; Membership Management first.
         </p>
       )}
-    </form>
-  );
-}
-
-// Membership dates - both optional/nullable; a player can have neither, either,
-// or both set. End date reuses the existing membershipRenewalDate field
-// (server/src/index.js's POST /api/admin/users/:id/membership-dates), which is
-// what the Venue Manager Portal's "due for renewal" counts key off.
-// Adding a year to a start date for the default end date - done with plain
-// Date math (not a library) since this only ever needs to shift by exactly
-// one calendar year and land on the corresponding YYYY-MM-DD.
-function addOneYear(isoDate) {
-  const d = new Date(`${isoDate}T00:00:00`);
-  d.setFullYear(d.getFullYear() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function MembershipDatesPanel({ user, onSaved, setError, setSuccess }) {
-  const [startDate, setStartDate] = useState(user.membershipStartDate || '');
-  const [endDate, setEndDate] = useState(user.membershipRenewalDate || '');
-  const [submitting, setSubmitting] = useState(false);
-  const dirty =
-    startDate !== (user.membershipStartDate || '') ||
-    endDate !== (user.membershipRenewalDate || '');
-
-  // Picking a start date defaults the end date to exactly one year later -
-  // but only when there's no end date set yet, so it never overwrites one
-  // an admin already entered on purpose.
-  const onStartDateChange = (e) => {
-    const value = e.target.value;
-    setStartDate(value);
-    if (value && !endDate) {
-      setEndDate(addOneYear(value));
-    }
-  };
-
-  const onSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    setSubmitting(true);
-    try {
-      const updated = await api.adminSetMembershipDates(user.id, {
-        membershipStartDate: startDate || null,
-        membershipEndDate: endDate || null,
-      });
-      onSaved(updated);
-      setSuccess('Membership dates updated.');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <form className="card form" onSubmit={onSubmit}>
-      <h2>Membership dates</h2>
-      <p className="muted" style={{ margin: '0 0 8px', fontSize: '0.85rem' }}>
-        Setting a start date fills in an end date one year later automatically, if no end date is set yet - you can still change either field.
-      </p>
-      <label>
-        Start date <span className="muted">(optional)</span>
-        <input type="date" value={startDate} onChange={onStartDateChange} />
-      </label>
-      <label>
-        End date <span className="muted">(optional)</span>
-        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-      </label>
-      <button className="btn btn-primary" type="submit" disabled={!dirty || submitting}>
-        {submitting ? 'Saving…' : 'Save Membership Dates'}
-      </button>
-    </form>
+    </div>
   );
 }
 
@@ -315,8 +302,7 @@ export default function AdminUserEdit() {
             <p className="muted"><Link to={`/players/${user.playerId}`}>View their stats &amp; match history</Link></p>
           )}
           <ProfileForm user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
-          <VenuePanel user={user} venues={venues} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
-          <MembershipDatesPanel user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
+          <VenueMembershipsPanel user={user} venues={venues} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
           <PermissionsPanel user={user} onSaved={setUser} setError={setError} setSuccess={setSuccess} />
           <ResetPasswordForm user={user} setError={setError} setSuccess={setSuccess} />
         </>

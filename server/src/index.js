@@ -366,6 +366,60 @@ app.get('/api/users/me', requireAuth, asyncRoute((req, res) => {
   res.json(publicUser(req.auth.user));
 }));
 
+// Player self-service venues (Account settings > My venues, Matt 2026-09-25).
+// Any logged-in account can list venue names, join a venue (a membership
+// entry with no dates - the venue sets dates when they pay) and leave one.
+// A venue whose membership is still active (end date today or later) can't
+// be left from here - the venue or an admin has to remove it.
+app.get('/api/venues/list', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  res.json(db.venues.map((v) => ({ id: v.id, name: v.name })).sort((a, b) => a.name.localeCompare(b.name)));
+}));
+
+app.post('/api/users/me/venues', requireAuth, asyncRoute((req, res) => {
+  const { venueId } = req.body || {};
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.auth.user.id);
+  if (!user) throw new ApiError(404, 'Account not found');
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  if (!membershipAt(user, venue.id)) {
+    ensureMembership(user, venue.id);
+    recordAudit(db, {
+      actor: `${user.firstName} ${user.lastName}`,
+      action: 'user.venueMembership',
+      targetType: 'user',
+      targetId: user.id,
+      details: `${user.firstName} ${user.lastName} added "${venue.name}" to their venues`,
+    });
+    writeDb(db);
+  }
+  res.json(publicUser(user));
+}));
+
+app.delete('/api/users/me/venues/:venueId', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.auth.user.id);
+  if (!user) throw new ApiError(404, 'Account not found');
+  const m = membershipAt(user, req.params.venueId);
+  if (m) {
+    const venue = db.venues.find((v) => v.id === m.venueId);
+    if (membershipActive(m)) {
+      throw new ApiError(400, `Your membership at ${venue ? venue.name : 'this venue'} runs until ${m.renewalDate} - ask the venue if you want it removed.`);
+    }
+    removeMembership(user, m.venueId);
+    recordAudit(db, {
+      actor: `${user.firstName} ${user.lastName}`,
+      action: 'user.venueMembership',
+      targetType: 'user',
+      targetId: user.id,
+      details: `${user.firstName} ${user.lastName} removed "${venue ? venue.name : m.venueId}" from their venues`,
+    });
+    writeDb(db);
+  }
+  res.json(publicUser(user));
+}));
+
 // A player's league/division membership, shown as a static read-only field
 // in the Player Portal's "Your Details" section - deliberately separate from
 // GET /api/users/me/fixtures (which only reflects divisions that already
@@ -436,10 +490,10 @@ function createUserAccount(db, fields) {
     // Venue Manager flag, same as every other role flag above - assigned
     // afterwards from Manage Users (see POST /api/admin/users/:id/venue and
     // /permissions below).
-    venueId: fields.venueId || null,
+    venueMemberships: fields.venueId
+      ? [{ venueId: fields.venueId, startDate: null, renewalDate: null, joinedAt: new Date().toISOString() }]
+      : [],
     isVenueManager: !!fields.isVenueManager,
-    membershipStartDate: null,
-    membershipRenewalDate: null,
     status: 'active',
     playerId: linkedPlayer.id,
     createdAt: new Date().toISOString(),
@@ -447,6 +501,44 @@ function createUserAccount(db, fields) {
   db.users.push(user);
   return user;
 }
+
+// ---------- Venue memberships (Matt, 2026-09-25) ----------
+// A player can belong to more than one venue. Each account carries
+// user.venueMemberships = [{ venueId, startDate, renewalDate, joinedAt }]
+// (dates are YYYY-MM-DD or null). This replaced the single user.venueId +
+// membershipStartDate/membershipRenewalDate fields; db.js migrates old
+// accounts into one membership entry and leaves the old fields untouched
+// (no longer read) so a rollback still finds them.
+// A venue's "Registered players" = every account with an entry for it.
+function venueMembershipsOf(user) {
+  return Array.isArray(user && user.venueMemberships) ? user.venueMemberships : [];
+}
+function membershipAt(user, venueId) {
+  return venueMembershipsOf(user).find((m) => m.venueId === venueId) || null;
+}
+function userVenueIds(user) {
+  return venueMembershipsOf(user).map((m) => m.venueId);
+}
+// Adds (or returns the existing) membership entry for venueId.
+function ensureMembership(user, venueId) {
+  if (!Array.isArray(user.venueMemberships)) user.venueMemberships = [];
+  let m = membershipAt(user, venueId);
+  if (!m) {
+    m = { venueId, startDate: null, renewalDate: null, joinedAt: new Date().toISOString() };
+    user.venueMemberships.push(m);
+  }
+  return m;
+}
+function removeMembership(user, venueId) {
+  user.venueMemberships = venueMembershipsOf(user).filter((m) => m.venueId !== venueId);
+}
+// True while a membership's end date is today or later (UK date).
+function membershipActive(m) {
+  if (!m || !m.renewalDate) return false;
+  const todayUk = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+  return String(m.renewalDate) >= todayUk;
+}
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Keeps a User's linked Player roster entry's display name in sync whenever
 // the account's name changes, whether the edit came from the player
@@ -961,9 +1053,9 @@ app.delete('/api/venues/:id', requireAdmin, asyncRoute((req, res) => {
   const db = readDb();
   const venue = db.venues.find((v) => v.id === req.params.id);
   if (!venue) throw new ApiError(404, 'Venue not found');
-  const assignedCount = db.users.filter((u) => u.venueId === venue.id).length;
+  const assignedCount = db.users.filter((u) => membershipAt(u, venue.id)).length;
   if (assignedCount > 0) {
-    throw new ApiError(400, `${assignedCount} account(s) are still assigned to this venue - reassign or clear their Venue first`);
+    throw new ApiError(400, `${assignedCount} account(s) are still members of this venue - remove the venue from their account first`);
   }
   db.venues = db.venues.filter((v) => v.id !== venue.id);
   recordAudit(db, {
@@ -1078,7 +1170,7 @@ app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) 
   // Venue is a variable on all of them, not just plain players) assigned to
   // this venue, excluding suspended accounts, same as everywhere else in
   // the app that counts "active" accounts.
-  const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
+  const venuePlayers = db.users.filter((u) => membershipAt(u, venue.id) && u.status !== 'suspended');
 
   const now = new Date();
   // Each tier counts only players whose renewal falls in that tier's own
@@ -1091,8 +1183,9 @@ app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) 
   // player - there's no UI to set one yet (a follow-up step), so that's
   // expected for now, not a bug.
   const dueWithin = (lowMonths, highMonths) => venuePlayers.filter((u) => {
-    if (!u.membershipRenewalDate) return false;
-    const renewalDate = new Date(u.membershipRenewalDate);
+    const m = membershipAt(u, venue.id);
+    if (!m || !m.renewalDate) return false;
+    const renewalDate = new Date(m.renewalDate);
     if (Number.isNaN(renewalDate.getTime())) return false;
     return inRenewalBand(now, renewalDate, lowMonths, highMonths);
   }).length;
@@ -1122,20 +1215,21 @@ app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((re
   if (!venue) throw new ApiError(404, 'Venue not found');
   assertVenueAccess(req, venue);
 
-  const venuePlayers = db.users.filter((u) => u.venueId === venue.id && u.status !== 'suspended');
+  const venuePlayers = db.users.filter((u) => membershipAt(u, venue.id) && u.status !== 'suspended');
   const now = new Date();
   // Same exclusive band as the Status tile this drill-down was opened from
   // (see inRenewalBand above), so the list's length always matches the
   // number that was clicked - e.g. months=6 only lists players due more
   // than 4 months out but within 6, not everyone due within 6 months.
   const bandLow = { 2: 0, 4: 2, 6: 4 }[monthsNum];
+  const renewalOf = (u) => membershipAt(u, venue.id).renewalDate;
   const due = venuePlayers.filter((u) => {
-    if (!u.membershipRenewalDate) return false;
-    const renewalDate = new Date(u.membershipRenewalDate);
+    if (!renewalOf(u)) return false;
+    const renewalDate = new Date(renewalOf(u));
     if (Number.isNaN(renewalDate.getTime())) return false;
     return inRenewalBand(now, renewalDate, bandLow, monthsNum);
   });
-  due.sort((a, b) => new Date(a.membershipRenewalDate) - new Date(b.membershipRenewalDate));
+  due.sort((a, b) => new Date(renewalOf(a)) - new Date(renewalOf(b)));
 
   res.json(due.map((u) => ({
     id: u.id,
@@ -1143,7 +1237,7 @@ app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((re
     firstName: u.firstName,
     lastName: u.lastName,
     email: u.email,
-    membershipRenewalDate: u.membershipRenewalDate,
+    membershipRenewalDate: renewalOf(u),
   })));
 }));
 
@@ -1160,7 +1254,7 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
   assertVenueAccess(req, venue);
 
   const query = q.trim().toLowerCase();
-  let players = db.users.filter((u) => u.venueId === venue.id);
+  let players = db.users.filter((u) => membershipAt(u, venue.id));
   if (query) {
     players = players.filter((u) =>
       (u.firstName || '').toLowerCase().includes(query) ||
@@ -1176,7 +1270,9 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
     lastName: u.lastName,
     email: u.email,
     status: u.status,
-    membershipRenewalDate: u.membershipRenewalDate,
+    membershipRenewalDate: membershipAt(u, venue.id).renewalDate,
+    // Linked NFC cards (see "NFC cards and bar check-in" below).
+    cards: (Array.isArray(u.nfcCards) ? u.nfcCards : []).map((c) => ({ uid: c.uid, label: c.label || '' })),
   })));
 }));
 
@@ -1899,17 +1995,17 @@ function applyWalkinPlayer(db, req, venue, p, by) {
     const today = londonLocalString(new Date()).slice(0, 10);
     const [y, m, d] = today.split('-').map(Number);
     const end = addMonths(new Date(Date.UTC(y, m - 1, d, 12)), p.membershipMonths).toISOString().slice(0, 10);
-    const prev = { start: user.membershipStartDate, end: user.membershipRenewalDate, venueId: user.venueId };
-    user.membershipStartDate = today;
-    user.membershipRenewalDate = end;
-    user.venueId = venue.id;
+    const mem = ensureMembership(user, venue.id);
+    const prev = { start: mem.startDate, end: mem.renewalDate };
+    mem.startDate = today;
+    mem.renewalDate = end;
     out.membership = { months: p.membershipMonths, start: today, end };
     recordAudit(db, {
       actor: by,
       action: 'user.membershipDates',
       targetType: 'user',
       targetId: user.id,
-      details: `${p.membershipMonths === 12 ? '1 year' : '1 month'} membership for ${user.firstName} ${user.lastName} at ${venue.name} from the walk-in form: ${today} to ${end} (was start=${prev.start || 'none'}, end=${prev.end || 'none'}${prev.venueId && prev.venueId !== venue.id ? ', other venue' : ''})`,
+      details: `${p.membershipMonths === 12 ? '1 year' : '1 month'} membership for ${user.firstName} ${user.lastName} at ${venue.name} from the walk-in form: ${today} to ${end} (was start=${prev.start || 'none'}, end=${prev.end || 'none'})`,
     });
   }
   return out;
@@ -2047,15 +2143,28 @@ app.post('/api/venue-manager/bookings/:id/cancel', requireVenueManager, cancelVe
 // Older clients (cached by the service worker) still call this path.
 app.post('/api/venue-manager/walkins/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
 
-// Quick-renew buttons on the Search players results (client/src/pages/
-// VenueManagerPortal.jsx's PlayerSearchBox) - 1/6/12 months. Extends
-// (doesn't replace) the player's existing membershipRenewalDate by the
-// chosen number of months; if they don't have one set yet, extends from
-// today instead (there's nothing to extend from otherwise). Scoped to the
-// player's own venue, same assertVenueAccess check as every other
-// Venue Manager Portal route, plus an explicit check that the player
-// actually belongs to the venue being renewed against (a Venue Manager
-// could otherwise pass any player id alongside a venue they do manage).
+// Quick-renew buttons (Search players, Registered players, the check-in
+// result and the member page reached from Today's check-ins) - 1, 6 or 12
+// months. Date rule (Matt, 2026-09-25):
+//  - membership still active (end date today or later): the months are
+//    added to the current end date;
+//  - ended, no dates yet, or no membership here: it starts today and ends
+//    today + the months (start date set to today).
+// A player with no membership at this venue can only be given one if they
+// have checked in here (card or bar tag) - otherwise a Venue Manager could
+// add a membership to any account id. Scoped with assertVenueAccess like
+// every other Venue Manager Portal route.
+function addMonthsIso(iso, months) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  return dt.toISOString().slice(0, 10);
+}
+
+function hasVisitedVenue(db, userId, venueId) {
+  return (db.venueVisits || []).some((v) => v.userId === userId && v.venueId === venueId);
+}
+
 app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute((req, res) => {
   const { venueId, months } = req.body || {};
   if (!venueId) throw new ApiError(400, 'venueId is required');
@@ -2068,19 +2177,29 @@ app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute
 
   const player = db.users.find((u) => u.id === req.params.id);
   if (!player) throw new ApiError(404, 'Player not found');
-  if (player.venueId !== venue.id) throw new ApiError(403, 'Player is not registered to this venue');
+  let mem = membershipAt(player, venue.id);
+  const wasMember = !!mem;
+  if (!mem) {
+    if (!hasVisitedVenue(db, player.id, venue.id)) throw new ApiError(403, 'Player is not registered to this venue');
+    mem = ensureMembership(player, venue.id);
+  }
 
-  const existing = player.membershipRenewalDate ? new Date(player.membershipRenewalDate) : null;
-  const base = existing && !Number.isNaN(existing.getTime()) ? existing : new Date();
-  const nextDateStr = addMonths(base, monthsNum).toISOString().slice(0, 10);
-  const previous = player.membershipRenewalDate;
-  player.membershipRenewalDate = nextDateStr;
+  const today = todayUkString();
+  const prev = { start: mem.startDate || null, end: mem.renewalDate || null };
+  const extending = !!(mem.renewalDate && ISO_DATE_RE.test(mem.renewalDate) && mem.renewalDate >= today);
+  if (extending) {
+    mem.renewalDate = addMonthsIso(mem.renewalDate, monthsNum);
+    if (!mem.startDate) mem.startDate = today;
+  } else {
+    mem.startDate = today;
+    mem.renewalDate = addMonthsIso(today, monthsNum);
+  }
   recordAudit(db, {
     actor: req.adminSession.label,
     action: 'user.membershipRenewal',
     targetType: 'user',
     targetId: player.id,
-    details: `Renewed ${player.firstName} ${player.lastName}'s membership by ${monthsNum} month(s): ${previous || 'none'} -> ${nextDateStr}`,
+    details: `${extending ? 'Extended' : wasMember ? 'Restarted' : 'Started'} ${player.firstName} ${player.lastName}'s membership at ${venue.name} by ${monthsNum} month(s): ${prev.start || 'none'}..${prev.end || 'none'} -> ${mem.startDate}..${mem.renewalDate}`,
   });
   writeDb(db);
 
@@ -2091,7 +2210,271 @@ app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute
     lastName: player.lastName,
     email: player.email,
     status: player.status,
-    membershipRenewalDate: player.membershipRenewalDate,
+    membershipStartDate: mem.startDate,
+    membershipRenewalDate: mem.renewalDate,
+    membershipStatus: membershipStatusAt(player, venue.id),
+    extended: extending,
+  });
+}));
+
+// ---------- NFC cards and bar check-in (2026-09-25) ----------
+// Players "sign in" at the bar in two ways (Matt, 2026-09-25):
+//  1. Bar phone reads the player's card: a Venue Manager opens "Tap to check
+//     in" on the Venue Manager Portal (Web NFC, Chrome on Android) and the
+//     player taps their NFC card/sticker on it. The card's serial number
+//     (UID) is looked up in user.nfcCards, a visit is logged, and the page
+//     shows the player's membership status at this venue, with renew and
+//     walk-in buttons. The same route takes a typed card number, so a USB
+//     desk reader that types the number (keyboard wedge) can replace the
+//     phone later with no change to the cards.
+//  2. Player's phone taps a tag on the bar: the tag holds a link to
+//     /checkin/<venue.checkinTagToken>. Opening it while logged in logs a
+//     visit for that player (source 'tag'). Renewing is never offered here -
+//     membership is behind a paywall, so only the venue does that.
+// Cards are linked to players by a Venue Manager (a player of that venue).
+// Visits live in db.venueVisits: { id, venueId, userId, source ('card' |
+// 'tag'), cardUid, membershipStatus, at, by }. A repeat check-in by the same
+// player at the same venue within CHECKIN_REPEAT_MS returns the earlier
+// visit instead of logging another. Visits older than VISIT_KEEP_DAYS are
+// dropped when a new one is logged, so the JSON file doesn't grow forever.
+const CHECKIN_REPEAT_MS = 2 * 60 * 1000;
+const VISIT_KEEP_DAYS = 400;
+const CARD_UID_RE = /^[0-9A-F]{6,40}$/;
+
+// Web NFC gives "04:a2:3b:..."; readers and people type "04A23B..." or
+// "04-a2-3b". All become upper-case hex with no separators.
+function normalizeCardUid(raw) {
+  const uid = String(raw || '').replace(/[\s:\-]/g, '').toUpperCase();
+  if (!CARD_UID_RE.test(uid)) throw new ApiError(400, "That card number doesn't look right.");
+  return uid;
+}
+
+function cardsOf(user) {
+  return Array.isArray(user.nfcCards) ? user.nfcCards : [];
+}
+
+function findUserByCard(db, uid) {
+  return db.users.find((u) => cardsOf(u).some((c) => c.uid === uid)) || null;
+}
+
+function todayUkString() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+}
+
+// 'active' (end date today or later), 'expired', 'no-dates' (a member entry
+// with no end date yet) or 'not-member' (no entry at this venue).
+function membershipStatusAt(user, venueId) {
+  const m = membershipAt(user, venueId);
+  if (!m) return 'not-member';
+  if (!m.renewalDate) return 'no-dates';
+  return membershipActive(m) ? 'active' : 'expired';
+}
+
+function checkinPlayerView(db, user, venueId) {
+  const m = membershipAt(user, venueId);
+  const visits = (db.venueVisits || []).filter((v) => v.venueId === venueId && v.userId === user.id);
+  return {
+    id: user.id,
+    playerId: user.playerId || null,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    status: user.status,
+    membership: m ? { startDate: m.startDate || null, renewalDate: m.renewalDate || null } : null,
+    membershipStatus: membershipStatusAt(user, venueId),
+    membershipRenewalDate: m ? m.renewalDate || null : null,
+    visitCount: visits.length,
+    cards: cardsOf(user).map((c) => ({ uid: c.uid, label: c.label || '', linkedAt: c.linkedAt || null })),
+  };
+}
+
+// Logs (or reuses a very recent) visit. Returns { visit, repeat }.
+function logVenueVisit(db, { venueId, user, source, cardUid = null, by = null }) {
+  if (!Array.isArray(db.venueVisits)) db.venueVisits = [];
+  const now = Date.now();
+  const recent = db.venueVisits.find((v) => v.venueId === venueId && v.userId === user.id && now - new Date(v.at).getTime() < CHECKIN_REPEAT_MS);
+  if (recent) return { visit: recent, repeat: true };
+  const cutoff = now - VISIT_KEEP_DAYS * 24 * 60 * 60 * 1000;
+  db.venueVisits = db.venueVisits.filter((v) => new Date(v.at).getTime() >= cutoff);
+  const visit = {
+    id: uuid(),
+    venueId,
+    userId: user.id,
+    source,
+    cardUid,
+    membershipStatus: membershipStatusAt(user, venueId),
+    at: new Date(now).toISOString(),
+    by,
+  };
+  db.venueVisits.push(visit);
+  return { visit, repeat: false };
+}
+
+function managedVenueOr404(req, db, venueId) {
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  return venue;
+}
+
+// Bar phone / desk reader: a card was tapped. Logs a visit and answers with
+// the player and their membership status here. An unknown card answers
+// { found: false, uid } (not an error) so the page can offer to link it.
+app.post('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, uid: rawUid } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  const uid = normalizeCardUid(rawUid);
+  const user = findUserByCard(db, uid);
+  if (!user) return res.json({ found: false, uid });
+  const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'card', cardUid: uid, by: req.adminSession.label });
+  if (!repeat) writeDb(db);
+  res.json({ found: true, uid, repeat, visit, player: checkinPlayerView(db, user, venue.id) });
+}));
+
+// Today's check-ins (UK day) at a venue, newest first - card and bar tag.
+app.get('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, req.query.venueId);
+  const today = todayUkString();
+  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date(iso));
+  const usersById = new Map(db.users.map((u) => [u.id, u]));
+  const list = (db.venueVisits || [])
+    .filter((v) => v.venueId === venue.id && dayOf(v.at) === today)
+    .sort((a, b) => (a.at < b.at ? 1 : -1))
+    .map((v) => {
+      const u = usersById.get(v.userId);
+      return {
+        id: v.id,
+        at: v.at,
+        source: v.source,
+        membershipStatus: v.membershipStatus,
+        userId: v.userId,
+        playerId: u ? u.playerId || null : null,
+        name: u ? `${u.firstName} ${u.lastName}` : 'Deleted account',
+      };
+    });
+  res.json(list);
+}));
+
+// Member page (Venue Manager Portal > Today's check-ins > a name): the
+// player's membership at this venue, their visits here and linked cards.
+// Only for players who are members here or have checked in here.
+app.get('/api/venue-manager/players/:id/membership', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, req.query.venueId);
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player || (!membershipAt(player, venue.id) && !hasVisitedVenue(db, player.id, venue.id))) {
+    throw new ApiError(404, 'Player not found at this venue');
+  }
+  const visits = (db.venueVisits || [])
+    .filter((v) => v.venueId === venue.id && v.userId === player.id)
+    .sort((a, b) => (a.at < b.at ? 1 : -1))
+    .slice(0, 20)
+    .map((v) => ({ id: v.id, at: v.at, source: v.source }));
+  res.json({ venueId: venue.id, venueName: venue.name, player: checkinPlayerView(db, player, venue.id), visits });
+}));
+
+// Link a card to a player of this venue. A card can only belong to one
+// account; the name of its current owner is only shown when that owner is
+// also a player of this venue.
+app.post('/api/venue-manager/players/:id/cards', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, uid: rawUid, label = '' } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (!membershipAt(player, venue.id)) throw new ApiError(403, 'Player is not registered to this venue');
+  const uid = normalizeCardUid(rawUid);
+  const owner = findUserByCard(db, uid);
+  if (owner && owner.id === player.id) return res.json(checkinPlayerView(db, player, venue.id));
+  if (owner) {
+    const who = membershipAt(owner, venue.id) ? `${owner.firstName} ${owner.lastName}` : 'another player';
+    throw new ApiError(409, `This card is already linked to ${who}. Unlink it from them first.`);
+  }
+  if (!Array.isArray(player.nfcCards)) player.nfcCards = [];
+  player.nfcCards.push({
+    uid,
+    label: String(label || '').trim().slice(0, 40),
+    linkedAt: new Date().toISOString(),
+    linkedBy: req.adminSession.label,
+    linkedAtVenueId: venue.id,
+  });
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.nfcCardLinked',
+    targetType: 'user',
+    targetId: player.id,
+    details: `Linked card ${uid} to ${player.firstName} ${player.lastName} at ${venue.name}`,
+  });
+  writeDb(db);
+  res.json(checkinPlayerView(db, player, venue.id));
+}));
+
+app.delete('/api/venue-manager/players/:id/cards/:uid', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, req.query.venueId);
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (!membershipAt(player, venue.id)) throw new ApiError(403, 'Player is not registered to this venue');
+  const uid = normalizeCardUid(req.params.uid);
+  const before = cardsOf(player).length;
+  player.nfcCards = cardsOf(player).filter((c) => c.uid !== uid);
+  if (player.nfcCards.length !== before) {
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.nfcCardUnlinked',
+      targetType: 'user',
+      targetId: player.id,
+      details: `Unlinked card ${uid} from ${player.firstName} ${player.lastName} at ${venue.name}`,
+    });
+    writeDb(db);
+  }
+  res.json(checkinPlayerView(db, player, venue.id));
+}));
+
+// The bar tag's link. Created the first time it's asked for; rotate=true
+// makes a new one (any tag written with the old link stops working).
+app.post('/api/venue-manager/checkin-tag', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, rotate = false } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  if (!venue.checkinTagToken || rotate) {
+    const had = !!venue.checkinTagToken;
+    venue.checkinTagToken = crypto.randomBytes(12).toString('hex');
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.checkinTag',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: had ? `New bar check-in tag link for ${venue.name} (the old tag link no longer works)` : `Bar check-in tag link created for ${venue.name}`,
+    });
+    writeDb(db);
+  }
+  res.json({ token: venue.checkinTagToken, url: `${baseUrlFor(req)}/checkin/${venue.checkinTagToken}` });
+}));
+
+// Player's phone tapped the bar tag (opens /checkin/:token). Logs a visit
+// for the logged-in account and answers with their status at that venue.
+// No renew option here - renewals are done by the venue.
+app.post('/api/checkin/:token', requireAuth, asyncRoute((req, res) => {
+  const token = String(req.params.token || '');
+  const db = readDb();
+  const venue = token ? db.venues.find((v) => v.checkinTagToken && v.checkinTagToken === token) : null;
+  if (!venue) throw new ApiError(404, "This check-in tag isn't recognised. Please ask the bar staff.");
+  const user = db.users.find((u) => u.id === req.auth.user.id);
+  if (!user) throw new ApiError(404, 'Account not found');
+  const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'tag' });
+  if (!repeat) writeDb(db);
+  const m = membershipAt(user, venue.id);
+  res.json({
+    venueName: venue.name,
+    repeat,
+    at: visit.at,
+    firstName: user.firstName,
+    membershipStatus: membershipStatusAt(user, venue.id),
+    membership: m ? { startDate: m.startDate || null, renewalDate: m.renewalDate || null } : null,
   });
 }));
 
@@ -8358,61 +8741,65 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
 // admin-set only, never self-service) or the boolean-flag permissions route
 // above. See the "---------- Venues ----------" section further down for
 // how a venue is created/managed.
-app.post('/api/admin/users/:id/venue', requireAdmin, asyncRoute((req, res) => {
-  const { venueId } = req.body || {};
+// Venue memberships, admin side (Matt, 2026-09-25): a player can be a
+// member of several venues, each with its own optional start/end dates.
+// Upsert: POST { venueId, startDate?, renewalDate? } (dates YYYY-MM-DD or
+// null/''); remove: DELETE .../venue-memberships/:venueId.
+app.post('/api/admin/users/:id/venue-memberships', requireAdmin, asyncRoute((req, res) => {
+  const { venueId, startDate = null, renewalDate = null } = req.body || {};
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
-  let venue = null;
-  if (venueId) {
-    venue = db.venues.find((v) => v.id === venueId);
-    if (!venue) throw new ApiError(404, 'Venue not found');
-  }
-  if (user.venueId !== (venue ? venue.id : null)) {
-    const previousVenue = db.venues.find((v) => v.id === user.venueId);
-    user.venueId = venue ? venue.id : null;
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const start = startDate || null;
+  const end = renewalDate || null;
+  if ((start && !ISO_DATE_RE.test(start)) || (end && !ISO_DATE_RE.test(end))) throw new ApiError(400, 'Dates must be YYYY-MM-DD');
+  const existed = !!membershipAt(user, venue.id);
+  const m = ensureMembership(user, venue.id);
+  const prev = { start: m.startDate, end: m.renewalDate };
+  m.startDate = start;
+  m.renewalDate = end;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.venueMembership',
+    targetType: 'user',
+    targetId: user.id,
+    details: existed
+      ? `Set ${user.firstName} ${user.lastName}'s membership at "${venue.name}" to start=${start || 'none'}, end=${end || 'none'} (was start=${prev.start || 'none'}, end=${prev.end || 'none'})`
+      : `Added ${user.firstName} ${user.lastName} to "${venue.name}" (start=${start || 'none'}, end=${end || 'none'})`,
+  });
+  writeDb(db);
+  res.json(publicUser(user));
+}));
+
+app.delete('/api/admin/users/:id/venue-memberships/:venueId', requireAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+  if (membershipAt(user, req.params.venueId)) {
+    const venue = db.venues.find((v) => v.id === req.params.venueId);
+    removeMembership(user, req.params.venueId);
     recordAudit(db, {
       actor: req.adminSession.label,
-      action: 'user.venue',
+      action: 'user.venueMembership',
       targetType: 'user',
       targetId: user.id,
-      details: venue
-        ? `Set ${user.firstName} ${user.lastName}'s Venue to "${venue.name}"${previousVenue ? ` (was "${previousVenue.name}")` : ''}`
-        : `Cleared ${user.firstName} ${user.lastName}'s Venue${previousVenue ? ` (was "${previousVenue.name}")` : ''}`,
+      details: `Removed ${user.firstName} ${user.lastName} from "${venue ? venue.name : req.params.venueId}"`,
     });
     writeDb(db);
   }
   res.json(publicUser(user));
 }));
 
-app.post('/api/admin/users/:id/membership-dates', requireAdmin, asyncRoute((req, res) => {
-  // Membership dates: start date and end date, admin-set only, both optional/
-  // nullable - a player can have neither, either, or both set at any time.
-  // End date deliberately reuses the existing membershipRenewalDate field
-  // (added when Membership Management first shipped) rather than introducing
-  // a third date concept - the Venue Manager Portal's "due for renewal"
-  // counts key off this same field, so setting an end date here is what
-  // makes those counts start working.
-  const { membershipStartDate, membershipEndDate } = req.body || {};
-  const db = readDb();
-  const user = db.users.find((u) => u.id === req.params.id);
-  if (!user) throw new ApiError(404, 'User not found');
-  const nextStart = membershipStartDate || null;
-  const nextEnd = membershipEndDate || null;
-  if (user.membershipStartDate !== nextStart || user.membershipRenewalDate !== nextEnd) {
-    user.membershipStartDate = nextStart;
-    user.membershipRenewalDate = nextEnd;
-    recordAudit(db, {
-      actor: req.adminSession.label,
-      action: 'user.membershipDates',
-      targetType: 'user',
-      targetId: user.id,
-      details: `Set ${user.firstName} ${user.lastName}'s membership dates to start=${nextStart || 'none'}, end=${nextEnd || 'none'}`,
-    });
-    writeDb(db);
-  }
-  res.json(publicUser(user));
-}));
+// Replaced by the venue-memberships routes above; an old cached page that
+// still calls these is told to reload rather than silently doing the wrong thing.
+app.post('/api/admin/users/:id/venue', requireAdmin, (req, res) => {
+  res.status(410).json({ error: 'This page is out of date - please reload it.' });
+});
+app.post('/api/admin/users/:id/membership-dates', requireAdmin, (req, res) => {
+  res.status(410).json({ error: 'This page is out of date - please reload it.' });
+});
 
 app.post('/api/admin/users/:id/status', requireAdmin, asyncRoute((req, res) => {
   const { status } = req.body;
@@ -9177,8 +9564,8 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 // Lets players arrange games inside the app instead of on Facebook.
 //
 // * Who can message whom: only players who share a real league (through a
-//   division roster, a team or a pairing) or are registered to the same
-//   venue (user.venueId). The hidden "Ad Hoc Games" pool league is
+//   division roster, a team or a pairing) or are members of the same
+//   venue (user.venueMemberships). The hidden "Ad Hoc Games" pool league is
 //   deliberately NOT counted - any player can be dropped into an ad hoc
 //   game, so counting it would let anyone message anyone. Suspended
 //   accounts and synthetic walk-in accounts can't be messaged.
@@ -9275,7 +9662,7 @@ function sharedAdHocDivisionIds(adHocMap, a, b) {
 
 function canMessageUser(leagueMap, adHocMap, me, other) {
   if (!other || me.id === other.id || !isMessageableUser(other)) return false;
-  if (me.venueId && me.venueId === other.venueId) return true;
+  if (userVenueIds(me).some((id) => membershipAt(other, id))) return true;
   if (sharedRealLeagueIds(leagueMap, me, other).length > 0) return true;
   return sharedAdHocDivisionIds(adHocMap, me, other).length > 0;
 }
@@ -9352,7 +9739,8 @@ app.get('/api/messages/contacts', requireAuth, asyncRoute((req, res) => {
   const leagueNames = new Map(db.leagues.map((l) => [l.id, l.name]));
   const divisionNames = new Map(db.divisions.map((d) => [d.id, d.name]));
   const blocked = new Set(db.userBlocks.filter((b) => b.blockerUserId === me.id).map((b) => b.blockedUserId));
-  const venue = me.venueId ? db.venues.find((v) => v.id === me.venueId) : null;
+  const venueNames = new Map(db.venues.map((v) => [v.id, v.name]));
+  const myVenueIds = userVenueIds(me);
   const contacts = [];
   for (const u of db.users) {
     if (blocked.has(u.id) || !canMessageUser(leagueMap, adHocMap, me, u)) continue;
@@ -9360,11 +9748,11 @@ app.get('/api/messages/contacts', requireAuth, asyncRoute((req, res) => {
     if (q && !name.toLowerCase().includes(q)) continue;
     const shared = sharedRealLeagueIds(leagueMap, me, u).map((id) => leagueNames.get(id)).filter(Boolean);
     const sharedAdHoc = sharedAdHocDivisionIds(adHocMap, me, u).map((id) => divisionNames.get(id)).filter(Boolean);
-    const sameVenue = !!(me.venueId && me.venueId === u.venueId);
+    const sharedVenues = myVenueIds.filter((id) => membershipAt(u, id)).map((id) => venueNames.get(id)).filter(Boolean);
     contacts.push({
       userId: u.id,
       name,
-      via: [...shared, ...sharedAdHoc, ...(sameVenue && venue ? [venue.name] : [])].join(', '),
+      via: [...shared, ...sharedAdHoc, ...sharedVenues].join(', '),
     });
   }
   contacts.sort((a, b) => a.name.localeCompare(b.name));

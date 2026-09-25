@@ -2312,3 +2312,69 @@ button.vm-tile { cursor: pointer; }
 .vm-wi-help { margin: 0; font-size: 0.8rem; color: #4b5563; }
 .vm-wi-field > .vm-wi-hours { font-size: 0.75rem; font-weight: 500; color: var(--muted); }
 .vm-wi-len:disabled { text-decoration: line-through; }
+/* Account settings > My venues */
+.cs-venue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cs-venue-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fff; }
+.cs-venue-main { display: flex; flex-direction: column; min-width: 0; }
+.cs-venue-main .muted { font-size: 0.85rem; }
+.btn.cs-venue-remove { min-height: 36px; padding: 4px 12px; border: 1px solid #dc2626; color: #b91c1c; background: #fff; font-weight: 700; }
+.cs-venue-lock { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: #d1fae5; color: #065f46; white-space: nowrap; }
+/* Admin > Edit user > Venues & memberships */
+.aue-mem { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Venue Manager Portal > Tap to check in (NFC cards + bar tag), 2026-09-25 */
+.ci-reader { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; }
+.ci-reader-dot { width: 12px; height: 12px; border-radius: 50%; background: #9ca3af; flex: none; }
+.ci-reader-on .ci-reader-dot { background: #16a34a; box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5); animation: ci-pulse 1.6s infinite; }
+.ci-reader-starting .ci-reader-dot { background: #d97706; }
+.ci-reader-text { flex: 1 1 160px; font-weight: 600; }
+@keyframes ci-pulse { 0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5); } 70% { box-shadow: 0 0 0 10px rgba(22, 163, 74, 0); } 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); } }
+.ci-manual { margin-bottom: 8px; }
+.ci-result { border: 1px solid var(--border); border-left-width: 6px; border-radius: 12px; padding: 10px 12px; margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.ci-result-active { border-left-color: #16a34a; background: #f0fdf4; }
+.ci-result-expired, .ci-result-not-member { border-left-color: #dc2626; background: #fef2f2; }
+.ci-result-no-dates { border-left-color: #d97706; background: #fffbeb; }
+.ci-result-unknown { border-left-color: #6b7280; }
+.ci-result-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ci-name { font-size: 1.15rem; }
+.ci-chip { font-size: 0.8rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.ci-chip-small { font-size: 0.72rem; padding: 2px 8px; }
+.ci-chip-green { background: #d1fae5; color: #065f46; }
+.ci-chip-amber { background: #fef3c7; color: #92400e; }
+.ci-chip-red { background: #fee2e2; color: #991b1b; }
+.ci-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ci-uid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; word-break: break-all; }
+.ci-cards, .ci-pick-list, .ci-today { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ci-cards li, .ci-pick-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; }
+.ci-pick-list li > span { min-width: 0; overflow-wrap: anywhere; }
+.ci-link-box { margin: 10px 0; }
+.ci-linking { border: 1px dashed var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ci-linking-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ci-today-head { margin: 14px 0 6px; font-size: 1rem; }
+.ci-today li { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.ci-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ci-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-tag { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.ci-tag summary, .ci-cards-box summary { cursor: pointer; font-weight: 600; }
+.ci-tag[open] > *:not(summary) { margin-top: 8px; }
+.ci-link code { word-break: break-all; font-size: 0.85rem; }
+/* Player's /checkin/:token page */
+.ci-self { max-width: 520px; margin: 16px auto; text-align: center; display: flex; flex-direction: column; gap: 8px; }
+.ci-self h1 { margin: 0; }
+.ci-self-status { display: flex; flex-direction: column; gap: 4px; border-radius: 12px; padding: 14px; margin: 8px 0; }
+.ci-self-status strong { font-size: 1.2rem; }
+.ci-self-green { background: #d1fae5; color: #065f46; }
+.ci-self-amber { background: #fef3c7; color: #92400e; }
+.ci-self-red { background: #fee2e2; color: #991b1b; }
+
+/* Venue Manager > member page (from Today's check-ins), 2026-09-25 */
+.vmm-body { display: flex; flex-direction: column; gap: 10px; }
+.vmm-email { margin: 0; overflow-wrap: anywhere; }
+.vmm-dates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.vmm-dates div { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.vmm-dates dt { font-size: 0.75rem; color: #6b7280; }
+.vmm-dates dd { margin: 2px 0 0; font-weight: 700; }
+.vmm-plans { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vmm-plans .btn { min-height: 48px; font-weight: 700; }
+.ci-today li.vmm-visit { grid-template-columns: 1fr auto; }
+.vmm-cards { margin-top: 10px; overflow-wrap: anywhere; }

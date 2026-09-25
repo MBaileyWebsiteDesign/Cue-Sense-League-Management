@@ -82,19 +82,19 @@ const networkApi = {
   adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),
-  // Membership Management: which Venue this account belongs to - admin-set
-  // only (see server/src/index.js's POST /api/admin/users/:id/venue).
-  adminSetUserVenue: (id, venueId) =>
-    request(`/admin/users/${id}/venue`, { method: 'POST', body: JSON.stringify({ venueId }) }),
-
-  // Membership dates: start date and end date (end date reuses the existing
-  // membershipRenewalDate field server-side - see server/src/index.js's
-  // POST /api/admin/users/:id/membership-dates). Both optional/nullable.
-  adminSetMembershipDates: (id, { membershipStartDate, membershipEndDate }) =>
-    request(`/admin/users/${id}/membership-dates`, {
+  // Venue memberships (a player can belong to several venues, each with
+  // optional start/end dates) - admin side.
+  adminSetVenueMembership: (id, { venueId, startDate = null, renewalDate = null }) =>
+    request(`/admin/users/${id}/venue-memberships`, {
       method: 'POST',
-      body: JSON.stringify({ membershipStartDate, membershipEndDate }),
+      body: JSON.stringify({ venueId, startDate, renewalDate }),
     }),
+  adminRemoveVenueMembership: (id, venueId) =>
+    request(`/admin/users/${id}/venue-memberships/${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  // Player self-service: venue names, join a venue, leave a venue.
+  listVenuesPublic: () => request('/venues/list'),
+  joinMyVenue: (venueId) => request('/users/me/venues', { method: 'POST', body: JSON.stringify({ venueId }) }),
+  leaveMyVenue: (venueId) => request(`/users/me/venues/${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
 
   // Membership Management: Venues (client/src/pages/MembershipManagement.jsx)
   // - Overall-Admin-only to create/rename/delete a venue and to grant/revoke
@@ -173,6 +173,24 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId, months }),
     }),
+  // NFC cards and bar check-in (Venue Manager Portal "Tap to check in").
+  // uid is the card's serial number as read by Web NFC or typed/scanned.
+  venueCheckin: (venueId, uid) =>
+    request('/venue-manager/checkins', { method: 'POST', body: JSON.stringify({ venueId, uid }) }),
+  // Member page (from Today's check-ins): membership here, visits, cards.
+  getVenueMember: (venueId, userId) =>
+    request(`/venue-manager/players/${encodeURIComponent(userId)}/membership?venueId=${encodeURIComponent(venueId)}`),
+  getVenueCheckinsToday: (venueId) =>
+    request(`/venue-manager/checkins?venueId=${encodeURIComponent(venueId)}`),
+  linkVenueCard: (venueId, playerId, uid, label = '') =>
+    request(`/venue-manager/players/${playerId}/cards`, { method: 'POST', body: JSON.stringify({ venueId, uid, label }) }),
+  unlinkVenueCard: (venueId, playerId, uid) =>
+    request(`/venue-manager/players/${playerId}/cards/${encodeURIComponent(uid)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  getCheckinTag: (venueId, rotate = false) =>
+    request('/venue-manager/checkin-tag', { method: 'POST', body: JSON.stringify({ venueId, rotate }) }),
+  // Player's phone opened the bar tag's link (/checkin/:token).
+  selfCheckin: (token) =>
+    request(`/checkin/${encodeURIComponent(token)}`, { method: 'POST' }),
 
   // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
   // - visible to every logged-in account, not just admins.

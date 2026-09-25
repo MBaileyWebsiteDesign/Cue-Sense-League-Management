@@ -405,6 +405,9 @@ export default function AdminUsers() {
   }, []);
 
   const venueNameById = Object.fromEntries(venues.map((v) => [v.id, v.name]));
+  // A player can be a member of several venues - shown comma-separated.
+  const venueNames = (usr) => (Array.isArray(usr.venueMemberships) ? usr.venueMemberships : [])
+    .map((m) => venueNameById[m.venueId]).filter(Boolean).join(', ');
 
   const onSearch = (e) => {
     e.preventDefault();
@@ -567,9 +570,9 @@ export default function AdminUsers() {
                       ) : (
                         <span className="au-email">{u.email}</span>
                       )}
-                      {(realTeam(u) || venueNameById[u.venueId]) && (
+                      {(realTeam(u) || venueNames(u)) && (
                         <span className="au-meta">
-                          {[realTeam(u), venueNameById[u.venueId]].filter(Boolean).join(' · ')}
+                          {[realTeam(u), venueNames(u)].filter(Boolean).join(' · ')}
                         </span>
                       )}
                       <RoleChips u={u} />
@@ -616,7 +619,7 @@ export default function AdminUsers() {
                     </td>
                     <td style={{ textAlign: 'left' }}>{isWalkIn(u) ? <span className="au-walkin">Walk-in · no login</span> : u.email}</td>
                     <td style={{ textAlign: 'left' }}>{realTeam(u)}</td>
-                    <td style={{ textAlign: 'left' }}>{venueNameById[u.venueId] || '—'}</td>
+                    <td style={{ textAlign: 'left' }}>{venueNames(u) || '—'}</td>
                     <td>{u.classification || '—'}</td>
                     <td>{u.isAdmin ? '✓' : ''}</td>
                     <td>{u.isCaptain ? '✓' : ''}</td>
