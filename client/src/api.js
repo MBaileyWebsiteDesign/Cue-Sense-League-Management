@@ -82,8 +82,6 @@ const networkApi = {
   adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),
-  // Membership Management: which Venue this account belongs to - admin-set
-  // only (see server/src/index.js's POST /api/admin/users/:id/venue).
   // Venue memberships (a player can belong to several venues, each with
   // optional start/end dates) - admin side.
   adminSetVenueMembership: (id, { venueId, startDate = null, renewalDate = null }) =>
@@ -97,7 +95,6 @@ const networkApi = {
   listVenuesPublic: () => request('/venues/list'),
   joinMyVenue: (venueId) => request('/users/me/venues', { method: 'POST', body: JSON.stringify({ venueId }) }),
   leaveMyVenue: (venueId) => request(`/users/me/venues/${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
-    }),
 
   // Membership Management: Venues (client/src/pages/MembershipManagement.jsx)
   // - Overall-Admin-only to create/rename/delete a venue and to grant/revoke
