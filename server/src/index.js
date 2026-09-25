@@ -3039,12 +3039,25 @@ app.get('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   const division = db.divisions.find((d) => d.id === req.params.id);
   if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
   const hydrated = hydrateDivision(db, division);
-  // A non-admin only ever sees fixtures from rounds the admin has released -
-  // see isRoundVisible above. Standings are left untouched (computed from the
-  // full fixture list before this filter) since a not-yet-released round
-  // shouldn't have any results on it under normal use anyway.
-  if (!req.auth.user.isAdmin) {
+  // Only someone who can actually manage this division's rounds (an Overall
+  // Admin, or a League Manager granted access to this league - same check as
+  // assertLeagueAccess, but non-throwing since a plain player is allowed to
+  // view the division, just with unreleased rounds filtered out) sees every
+  // fixture regardless of round visibility. Everyone else only ever sees
+  // fixtures from rounds that have been released - see isRoundVisible above.
+  // Standings are left untouched (computed from the full fixture list before
+  // this filter) since a not-yet-released round shouldn't have any results
+  // on it under normal use anyway.
+  const user = req.auth.user;
+  const canManageDivision =
+    user.isAdmin ||
+    (user.isLeagueManager &&
+      league &&
+      Array.isArray(league.managerUserIds) &&
+      league.managerUserIds.includes(user.id));
+  if (!canManageDivision) {
     hydrated.fixtures = hydrated.fixtures.filter((f) => isRoundVisible(division, f.round));
   }
   res.json(hydrated);
