@@ -121,7 +121,7 @@ function PlayerCard({ p, busy, onRenew, showStatus = true }) {
         )}
       </span>
       <span className={`vm-renews${urgency ? ` vm-renews-${urgency}` : ''}`}>
-        {p.membershipRenewalDate ? `Renews ${formatDateUK(p.membershipRenewalDate)}` : 'No renewal date set'}
+        {p.membershipRenewalDate ? `Expires ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
       </span>
       {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
     </li>
@@ -903,7 +903,7 @@ const NFC_SUPPORTED = typeof window !== 'undefined' && 'NDEFReader' in window;
 const CARD_REPEAT_MS = 3000;
 
 const CHECKIN_STATUS = {
-  active: { cls: 'ci-chip-green', text: (r) => `Member · renews ${formatDateUK(r)}` },
+  active: { cls: 'ci-chip-green', text: (r) => `Member · expires ${formatDateUK(r)}` },
   expired: { cls: 'ci-chip-red', text: (r) => `Membership ended ${formatDateUK(r)}` },
   'no-dates': { cls: 'ci-chip-amber', text: () => 'Member · no dates set' },
   'not-member': { cls: 'ci-chip-red', text: () => 'Not a member here' },
