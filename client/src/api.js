@@ -528,6 +528,9 @@ const networkApi = {
     request(`/fixtures/${fixtureId}/legs/${legNumber}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
   getPlayerProfile: (playerId) => request(`/players/${playerId}`),
+  // Venue Visits + Memberships cards on the player profile (own profile,
+  // admins and Venue Managers only - 403 for anyone else).
+  getPlayerVenues: (playerId) => request(`/players/${playerId}/venues`),
 
   // Player messaging (1-to-1 chat, blocking, abuse reports) - see the
   // "Player messaging" section of server/src/index.js. Not mirrored in the

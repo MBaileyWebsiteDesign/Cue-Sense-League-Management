@@ -8639,6 +8639,55 @@ app.get('/api/players/:id', requireAuth, asyncRoute((req, res) => {
   res.json(profile);
 }));
 
+// Player profile > "Venue Visits" and "Memberships" cards (Matt,
+// 2026-09-25). Visits come from db.venueVisits (card / bar tag check-ins,
+// pruned after 400 days), one row per venue with a count and the last
+// visit. Memberships are the account's venueMemberships entries (view
+// only). Private: the player themselves and Overall Admins see every
+// venue; a Venue Manager sees only the venues they manage; anyone else
+// gets 403 (the page hides the cards). A roster player with no linked
+// account answers { linked: false }.
+app.get('/api/players/:id/venues', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const viewer = req.auth.user;
+  const player = db.players.find((p) => p.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  const account = db.users.find((u) => u.playerId === player.id) || null;
+  const isOwn = !!viewer.playerId && viewer.playerId === player.id;
+  let allowed = null; // null = every venue
+  if (!isOwn && !viewer.isAdmin) {
+    if (!viewer.isVenueManager) throw new ApiError(403, 'Only the player, an admin or a Venue Manager can see this');
+    allowed = new Set((db.venues || [])
+      .filter((v) => Array.isArray(v.managerUserIds) && v.managerUserIds.includes(viewer.id))
+      .map((v) => v.id));
+  }
+  if (!account) return res.json({ linked: false, visits: [], memberships: [] });
+  const venueName = new Map((db.venues || []).map((v) => [v.id, v.name]));
+  const inScope = (venueId) => allowed === null || allowed.has(venueId);
+
+  const byVenue = new Map();
+  for (const v of db.venueVisits || []) {
+    if (v.userId !== account.id || !inScope(v.venueId)) continue;
+    const row = byVenue.get(v.venueId) || { venueId: v.venueId, venueName: venueName.get(v.venueId) || 'Deleted venue', count: 0, lastAt: null };
+    row.count += 1;
+    if (!row.lastAt || v.at > row.lastAt) row.lastAt = v.at;
+    byVenue.set(v.venueId, row);
+  }
+  const visits = [...byVenue.values()].sort((a, b) => b.count - a.count || (a.lastAt < b.lastAt ? 1 : -1));
+
+  const memberships = venueMembershipsOf(account)
+    .filter((m) => inScope(m.venueId))
+    .map((m) => ({
+      venueId: m.venueId,
+      venueName: venueName.get(m.venueId) || 'Deleted venue',
+      startDate: m.startDate || null,
+      renewalDate: m.renewalDate || null,
+    }))
+    .sort((a, b) => a.venueName.localeCompare(b.venueName));
+
+  res.json({ linked: true, visits, memberships });
+}));
+
 // ---------- Admin: user management ----------
 // Everything here requires requireAdmin (isAdmin: true on the account).
 // There's no protection against an admin demoting/suspending themselves in

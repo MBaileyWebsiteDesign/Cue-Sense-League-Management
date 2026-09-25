@@ -286,18 +286,116 @@ function TableRecordCard({ tableRecord, isOwnProfile }) {
   );
 }
 
+// ---------- Venue Visits + Memberships (Matt, 2026-09-25) ----------
+// Only shown on the player's own profile and to Admins / Venue Managers
+// (the server scopes a Venue Manager to their own venues).
+function ukDate(iso) {
+  if (!iso) return '';
+  const s = String(iso);
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(s)
+    ? s
+    : new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date(s));
+  const [y, m, d] = day.split('-');
+  return `${d}-${m}-${y}`;
+}
+function todayUkIso() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+}
+function addMonthsIso(iso, months) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  return dt.toISOString().slice(0, 10);
+}
+// Traffic light by time left on the membership: green more than 6 months,
+// yellow 2 to 6 months, red under 2 months or ended. No end date = neutral.
+function membershipTone(renewalDate) {
+  if (!renewalDate) return { tone: 'none', label: 'No end date' };
+  const today = todayUkIso();
+  if (renewalDate < today) return { tone: 'red', label: 'Ended' };
+  if (renewalDate > addMonthsIso(today, 6)) return { tone: 'green', label: 'Over 6 months left' };
+  if (renewalDate >= addMonthsIso(today, 2)) return { tone: 'yellow', label: '2 to 6 months left' };
+  return { tone: 'red', label: 'Under 2 months left' };
+}
+
+function VenueVisitsCard({ visits }) {
+  return (
+    <section className="card">
+      <h2 style={{ marginBottom: 2 }}>Venue Visits</h2>
+      <p className="muted cs-sub">Check-ins at each venue (card or bar tag)</p>
+      {visits.length === 0 ? (
+        <p className="muted">No venue check-ins recorded yet.</p>
+      ) : (
+        <div className="cs-rows">
+          {visits.map((v) => (
+            <div key={v.venueId} className="cs-row">
+              <div className="cs-row-top">
+                <div className="cs-row-name">
+                  <strong>{v.venueName}</strong>
+                  {v.lastAt && <span className="muted">Last visit {ukDate(v.lastAt)}</span>}
+                </div>
+                <span className="cs-row-score">{v.count} visit{v.count === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MembershipsCard({ memberships }) {
+  return (
+    <section className="card">
+      <h2 style={{ marginBottom: 2 }}>Memberships</h2>
+      <p className="muted cs-sub">Venue memberships (view only)</p>
+      {memberships.length === 0 ? (
+        <p className="muted">No venue memberships.</p>
+      ) : (
+        <div className="pm-list">
+          {memberships.map((m) => {
+            const { tone, label } = membershipTone(m.renewalDate);
+            return (
+              <div key={m.venueId} className={`pm-item pm-${tone}`}>
+                <div className="pm-head">
+                  <strong>{m.venueName}</strong>
+                  <span className="pm-chip">{label}</span>
+                </div>
+                <div className="pm-dates">
+                  <div><span className="pm-label">Start date</span><span>{m.startDate ? ukDate(m.startDate) : 'Not set'}</span></div>
+                  <div><span className="pm-label">End date</span><span>{m.renewalDate ? ukDate(m.renewalDate) : 'Not set'}</span></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function PlayerProfile() {
   const { playerId } = useParams();
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
   const [h2hVisible, setH2hVisible] = useState(5);
   const isAdmin = useIsAdminSession();
-  const { user, isCaptain, isLeagueManager } = useAuth();
+  const { user, isCaptain, isLeagueManager, isVenueManager } = useAuth();
   const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  const [venueData, setVenueData] = useState(null);
 
   useEffect(() => {
     api.getPlayerProfile(playerId).then(setProfile).catch((e) => setError(e.message));
   }, [playerId]);
+
+  // Venue Visits / Memberships: only asked for when this viewer may see
+  // them (own profile, admin, Venue Manager). Any error just hides them.
+  const mayViewVenues = isAdmin || isVenueManager || (!!user?.playerId && user.playerId === playerId);
+  useEffect(() => {
+    setVenueData(null);
+    if (!mayViewVenues || !api.getPlayerVenues) return;
+    api.getPlayerVenues(playerId).then(setVenueData).catch(() => setVenueData(null));
+  }, [playerId, mayViewVenues]);
 
   useSetBreadcrumbs(
     profile
@@ -431,6 +529,13 @@ export default function PlayerProfile() {
       </section>
 
       <TableRecordCard tableRecord={profile.tableRecord} isOwnProfile={isOwnProfile} />
+
+      {venueData && venueData.linked && (
+        <>
+          <VenueVisitsCard visits={venueData.visits || []} />
+          <MembershipsCard memberships={venueData.memberships || []} />
+        </>
+      )}
 
       <section className="card">
         <h2>Match history</h2>
