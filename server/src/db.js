@@ -275,6 +275,21 @@ export function readDb() {
     // the existing membershipRenewalDate field above) - see AdminUserEdit.jsx's
     // MembershipDatesPanel and POST /api/admin/users/:id/membership-dates.
     if (user.membershipStartDate === undefined) user.membershipStartDate = null;
+    // Multi-venue memberships (2026-09-25): an account can belong to several
+    // venues, each with its own dates, in user.venueMemberships. Accounts
+    // from before this get one entry built from the old single venueId +
+    // membershipStartDate/membershipRenewalDate. Those old fields are left
+    // as they were (no longer read) so a rollback still has them.
+    if (!Array.isArray(user.venueMemberships)) {
+      user.venueMemberships = user.venueId
+        ? [{
+          venueId: user.venueId,
+          startDate: user.membershipStartDate || null,
+          renewalDate: user.membershipRenewalDate || null,
+          joinedAt: user.createdAt || null,
+        }]
+        : [];
+    }
   }
 
   cache = { mtimeMs, state };

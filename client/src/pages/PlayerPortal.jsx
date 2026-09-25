@@ -552,6 +552,105 @@ function MyLeagues({ leagues, playerId }) {
   );
 }
 
+// Account settings > My venues (Matt, 2026-09-25): a player can belong to
+// more than one venue. They can add any venue and remove one, except while a
+// membership there is still active (the venue has to remove that).
+function ukDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return `${d}-${m}-${y}`;
+}
+function todayUk() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+}
+
+function MyVenuesForm({ player, onSaved }) {
+  const [venues, setVenues] = useState(null);
+  const [addId, setAddId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    if (typeof api.listVenuesPublic !== 'function') { setVenues([]); return; }
+    api.listVenuesPublic().then(setVenues).catch((e) => setError(e.message));
+  }, []);
+
+  const memberships = Array.isArray(player.venueMemberships) ? player.venueMemberships : [];
+  const nameOf = (id) => (venues || []).find((v) => v.id === id)?.name || 'Venue';
+  const available = (venues || []).filter((v) => !memberships.some((m) => m.venueId === v.id));
+  const today = todayUk();
+
+  const run = (fn, msg) => {
+    setBusy(true);
+    setError('');
+    setSuccess('');
+    fn()
+      .then((updated) => { onSaved(updated); setSuccess(msg); setAddId(''); })
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="form cs-settings-form cs-venues">
+      {memberships.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>You haven't added a venue yet.</p>
+      ) : (
+        <ul className="cs-venue-list">
+          {memberships.map((m) => {
+            const active = !!m.renewalDate && m.renewalDate >= today;
+            return (
+              <li key={m.venueId} className="cs-venue-row">
+                <span className="cs-venue-main">
+                  <strong>{nameOf(m.venueId)}</strong>
+                  <span className="muted">
+                    {m.renewalDate
+                      ? `${active ? 'Member' : 'Membership ended'}${m.startDate ? ` ${ukDate(m.startDate)}` : ''} – ${ukDate(m.renewalDate)}`
+                      : 'No membership dates'}
+                  </span>
+                </span>
+                {active ? (
+                  <span className="cs-venue-lock" title="The venue has to remove an active membership">Active</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn cs-venue-remove"
+                    disabled={busy}
+                    onClick={() => run(() => api.leaveMyVenue(m.venueId), `${nameOf(m.venueId)} removed.`)}
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {venues && available.length > 0 && (
+        <label>
+          Add a venue
+          <select value={addId} onChange={(e) => setAddId(e.target.value)} disabled={busy}>
+            <option value="">Choose a venue</option>
+            {available.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </label>
+      )}
+      {addId && (
+        <button
+          type="button"
+          className="btn btn-primary cs-btn-block"
+          disabled={busy}
+          onClick={() => run(() => api.joinMyVenue(addId), `${nameOf(addId)} added.`)}
+        >
+          {busy ? 'Saving…' : 'Add venue'}
+        </button>
+      )}
+      {error && <p className="error">{error}</p>}
+      {success && <p className="banner banner-success">{success}</p>}
+    </div>
+  );
+}
+
 function SettingsSection({ title, children }) {
   const [open, setOpen] = useState(false);
   return (
@@ -631,6 +730,9 @@ export default function PlayerPortal() {
         <h2>Account settings</h2>
         <SettingsSection title="Your details">
           <ProfileForm player={user} onSaved={updateUser} />
+        </SettingsSection>
+        <SettingsSection title="My venues">
+          <MyVenuesForm player={user} onSaved={updateUser} />
         </SettingsSection>
         <SettingsSection title="Change password">
           <ChangePasswordForm />

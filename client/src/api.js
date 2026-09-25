@@ -84,16 +84,19 @@ const networkApi = {
   adminGetAuditLog: () => request('/admin/audit-log'),
   // Membership Management: which Venue this account belongs to - admin-set
   // only (see server/src/index.js's POST /api/admin/users/:id/venue).
-  adminSetUserVenue: (id, venueId) =>
-    request(`/admin/users/${id}/venue`, { method: 'POST', body: JSON.stringify({ venueId }) }),
-
-  // Membership dates: start date and end date (end date reuses the existing
-  // membershipRenewalDate field server-side - see server/src/index.js's
-  // POST /api/admin/users/:id/membership-dates). Both optional/nullable.
-  adminSetMembershipDates: (id, { membershipStartDate, membershipEndDate }) =>
-    request(`/admin/users/${id}/membership-dates`, {
+  // Venue memberships (a player can belong to several venues, each with
+  // optional start/end dates) - admin side.
+  adminSetVenueMembership: (id, { venueId, startDate = null, renewalDate = null }) =>
+    request(`/admin/users/${id}/venue-memberships`, {
       method: 'POST',
-      body: JSON.stringify({ membershipStartDate, membershipEndDate }),
+      body: JSON.stringify({ venueId, startDate, renewalDate }),
+    }),
+  adminRemoveVenueMembership: (id, venueId) =>
+    request(`/admin/users/${id}/venue-memberships/${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  // Player self-service: venue names, join a venue, leave a venue.
+  listVenuesPublic: () => request('/venues/list'),
+  joinMyVenue: (venueId) => request('/users/me/venues', { method: 'POST', body: JSON.stringify({ venueId }) }),
+  leaveMyVenue: (venueId) => request(`/users/me/venues/${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
     }),
 
   // Membership Management: Venues (client/src/pages/MembershipManagement.jsx)

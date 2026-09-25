@@ -2312,3 +2312,12 @@ button.vm-tile { cursor: pointer; }
 .vm-wi-help { margin: 0; font-size: 0.8rem; color: #4b5563; }
 .vm-wi-field > .vm-wi-hours { font-size: 0.75rem; font-weight: 500; color: var(--muted); }
 .vm-wi-len:disabled { text-decoration: line-through; }
+/* Account settings > My venues */
+.cs-venue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cs-venue-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fff; }
+.cs-venue-main { display: flex; flex-direction: column; min-width: 0; }
+.cs-venue-main .muted { font-size: 0.85rem; }
+.btn.cs-venue-remove { min-height: 36px; padding: 4px 12px; border: 1px solid #dc2626; color: #b91c1c; background: #fff; font-weight: 700; }
+.cs-venue-lock { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: #d1fae5; color: #065f46; white-space: nowrap; }
+/* Admin > Edit user > Venues & memberships */
+.aue-mem { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
