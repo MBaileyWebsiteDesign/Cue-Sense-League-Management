@@ -25,12 +25,15 @@ export default function Login() {
       login(token, expiresAt, user);
       // If a protected page redirected here (RequireLogin/RequireAdmin/
       // RequireCaptain sets state.from), honor that - the account is
-      // clearly trying to reach something specific. Otherwise, every
-      // account - player, Captain, League Manager or Admin - lands on
-      // their own My Account page; Admins/League Managers reach their
-      // portals via the nav menu from there.
+      // clearly trying to reach something specific (e.g. a player who
+      // tapped the bar check-in tag while logged out). Otherwise a Venue
+      // Manager (who isn't also an Overall Admin) lands on the Venue
+      // Manager Portal (Matt, 2026-09-25 - bar staff at Top Spin); every
+      // other account lands on their own My Account page and reaches any
+      // portal via the nav menu from there.
       const from = location.state?.from?.pathname;
-      navigate(from || '/account', { replace: true });
+      const home = user && user.isVenueManager && !user.isAdmin ? '/venue-manager' : '/account';
+      navigate(from || home, { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
