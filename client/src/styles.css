@@ -2366,3 +2366,15 @@ button.vm-tile { cursor: pointer; }
 .ci-self-green { background: #d1fae5; color: #065f46; }
 .ci-self-amber { background: #fef3c7; color: #92400e; }
 .ci-self-red { background: #fee2e2; color: #991b1b; }
+
+/* Venue Manager > member page (from Today's check-ins), 2026-09-25 */
+.vmm-body { display: flex; flex-direction: column; gap: 10px; }
+.vmm-email { margin: 0; overflow-wrap: anywhere; }
+.vmm-dates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.vmm-dates div { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.vmm-dates dt { font-size: 0.75rem; color: #6b7280; }
+.vmm-dates dd { margin: 2px 0 0; font-weight: 700; }
+.vmm-plans { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vmm-plans .btn { min-height: 48px; font-weight: 700; }
+.ci-today li.vmm-visit { grid-template-columns: 1fr auto; }
+.vmm-cards { margin-top: 10px; overflow-wrap: anywhere; }

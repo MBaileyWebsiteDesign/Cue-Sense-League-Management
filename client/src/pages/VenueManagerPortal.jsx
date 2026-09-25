@@ -1149,7 +1149,7 @@ function CheckinCard({ venueId }) {
       .then((u) => {
         const r = u.membershipRenewalDate;
         setResult((prev) => prev && prev.data && prev.data.id === u.id
-          ? { ...prev, data: { ...prev.data, membershipRenewalDate: r, membershipStatus: r && r >= ukToday() ? 'active' : prev.data.membershipStatus } }
+          ? { ...prev, data: { ...prev.data, membershipRenewalDate: r, membershipStatus: u.membershipStatus || (r && r >= ukToday() ? 'active' : prev.data.membershipStatus) } }
           : prev);
         setNotice(`Renewed - now runs to ${formatDateUK(r)}.`);
       })
@@ -1225,11 +1225,9 @@ function CheckinCard({ venueId }) {
               {result.kind === 'player' ? `${result.repeat ? 'Already checked in' : 'Checked in'} at ${ukTime(result.at)} · ` : ''}
               Visits here: {p.visitCount}
             </p>
-            {p.membershipStatus === 'not-member' ? (
-              <p className="vm-small">Not a member of this venue. To add a membership, use Book walk-in below and tick 1 month or 1 year.</p>
-            ) : (
+            {result.kind === 'player' || p.membershipStatus !== 'not-member' ? (
               <RenewButtons player={p} busy={renewing} onRenew={renew} />
-            )}
+            ) : null}
             <div className="ci-actions">
               <button type="button" className="btn btn-primary" onClick={() => setWalkinFor(walkinFor ? null : p)}>
                 {walkinFor ? 'Close walk-in' : 'Book walk-in'}
@@ -1288,7 +1286,7 @@ function CheckinCard({ venueId }) {
             {today.map((v) => (
               <li key={v.id}>
                 <span className="ci-time">{ukTime(v.at)}</span>
-                <span className="ci-who"><PlayerLink playerId={v.playerId}>{v.name}</PlayerLink></span>
+                <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
                 <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
                 <CheckinStatusChip status={v.membershipStatus} small />
               </li>

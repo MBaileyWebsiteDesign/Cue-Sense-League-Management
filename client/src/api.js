@@ -177,6 +177,9 @@ const networkApi = {
   // uid is the card's serial number as read by Web NFC or typed/scanned.
   venueCheckin: (venueId, uid) =>
     request('/venue-manager/checkins', { method: 'POST', body: JSON.stringify({ venueId, uid }) }),
+  // Member page (from Today's check-ins): membership here, visits, cards.
+  getVenueMember: (venueId, userId) =>
+    request(`/venue-manager/players/${encodeURIComponent(userId)}/membership?venueId=${encodeURIComponent(venueId)}`),
   getVenueCheckinsToday: (venueId) =>
     request(`/venue-manager/checkins?venueId=${encodeURIComponent(venueId)}`),
   linkVenueCard: (venueId, playerId, uid, label = '') =>

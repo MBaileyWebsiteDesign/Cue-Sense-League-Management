@@ -57,6 +57,7 @@ const MessageReports = lazy(() => import('./pages/MessageReports.jsx'));
 const Guides = lazy(() => import('./pages/Guides.jsx'));
 const AdHocGame = lazy(() => import('./pages/AdHocGame.jsx'));
 const CheckIn = lazy(() => import('./pages/CheckIn.jsx'));
+const VenueMember = lazy(() => import('./pages/VenueMember.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
 // combination of admin/captain/plain-player flags it has) can browse. There
@@ -286,6 +287,7 @@ function AppShell() {
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
             <Route path="/venue-manager" element={<RequireVenueManager><VenueManagerPortal /></RequireVenueManager>} />
+            <Route path="/venue-manager/players/:userId" element={<RequireVenueManager><VenueMember /></RequireVenueManager>} />
             {/* Bar NFC tag link - checks the logged-in player in at that venue. */}
             <Route path="/checkin/:token" element={<RequireLogin><CheckIn /></RequireLogin>} />
             <Route path="/admin" element={<RequireAdmin><AdminPortal /></RequireAdmin>} />
