@@ -2400,3 +2400,27 @@ button.vm-tile { cursor: pointer; }
 .pm-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .pm-dates > div { display: flex; flex-direction: column; }
 .pm-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.8; }
+
+
+/* ---- Manage Fixtures (round visibility) redesign (2026-09-25) ---- */
+.mf-page { display: flex; flex-direction: column; gap: 14px; }
+.mf-page > .card { margin-bottom: 0; }
+.mf-head { display: flex; align-items: flex-start; gap: 10px; }
+.mf-head-text { flex: 1; min-width: 0; }
+.mf-head-text h1 { margin: 0 0 2px; font-size: 1.4rem; }
+.mf-head-text .muted { font-size: 0.85rem; }
+.mf-panel h2 { margin-top: 0; }
+.mf-back-links { margin: 0 0 8px; font-size: 0.85rem; }
+.mf-open-link { margin: 0 0 8px; font-size: 0.9rem; }
+.mf-intro { font-size: 0.85rem; }
+.mf-hide-all { margin-bottom: 14px; }
+.mf-div-list { margin-top: 4px; }
+.mf-div-row { width: 100%; background: none; border: 0; text-align: left; cursor: pointer; font: inherit; padding: 12px 0; }
+.mf-round-list { display: flex; flex-direction: column; gap: 10px; }
+.mf-round { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.mf-round-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mf-round-top strong { font-size: 1rem; }
+.mf-round-meta { margin: 2px 0 10px; font-size: 0.8rem; }
+.mf-vis-chip { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.mf-vis-yes { background: #e7f2ea; color: var(--win-ink, #065f46); }
+.mf-vis-no { background: #f1efe8; color: #4b5563; }
