@@ -2376,6 +2376,33 @@ app.get('/api/venue-manager/players/:id/membership', requireVenueManager, asyncR
   res.json({ venueId: venue.id, venueName: venue.name, player: checkinPlayerView(db, player, venue.id), visits });
 }));
 
+// Member page > "Add to <venue>" (Matt, 2026-09-25): a Venue Manager can
+// add a player who has checked in at their venue to that venue - a
+// membership entry with no dates, so they join Registered players. Dates
+// are set with Add 1 month / Add 1 year once they've paid. Only for players
+// who have checked in here (same guard as renewing a non-member).
+app.post('/api/venue-manager/players/:id/venue', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, (req.body || {}).venueId);
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (!membershipAt(player, venue.id)) {
+    if (!hasVisitedVenue(db, player.id, venue.id)) {
+      throw new ApiError(403, 'Only players who have checked in at this venue can be added here.');
+    }
+    ensureMembership(player, venue.id);
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.venueMembership',
+      targetType: 'user',
+      targetId: player.id,
+      details: `Added ${player.firstName} ${player.lastName} to ${venue.name} (no membership dates) from the Venue Manager member page`,
+    });
+    writeDb(db);
+  }
+  res.json(checkinPlayerView(db, player, venue.id));
+}));
+
 // Link a card to a player of this venue. A card can only belong to one
 // account; the name of its current owner is only shown when that owner is
 // also a player of this venue.
