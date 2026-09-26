@@ -457,11 +457,13 @@ export default function PlayerProfile() {
 
   return (
     <div className="cs-profile">
-      <h1 className="cs-title">{profile.name}</h1>
+      <div className="au-head">
+        <Link to="/account" className="msg-icon-btn" aria-label="Back to my account">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <h1 className="cs-title">{profile.name}</h1>
+      </div>
       <p className="muted" style={{ marginTop: 0 }}>Career record across every league and division</p>
-      <p style={{ marginTop: -4, marginBottom: 12 }}>
-        <Link to="/account">&larr; Back to my account</Link>
-      </p>
       <FormStrip form={profile.formGuide} />
 
       {isAdmin && <AdminAccountPanel playerId={profile.id} divisions={profile.divisions || []} />}
