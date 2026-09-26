@@ -162,7 +162,7 @@ function GameSetupForm({ onCreated }) {
   const FormatCard = ({ f }) => (
     <button
       type="button"
-      className={`ah-format${scheduling === f.value ? ' ah-format-on' : ''}`}
+      className={`ah-format fam-${f.family}${scheduling === f.value ? ' ah-format-on' : ''}`}
       aria-pressed={scheduling === f.value}
       onClick={() => onSchedulingChange(f.value)}
     >
@@ -171,7 +171,7 @@ function GameSetupForm({ onCreated }) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
         </span>
       )}
-      <span className={`ah-badge fam-${f.family}`}>
+      <span className="ah-badge">
         <FormatIcon value={f.value} />
       </span>
       <strong>{f.title}</strong>
