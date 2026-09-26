@@ -1473,14 +1473,34 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
    on its own row. */
 .ah-formats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .ah-format {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; min-height: 92px;
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; min-height: 100px;
   padding: 12px; border-radius: 12px; border: 2px solid var(--border); background: #fff; color: var(--ink);
-  font: inherit; cursor: pointer;
+  font: inherit; cursor: pointer; transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }
-.ah-format svg { color: var(--primary); }
+.ah-format:hover { box-shadow: 0 4px 14px rgba(18, 61, 36, 0.14); transform: translateY(-1px); }
+.ah-format svg { color: inherit; }
 .ah-format strong { font-size: 1rem; }
-.ah-format span { font-size: 0.78rem; color: var(--muted); line-height: 1.3; }
+.ah-format span.desc { font-size: 0.78rem; color: var(--muted); line-height: 1.3; }
 .ah-format-on { border-color: var(--primary) !important; background: #eef5f0 !important; box-shadow: inset 0 0 0 1px var(--primary); }
+.ah-format-on:hover { box-shadow: inset 0 0 0 1px var(--primary), 0 4px 14px rgba(18, 61, 36, 0.18); }
+
+/* Format colour badges (UI polish, 2026-09-26) - four families reusing the
+   app's existing status-chip tints rather than inventing new colours:
+   green = league formats, gold = knockout formats, red = killer formats,
+   blue = free play. See PlayerPortal.jsx/.status-* and VenueManagerPortal
+   .vm-bk-* for the same tints in use elsewhere. */
+.ah-badge { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ah-badge svg { width: 20px; height: 20px; }
+.fam-free { background: #dceafb; color: var(--secondary-dark); }
+.fam-killer { background: #fee2e2; color: #991b1b; }
+.fam-knockout { background: #fef3c7; color: #92400e; }
+.fam-league { background: #d1fae5; color: #065f46; }
+.ah-check {
+  position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; border-radius: 999px;
+  background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+.ah-check svg { width: 12px; height: 12px; color: #fff; }
+
 @media (min-width: 480px) {
   .ah-formats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

@@ -17,16 +17,19 @@ const FREE_PLAY_SCHEDULING = 'free_play';
 // as a card, 2026-09-26 - Matt asked to drop the "More formats" toggle and
 // give the rest of the list the same icon + colour treatment as the first
 // four rather than a plain text row).
+// Colour families (UI polish, 2026-09-26) reuse the site's existing
+// status-chip tints rather than introducing new colours - see
+// .fam-free/.fam-killer/.fam-knockout/.fam-league in styles.css.
 const FORMATS = [
-  { value: 'free_play', title: 'Free Play', desc: '2 players, no frame target' },
-  { value: 'killer_classic', title: 'Killer', desc: 'Everyone in, play in order' },
-  { value: 'knockout_single_elim', title: 'Knockout', desc: 'Single elimination' },
-  { value: 'round_robin_single', title: 'League', desc: 'Everyone plays each other once' },
-  { value: 'cards_killer', title: 'Killer Random', desc: 'Player order randomised on each turn' },
-  { value: 'knockout_double_elim', title: 'Knockout (double elimination)', desc: 'Two losses and you are out' },
-  { value: 'round_robin_double', title: 'League – double leg', desc: 'Everyone plays each other twice, home and away' },
-  { value: 'knockout_double_elim_pcdek', title: 'Pre Configured Double Elimination Knockout' },
-  { value: 'knockout_double_elim_adek', title: 'Adaptive Double Elimination Knockout', desc: 'No rematches before the finals' },
+  { value: 'free_play', title: 'Free Play', desc: '2 players, no frame target', family: 'free' },
+  { value: 'killer_classic', title: 'Killer', desc: 'Everyone in, play in order', family: 'killer' },
+  { value: 'knockout_single_elim', title: 'Knockout', desc: 'Single elimination', family: 'knockout' },
+  { value: 'round_robin_single', title: 'League', desc: 'Everyone plays each other once', family: 'league' },
+  { value: 'cards_killer', title: 'Killer Random', desc: 'Player order randomised on each turn', family: 'killer' },
+  { value: 'knockout_double_elim', title: 'Knockout (double elimination)', desc: 'Two losses and you are out', family: 'knockout' },
+  { value: 'round_robin_double', title: 'League – double leg', desc: 'Everyone plays each other twice, home and away', family: 'league' },
+  { value: 'knockout_double_elim_pcdek', title: 'Pre Configured Double Elimination Knockout', family: 'knockout' },
+  { value: 'knockout_double_elim_adek', title: 'Adaptive Double Elimination Knockout', desc: 'No rematches before the finals', family: 'knockout' },
 ];
 const ENTRY_TYPES = [
   { value: 'singles', label: 'Singles' },
@@ -163,14 +166,22 @@ function GameSetupForm({ onCreated }) {
       aria-pressed={scheduling === f.value}
       onClick={() => onSchedulingChange(f.value)}
     >
-      <FormatIcon value={f.value} />
+      {scheduling === f.value && (
+        <span className="ah-check" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+        </span>
+      )}
+      <span className={`ah-badge fam-${f.family}`}>
+        <FormatIcon value={f.value} />
+      </span>
       <strong>{f.title}</strong>
-      {f.desc && <span>{f.desc}</span>}
+      {f.desc && <span className="desc">{f.desc}</span>}
     </button>
   );
 
   return (
     <form className="card ah-form" onSubmit={onSubmit}>
+      <h2>Game details</h2>
       <label className="ah-field">
         <span className="ah-label">Game name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Friday Night Decider" required />
