@@ -136,7 +136,12 @@ export default function OpenLeagues() {
 
   return (
     <div className="ol-page">
-      <h1>Open Leagues</h1>
+      <div className="au-head">
+        <Link to={homePath} className="msg-icon-btn" aria-label={isPlayerSession ? 'Back to my account' : 'Back to home'}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <h1>Open Leagues</h1>
+      </div>
       <ol className="ol-how" aria-label="How it works">
         <li><span className="ol-how-num">1</span>Register your interest in a league</li>
         <li><span className="ol-how-num">2</span>A League Manager places you in a division</li>
