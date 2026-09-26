@@ -1465,6 +1465,7 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .ah-field input, .ah-search, .ah-walkin-form input { min-height: 44px; box-sizing: border-box; width: 100%; }
 .ah-hint { font-size: 0.8rem; color: var(--muted); }
 .ah-hint:empty { display: none; }
+.ah-page .au-head { margin-bottom: 16px; }
 
 /* 2026-09-26: every format is now a card (no more "More formats" toggle),
    so .ah-formats/.ah-format sizes the full set of 9 - three columns from
