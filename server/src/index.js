@@ -8681,12 +8681,16 @@ app.get('/api/players/:id/venues', requireAuth, asyncRoute((req, res) => {
   const byVenue = new Map();
   for (const v of db.venueVisits || []) {
     if (v.userId !== account.id || !inScope(v.venueId)) continue;
-    const row = byVenue.get(v.venueId) || { venueId: v.venueId, venueName: venueName.get(v.venueId) || 'Deleted venue', count: 0, lastAt: null };
+    const row = byVenue.get(v.venueId) || { venueId: v.venueId, venueName: venueName.get(v.venueId) || 'Deleted venue', count: 0, lastAt: null, list: [] };
     row.count += 1;
     if (!row.lastAt || v.at > row.lastAt) row.lastAt = v.at;
+    // Each visit for the tap-to-expand detail (Matt, 2026-09-26): when and how.
+    row.list.push({ id: v.id, at: v.at, source: v.source });
     byVenue.set(v.venueId, row);
   }
-  const visits = [...byVenue.values()].sort((a, b) => b.count - a.count || (a.lastAt < b.lastAt ? 1 : -1));
+  const visits = [...byVenue.values()]
+    .map((row) => ({ ...row, list: row.list.sort((a, b) => (a.at < b.at ? 1 : -1)) }))
+    .sort((a, b) => b.count - a.count || (a.lastAt < b.lastAt ? 1 : -1));
 
   const memberships = venueMembershipsOf(account)
     .filter((m) => inScope(m.venueId))
