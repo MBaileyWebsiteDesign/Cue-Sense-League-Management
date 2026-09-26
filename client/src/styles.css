@@ -2449,3 +2449,14 @@ button.vm-tile { cursor: pointer; }
 .vm-wi-daytime { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 480px) { .vm-wi-daytime { grid-template-columns: 1fr; } }
 .vm-wi > .vm-wi-hours { font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-top: -6px; }
+
+/* Player profile > Venue Visits: tap a venue to see each visit (2026-09-26). */
+.pv-toggle { display: block; width: 100%; background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.pv-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 6px; }
+.pv-right { display: inline-flex; align-items: center; gap: 6px; }
+.pv-chev { transition: transform 0.15s ease; opacity: 0.7; }
+.pv-chev-open { transform: rotate(180deg); }
+.pv-list { list-style: none; margin: 8px 0 2px; padding: 4px 12px; background: var(--tile-bg, #f3f4f6); border-radius: 10px; }
+.pv-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.pv-list li:last-child { border-bottom: 0; }
+.pv-how { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: rgba(0, 0, 0, 0.06); white-space: nowrap; }

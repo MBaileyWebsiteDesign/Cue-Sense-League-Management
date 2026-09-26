@@ -318,7 +318,17 @@ function membershipTone(renewalDate) {
   return { tone: 'red', label: 'Under 2 months left' };
 }
 
+// Tap a venue row to see each visit (date, time, card or bar tag); tap
+// again to close it (Matt, 2026-09-26).
+function ukDateTimeParts(iso) {
+  const d = new Date(iso);
+  const day = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'short' }).format(d);
+  const time = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+  return { day, date: ukDate(iso), time };
+}
+
 function VenueVisitsCard({ visits }) {
+  const [open, setOpen] = useState(null); // venueId of the expanded row
   return (
     <section className="card">
       <h2 style={{ marginBottom: 2 }}>Venue Visits</h2>
@@ -327,17 +337,47 @@ function VenueVisitsCard({ visits }) {
         <p className="muted">No venue check-ins recorded yet.</p>
       ) : (
         <div className="cs-rows">
-          {visits.map((v) => (
-            <div key={v.venueId} className="cs-row">
-              <div className="cs-row-top">
-                <div className="cs-row-name">
-                  <strong>{v.venueName}</strong>
-                  {v.lastAt && <span className="muted">Last visit {ukDate(v.lastAt)}</span>}
-                </div>
-                <span className="cs-row-score">{v.count} visit{v.count === 1 ? '' : 's'}</span>
+          {visits.map((v) => {
+            const isOpen = open === v.venueId;
+            const list = Array.isArray(v.list) ? v.list : [];
+            return (
+              <div key={v.venueId} className="cs-row pv-row">
+                <button
+                  type="button"
+                  className="pv-toggle"
+                  aria-expanded={isOpen}
+                  aria-controls={`pv-${v.venueId}`}
+                  onClick={() => setOpen(isOpen ? null : v.venueId)}
+                >
+                  <div className="cs-row-top">
+                    <div className="cs-row-name">
+                      <strong>{v.venueName}</strong>
+                      {v.lastAt && <span className="muted">Last visit {ukDate(v.lastAt)}</span>}
+                    </div>
+                    <span className="pv-right">
+                      <span className="cs-row-score">{v.count} visit{v.count === 1 ? '' : 's'}</span>
+                      <svg className={`pv-chev${isOpen ? ' pv-chev-open' : ''}`} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+                    </span>
+                  </div>
+                </button>
+                {isOpen && (
+                  <ul className="pv-list" id={`pv-${v.venueId}`}>
+                    {list.length === 0 ? (
+                      <li className="muted">Visit details aren't available - reload the page.</li>
+                    ) : list.map((x) => {
+                      const p = ukDateTimeParts(x.at);
+                      return (
+                        <li key={x.id || x.at}>
+                          <span className="pv-when"><strong>{p.day} {p.date}</strong> · {p.time}</span>
+                          <span className="pv-how">{x.source === 'tag' ? 'Bar tag' : 'Card'}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
