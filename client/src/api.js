@@ -64,6 +64,15 @@ const networkApi = {
   getMyFixtures: () => request('/users/me/fixtures'),
   getMyPendingConfirmations: () => request('/users/me/pending-confirmations'),
   getMyLeagueMembership: () => request('/users/me/leagues'),
+  // Player Portal "My Bookings" card: this account's own table bookings
+  // across every venue linked to Wix, matched by account email - see
+  // GET /api/users/me/bookings in server/src/index.js.
+  getMyBookings: () => request('/users/me/bookings'),
+  cancelMyBooking: (venueId, bookingId) =>
+    request(`/users/me/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId }),
+    }),
 
   // Admin: user management
   adminListUsers: (q = '') => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
@@ -183,8 +192,13 @@ const networkApi = {
   // Member page "Add to <venue>": joins a checked-in player to the venue (no dates).
   addPlayerToVenue: (venueId, userId) =>
     request(`/venue-manager/players/${encodeURIComponent(userId)}/venue`, { method: 'POST', body: JSON.stringify({ venueId }) }),
-  getVenueCheckinsToday: (venueId) =>
-    request(`/venue-manager/checkins?venueId=${encodeURIComponent(venueId)}`),
+  getVenueCheckinsToday: (venueId, all = false) =>
+    request(`/venue-manager/checkins?venueId=${encodeURIComponent(venueId)}${all ? '&all=1' : ''}`),
+  // Today's check-ins: hide everything so far (visits kept) / delete one visit.
+  clearVenueCheckins: (venueId) =>
+    request('/venue-manager/checkins/clear', { method: 'POST', body: JSON.stringify({ venueId }) }),
+  deleteVenueCheckin: (venueId, id) =>
+    request(`/venue-manager/checkins/${encodeURIComponent(id)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
   linkVenueCard: (venueId, playerId, uid, label = '') =>
     request(`/venue-manager/players/${playerId}/cards`, { method: 'POST', body: JSON.stringify({ venueId, uid, label }) }),
   unlinkVenueCard: (venueId, playerId, uid) =>

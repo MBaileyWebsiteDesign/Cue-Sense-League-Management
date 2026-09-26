@@ -37,6 +37,7 @@ import {
   hashApiKey,
 } from './userAuth.js';
 import { recordAudit } from './services/auditLog.js';
+import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -1366,6 +1367,7 @@ async function fetchWixBookings(siteId, fromIso) {
       status: b.status || null,
       paymentStatus: b.paymentStatus || null,
       customerName: [contact.firstName, contact.lastName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
+      email: (contact.email || '').trim().toLowerCase() || null,
       participants: b.totalParticipants || null,
     };
   })
@@ -2143,6 +2145,26 @@ app.post('/api/venue-manager/bookings/:id/cancel', requireVenueManager, cancelVe
 // Older clients (cached by the service worker) still call this path.
 app.post('/api/venue-manager/walkins/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
 
+// Player Portal "My Bookings" card (Matt, 2026-09-26): a player's own view
+// of, and ability to cancel, their table bookings - see
+// server/src/routes/playerBookings.js for the routes themselves (kept in
+// its own file since this one is already very large). Reuses the same Wix
+// booking helpers defined above rather than duplicating them.
+registerPlayerBookingRoutes(app, {
+  requireAuth,
+  readDb,
+  writeDb,
+  wixSiteIdForVenue,
+  startOfTodayLondonIso,
+  syncWixSiteIfDue,
+  loadWixSnapshots,
+  getWixBooking,
+  cancelWixBooking,
+  resyncAfterWalkin,
+  walkinWixError,
+  asyncRoute,
+});
+
 // Quick-renew buttons (Search players, Registered players, the check-in
 // result and the member page reached from Today's check-ins) - 1, 6 or 12
 // months. Date rule (Matt, 2026-09-25):
@@ -2292,7 +2314,11 @@ function checkinPlayerView(db, user, venueId) {
 function logVenueVisit(db, { venueId, user, source, cardUid = null, by = null }) {
   if (!Array.isArray(db.venueVisits)) db.venueVisits = [];
   const now = Date.now();
-  const recent = db.venueVisits.find((v) => v.venueId === venueId && v.userId === user.id && now - new Date(v.at).getTime() < CHECKIN_REPEAT_MS);
+  // A visit hidden by "Clear list" isn't reused, so a tap straight after
+  // clearing still shows up on Today's check-ins.
+  const venueRow = (db.venues || []).find((x) => x.id === venueId);
+  const clearedAt = (venueRow && venueRow.checkinsClearedAt) || '';
+  const recent = db.venueVisits.find((v) => v.venueId === venueId && v.userId === user.id && now - new Date(v.at).getTime() < CHECKIN_REPEAT_MS && !(clearedAt && v.at <= clearedAt));
   if (recent) return { visit: recent, repeat: true };
   const cutoff = now - VISIT_KEEP_DAYS * 24 * 60 * 60 * 1000;
   db.venueVisits = db.venueVisits.filter((v) => new Date(v.at).getTime() >= cutoff);
@@ -2340,13 +2366,21 @@ app.get('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, res
   const today = todayUkString();
   const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date(iso));
   const usersById = new Map(db.users.map((u) => [u.id, u]));
+  // "Clear list" (Matt, 2026-09-26) only hides: visits at or before
+  // venue.checkinsClearedAt are left out unless ?all=1, which marks them
+  // hidden: true instead (the page's "Show cleared" toggle). The visits
+  // themselves stay recorded (player visit counts, the checked-in rule).
+  const clearedAt = venue.checkinsClearedAt || '';
+  const includeHidden = req.query.all === '1';
   const list = (db.venueVisits || [])
     .filter((v) => v.venueId === venue.id && dayOf(v.at) === today)
+    .filter((v) => includeHidden || !(clearedAt && v.at <= clearedAt))
     .sort((a, b) => (a.at < b.at ? 1 : -1))
     .map((v) => {
       const u = usersById.get(v.userId);
       return {
         id: v.id,
+        hidden: !!(clearedAt && v.at <= clearedAt),
         at: v.at,
         source: v.source,
         membershipStatus: v.membershipStatus,
@@ -2356,6 +2390,44 @@ app.get('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, res
       };
     });
   res.json(list);
+}));
+
+// Today's check-ins > "Clear list": hides every check-in so far today
+// from the list (they stay recorded). Later check-ins show as normal.
+app.post('/api/venue-manager/checkins/clear', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, (req.body || {}).venueId);
+  venue.checkinsClearedAt = new Date().toISOString();
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'venue.checkinsCleared',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Cleared Today's check-ins list at ${venue.name} (visits kept)`,
+  });
+  writeDb(db);
+  res.json({ clearedAt: venue.checkinsClearedAt });
+}));
+
+// Today's check-ins > remove one: deletes that visit for good (e.g. an
+// accidental tap), so it no longer counts anywhere. Only visits at a venue
+// the caller manages.
+app.delete('/api/venue-manager/checkins/:id', requireVenueManager, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, req.query.venueId);
+  const visit = (db.venueVisits || []).find((v) => v.id === req.params.id && v.venueId === venue.id);
+  if (!visit) throw new ApiError(404, 'Check-in not found');
+  db.venueVisits = db.venueVisits.filter((v) => v.id !== visit.id);
+  const u = db.users.find((x) => x.id === visit.userId);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'venue.checkinDeleted',
+    targetType: 'user',
+    targetId: visit.userId,
+    details: `Deleted ${u ? `${u.firstName} ${u.lastName}` : 'a deleted account'}'s check-in at ${venue.name} (${visit.source}, ${visit.at})`,
+  });
+  writeDb(db);
+  res.json({ ok: true, id: visit.id });
 }));
 
 // Member page (Venue Manager Portal > Today's check-ins > a name): the
