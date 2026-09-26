@@ -1465,8 +1465,11 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .ah-field input, .ah-search, .ah-walkin-form input { min-height: 44px; box-sizing: border-box; width: 100%; }
 .ah-hint { font-size: 0.8rem; color: var(--muted); }
 .ah-hint:empty { display: none; }
-.ah-link { align-self: flex-start; border: 0; background: none; padding: 4px 0; font: inherit; font-size: 0.88rem; font-weight: 700; color: var(--primary); text-decoration: underline; cursor: pointer; }
 
+/* 2026-09-26: every format is now a card (no more "More formats" toggle),
+   so .ah-formats/.ah-format sizes the full set of 9 - three columns from
+   480px up, where a 2-column grid would leave an odd tile stranded alone
+   on its own row. */
 .ah-formats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .ah-format {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; min-height: 92px;
@@ -1477,13 +1480,9 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .ah-format strong { font-size: 1rem; }
 .ah-format span { font-size: 0.78rem; color: var(--muted); line-height: 1.3; }
 .ah-format-on { border-color: var(--primary) !important; background: #eef5f0 !important; box-shadow: inset 0 0 0 1px var(--primary); }
-.ah-more { display: flex; flex-direction: column; gap: 6px; }
-.ah-more-row {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-height: 48px;
-  padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border); background: #fff; color: var(--ink);
-  font: inherit; cursor: pointer;
+@media (min-width: 480px) {
+  .ah-formats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-.ah-more-row span { font-size: 0.78rem; color: var(--muted); }
 
 .ah-chip { align-self: flex-start; font-size: 0.85rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: var(--tile-bg, #f5f3ec); }
 .ah-pills { display: flex; gap: 6px; flex-wrap: wrap; }
