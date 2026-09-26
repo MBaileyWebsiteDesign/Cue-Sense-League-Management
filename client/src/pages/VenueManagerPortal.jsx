@@ -480,29 +480,43 @@ function walkinSlotInfo(value, hours) {
   return { startMin: h * 60 + mi, open: day.open, close: day.close };
 }
 
-// Start-time choices for a walk-in: the next 13 half-hour starts (the current
-// half hour first, as "Now") that fall inside opening hours and leave at
-// least an hour before closing - skipping closed times, so outside opening
-// hours the list begins at the next opening. Values are UK wall-clock
-// "YYYY-MM-DDTHH:MM". UK offsets are whole hours, so flooring to 30 minutes
-// in UTC matches UK.
+// Start-time choices for a walk-in: every half-hour start over the next 7
+// days (the current half hour first, as "Now") that falls inside opening
+// hours and leaves at least an hour before closing. Each option carries its
+// UK day so the form can show a Day picker and then that day's times
+// (Matt, 2026-09-26 - the old list stopped after 13 slots, so after
+// midnight it ran 11:00-17:00 and later times couldn't be booked).
+// Values are UK wall-clock "YYYY-MM-DDTHH:MM". UK offsets are whole hours,
+// so flooring to 30 minutes in UTC matches UK.
 function walkinStartOptions(hours = DEFAULT_OPENING_HOURS) {
   const step = 30 * 60 * 1000;
   const first = Math.floor(Date.now() / step) * step;
-  const todayKey = ukDayKey(new Date().toISOString());
   const opts = [];
-  for (let i = 0; i < 7 * 48 && opts.length < 13; i++) {
+  for (let i = 0; i < 7 * 48; i++) {
     const d = new Date(first + i * step);
     const iso = d.toISOString();
-    const value = `${ukDayKey(iso)}T${ukTime(iso)}`;
+    const day = ukDayKey(iso);
+    const value = `${day}T${ukTime(iso)}`;
     const { startMin, open, close } = walkinSlotInfo(value, hours);
     if (startMin < open || startMin + 60 > close) continue;
-    const dayPrefix = ukDayKey(iso) === todayKey
-      ? ''
-      : `${new Intl.DateTimeFormat('en-GB', { timeZone: UK_TZ, weekday: 'short' }).format(d)} `;
-    opts.push({ value, label: i === 0 ? `Now (${ukTime(iso)})` : `${dayPrefix}${ukTime(iso)}` });
+    opts.push({ value, day, label: i === 0 ? `Now (${ukTime(iso)})` : ukTime(iso) });
   }
   return opts;
+}
+
+// Day picker choices: the UK days that have at least one start option.
+function walkinDayOptions(startOpts) {
+  const todayKey = ukDayKey(new Date(Date.now()).toISOString());
+  const tomorrowKey = ukDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  const seen = [];
+  startOpts.forEach((o) => { if (!seen.includes(o.day)) seen.push(o.day); });
+  return seen.map((day) => {
+    const [y, m, d] = day.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d, 12));
+    const name = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(date);
+    const label = day === todayKey ? `Today (${name})` : day === tomorrowKey ? `Tomorrow (${name})` : name;
+    return { value: day, label };
+  });
 }
 
 const WALKIN_LENGTH_LABEL = { 60: '1 hr', 120: '2 hrs', 180: '3 hrs' };
@@ -516,6 +530,14 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
   const [openingHours, setOpeningHours] = useState(DEFAULT_OPENING_HOURS);
   const [startOpts, setStartOpts] = useState(() => walkinStartOptions());
   const [start, setStart] = useState(() => (startOpts[0] ? startOpts[0].value : ''));
+  const [day, setDay] = useState(() => (startOpts[0] ? startOpts[0].day : ''));
+  const dayOpts = walkinDayOptions(startOpts);
+  const dayStarts = startOpts.filter((o) => o.day === day);
+  const pickDay = (value) => {
+    setDay(value);
+    const firstOfDay = startOpts.find((o) => o.day === value);
+    setStart(firstOfDay ? firstOfDay.value : '');
+  };
   const [minutes, setMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -544,7 +566,12 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
           setOpeningHours(d.openingHours);
           const opts = walkinStartOptions(d.openingHours);
           setStartOpts(opts);
-          setStart((cur) => (opts.some((o) => o.value === cur) ? cur : (opts[0] ? opts[0].value : '')));
+          setStart((cur) => {
+            const keep = opts.find((o) => o.value === cur);
+            const next = keep || opts[0];
+            setDay(next ? next.day : '');
+            return next ? next.value : '';
+          });
         }
       })
       .catch((e) => setError(e.message));
@@ -587,13 +614,21 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
           {(tables || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
       </label>
-      <label className="vm-wi-field">
-        <span>Start</span>
-        <select className="mm-input" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy}>
-          {startOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <span className="vm-wi-hours">Open Mon–Sat 11:00–midnight, Sun 11:00–22:00. Games must finish by closing.</span>
-      </label>
+      <div className="vm-wi-daytime">
+        <label className="vm-wi-field">
+          <span>Day</span>
+          <select className="mm-input" value={day} onChange={(e) => pickDay(e.target.value)} disabled={busy}>
+            {dayOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        <label className="vm-wi-field">
+          <span>Start</span>
+          <select className="mm-input" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy}>
+            {dayStarts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <span className="vm-wi-hours">Open Mon–Sat 11:00–midnight, Sun 11:00–22:00. Games must finish by closing.</span>
       <div className="vm-wi-field">
         <span>How long</span>
         <div className="vm-wi-lengths" role="group" aria-label="How long">

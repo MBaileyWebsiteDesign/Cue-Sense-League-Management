@@ -2444,3 +2444,8 @@ button.vm-tile { cursor: pointer; }
   .ci-today li:not(.vmm-visit) > :nth-child(4) { grid-area: chip; justify-self: start; }
   .ci-today li:not(.vmm-visit) > :nth-child(5) { grid-area: del; }
 }
+
+/* Walk-in form: Day + Start side by side (2026-09-26). */
+.vm-wi-daytime { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 480px) { .vm-wi-daytime { grid-template-columns: 1fr; } }
+.vm-wi > .vm-wi-hours { font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-top: -6px; }
