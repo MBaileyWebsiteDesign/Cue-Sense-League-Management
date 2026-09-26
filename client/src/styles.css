@@ -1484,17 +1484,24 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .ah-format-on { border-color: var(--primary) !important; background: #eef5f0 !important; box-shadow: inset 0 0 0 1px var(--primary); }
 .ah-format-on:hover { box-shadow: inset 0 0 0 1px var(--primary), 0 4px 14px rgba(18, 61, 36, 0.18); }
 
-/* Format colour badges (UI polish, 2026-09-26) - four families reusing the
-   app's existing status-chip tints rather than inventing new colours:
-   green = league formats, gold = knockout formats, red = killer formats,
-   blue = free play. See PlayerPortal.jsx/.status-* and VenueManagerPortal
-   .vm-bk-* for the same tints in use elsewhere. */
-.ah-badge { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+/* Format card colour (UI polish, 2026-09-26; extended to tint the whole
+   card, not just the icon badge, at Matt's request) - four families
+   reusing the app's existing status-chip tints rather than inventing new
+   colours: green = league formats, gold = knockout formats, red = killer
+   formats, blue = free play. Same tints as .status-completed/.status-
+   in_progress/.status-disputed/.status-pending_confirmation elsewhere in
+   the app. The icon badge becomes a translucent white chip so it stays
+   legible against the tinted card. */
+.ah-badge { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(255, 255, 255, 0.6); }
 .ah-badge svg { width: 20px; height: 20px; }
-.fam-free { background: #dceafb; color: var(--secondary-dark); }
-.fam-killer { background: #fee2e2; color: #991b1b; }
-.fam-knockout { background: #fef3c7; color: #92400e; }
-.fam-league { background: #d1fae5; color: #065f46; }
+.ah-format.fam-free { background: #dceafb; border-color: var(--secondary-dark); }
+.ah-format.fam-free .ah-badge, .ah-format.fam-free svg { color: var(--secondary-dark); }
+.ah-format.fam-killer { background: #fee2e2; border-color: #991b1b; }
+.ah-format.fam-killer .ah-badge, .ah-format.fam-killer svg { color: #991b1b; }
+.ah-format.fam-knockout { background: #fef3c7; border-color: #92400e; }
+.ah-format.fam-knockout .ah-badge, .ah-format.fam-knockout svg { color: #92400e; }
+.ah-format.fam-league { background: #d1fae5; border-color: #065f46; }
+.ah-format.fam-league .ah-badge, .ah-format.fam-league svg { color: #065f46; }
 .ah-check {
   position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; border-radius: 999px;
   background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center;
