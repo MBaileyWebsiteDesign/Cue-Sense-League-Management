@@ -552,6 +552,142 @@ function MyLeagues({ leagues, playerId }) {
   );
 }
 
+// My Bookings (Matt, 2026-09-26): a player's own table bookings, across
+// every venue linked to a Wix booking site (see wixSiteIdForVenue in
+// server/src/index.js - Top Spin only for now, more venues will show here
+// automatically as they're linked the same way). Matched to this account
+// purely by email, today onward - mirrors the Venue Manager's own Table
+// bookings card (VenueManagerPortal.jsx's BookingsCard), reusing its
+// vm-bk-* styling. Hidden entirely on the GitHub Pages demo build, which
+// has no live Wix connection (api.getMyBookings doesn't exist there).
+const MY_BOOKING_STATUS = {
+  CONFIRMED: { label: 'Confirmed', cls: 'status-completed' },
+  PENDING: { label: 'Pending', cls: '' },
+  WAITING_LIST: { label: 'Waiting list', cls: '' },
+  CANCELED: { label: 'Cancelled', cls: 'status-disputed' },
+  DECLINED: { label: 'Declined', cls: 'status-disputed' },
+};
+
+function myBookingDayKey(iso) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+}
+function myBookingTime(iso) {
+  return iso
+    ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso))
+    : '';
+}
+function myBookingDayHeading(key) {
+  const today = myBookingDayKey(new Date().toISOString());
+  const tomorrow = myBookingDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  const [y, m, d] = key.split('-').map(Number);
+  const label = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })
+    .format(new Date(Date.UTC(y, m - 1, d, 12)));
+  if (key === today) return `Today \u00b7 ${label}`;
+  if (key === tomorrow) return `Tomorrow \u00b7 ${label}`;
+  return label;
+}
+
+function MyBookings() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
+  const [cancelling, setCancelling] = useState(null);
+
+  const load = () => {
+    if (typeof api.getMyBookings !== 'function') return;
+    setError('');
+    api.getMyBookings().then((r) => setData(r.bookings || [])).catch((e) => setError(e.message));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  // Two taps to cancel, same pattern as the Venue Manager's Table bookings card.
+  useEffect(() => {
+    if (!armedCancel) return undefined;
+    const t = setTimeout(() => setArmedCancel(null), 5000);
+    return () => clearTimeout(t);
+  }, [armedCancel]);
+
+  const onCancel = (b) => {
+    if (armedCancel !== b.id) { setArmedCancel(b.id); return; }
+    setArmedCancel(null);
+    setCancelling(b.id);
+    setError('');
+    api.cancelMyBooking(b.venueId, b.id)
+      .then(() => {
+        setNotice(`Your booking for ${b.table} at ${myBookingTime(b.start)} on ${myBookingDayHeading(myBookingDayKey(b.start))} has been cancelled.`);
+        load();
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setCancelling(null));
+  };
+
+  if (typeof api.getMyBookings !== 'function') return null;
+  if (!data) return null;
+
+  const groups = [];
+  for (const b of data) {
+    const key = myBookingDayKey(b.start);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.items.push(b);
+    else groups.push({ key, items: [b] });
+  }
+
+  return (
+    <section className="card">
+      <h2>My Bookings</h2>
+      {error && <p className="error">{error}</p>}
+      {notice && <p className="banner banner-success">{notice}</p>}
+      {data.length === 0 ? (
+        <p className="muted">No table bookings today or coming up.</p>
+      ) : (
+        groups.map((g) => (
+          <div key={g.key} className="vm-bk-day">
+            <h3 className="vm-bk-day-head">{myBookingDayHeading(g.key)}</h3>
+            <ul className="vm-bk-list">
+              {g.items.map((b) => {
+                const st = MY_BOOKING_STATUS[b.status] || { label: b.status || 'Unknown', cls: '' };
+                const cancelled = b.status === 'CANCELED' || b.status === 'DECLINED';
+                const tone = cancelled ? 'cancelled' : b.status === 'CONFIRMED' ? 'confirmed' : 'pending';
+                return (
+                  <li key={b.id} className={`vm-bk vm-bk-${tone}`}>
+                    <span className="vm-bk-time">
+                      <strong>{myBookingTime(b.start)}</strong>
+                      {b.end && <span>{myBookingTime(b.end)}</span>}
+                    </span>
+                    <span className="vm-bk-main">
+                      <strong>{b.table}</strong>
+                      <span>{b.venueName}</span>
+                    </span>
+                    <span className="vm-bk-chips">
+                      <span className={`status ${st.cls}`}>{st.label}</span>
+                      {!cancelled && (
+                        <button
+                          type="button"
+                          className={`vm-bk-cancel${armedCancel === b.id ? ' vm-bk-cancel-armed' : ''}`}
+                          onClick={() => onCancel(b)}
+                          disabled={cancelling === b.id}
+                          aria-label={armedCancel === b.id ? `Confirm cancelling ${b.table} at ${myBookingTime(b.start)}` : `Cancel ${b.table} at ${myBookingTime(b.start)}`}
+                        >
+                          {cancelling === b.id ? 'Cancelling\u2026' : armedCancel === b.id ? 'Tap to confirm' : 'Cancel'}
+                        </button>
+                      )}
+                    </span>
+                    {armedCancel === b.id && (
+                      <span className="vm-bk-cancel-hint">Wix will email/text you to confirm it's cancelled.</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
 // Account settings > My venues (Matt, 2026-09-25): a player can belong to
 // more than one venue. They can add any venue and remove one, except while a
 // membership there is still active (the venue has to remove that).
@@ -725,6 +861,7 @@ export default function PlayerPortal() {
       <NextMatch fixtures={fixtures} />
       <RecentResults fixtures={fixtures} profile={profile} />
       <MyLeagues leagues={leagues} playerId={user.playerId} />
+      <MyBookings />
 
       <section className="card cs-settings">
         <h2>Account settings</h2>

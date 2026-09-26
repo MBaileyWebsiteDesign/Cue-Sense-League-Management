@@ -37,6 +37,7 @@ import {
   hashApiKey,
 } from './userAuth.js';
 import { recordAudit } from './services/auditLog.js';
+import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -1366,6 +1367,7 @@ async function fetchWixBookings(siteId, fromIso) {
       status: b.status || null,
       paymentStatus: b.paymentStatus || null,
       customerName: [contact.firstName, contact.lastName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
+      email: (contact.email || '').trim().toLowerCase() || null,
       participants: b.totalParticipants || null,
     };
   })
@@ -2142,6 +2144,26 @@ function cancelVenueBookingHandler(req, res, next) {
 app.post('/api/venue-manager/bookings/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
 // Older clients (cached by the service worker) still call this path.
 app.post('/api/venue-manager/walkins/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
+
+// Player Portal "My Bookings" card (Matt, 2026-09-26): a player's own view
+// of, and ability to cancel, their table bookings - see
+// server/src/routes/playerBookings.js for the routes themselves (kept in
+// its own file since this one is already very large). Reuses the same Wix
+// booking helpers defined above rather than duplicating them.
+registerPlayerBookingRoutes(app, {
+  requireAuth,
+  readDb,
+  writeDb,
+  wixSiteIdForVenue,
+  startOfTodayLondonIso,
+  syncWixSiteIfDue,
+  loadWixSnapshots,
+  getWixBooking,
+  cancelWixBooking,
+  resyncAfterWalkin,
+  walkinWixError,
+  asyncRoute,
+});
 
 // Quick-renew buttons (Search players, Registered players, the check-in
 // result and the member page reached from Today's check-ins) - 1, 6 or 12

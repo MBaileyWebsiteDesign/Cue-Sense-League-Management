@@ -64,6 +64,15 @@ const networkApi = {
   getMyFixtures: () => request('/users/me/fixtures'),
   getMyPendingConfirmations: () => request('/users/me/pending-confirmations'),
   getMyLeagueMembership: () => request('/users/me/leagues'),
+  // Player Portal "My Bookings" card: this account's own table bookings
+  // across every venue linked to Wix, matched by account email - see
+  // GET /api/users/me/bookings in server/src/index.js.
+  getMyBookings: () => request('/users/me/bookings'),
+  cancelMyBooking: (venueId, bookingId) =>
+    request(`/users/me/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId }),
+    }),
 
   // Admin: user management
   adminListUsers: (q = '') => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
