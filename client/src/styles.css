@@ -2424,3 +2424,8 @@ button.vm-tile { cursor: pointer; }
 .mf-vis-chip { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
 .mf-vis-yes { background: #e7f2ea; color: var(--win-ink, #065f46); }
 .mf-vis-no { background: #f1efe8; color: #4b5563; }
+
+/* Walk-in form: Day + Start side by side (2026-09-26). */
+.vm-wi-daytime { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 480px) { .vm-wi-daytime { grid-template-columns: 1fr; } }
+.vm-wi > .vm-wi-hours { font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-top: -6px; }
