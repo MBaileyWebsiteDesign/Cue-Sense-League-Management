@@ -794,19 +794,19 @@ export default function AdHocGame({ quickStart = false }) {
   }, [quickStart]);
 
   return (
-    <div>
-      {!createdDivision && <p><Link to="/account">&larr; My Account</Link></p>}
-      <div className="page-header">
-        <div>
-          <h1>{pageTitle}</h1>
-          {!createdDivision && !quickStart && (
-            <p className="muted">Set up a one-off game - not tied to any league season.</p>
-          )}
-          {!createdDivision && quickStart && !quickError && (
-            <p className="muted">Setting up your Free Play game…</p>
-          )}
-        </div>
+    <div className="ah-page">
+      <div className="au-head">
+        <Link to="/account" className="msg-icon-btn" aria-label="Back to my account">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <h1>{pageTitle}</h1>
       </div>
+      {!createdDivision && !quickStart && (
+        <p className="muted">Set up a one-off game - not tied to any league season.</p>
+      )}
+      {!createdDivision && quickStart && !quickError && (
+        <p className="muted">Setting up your Free Play game…</p>
+      )}
 
       {quickStart && !createdDivision ? (
         quickError ? <p className="error">{quickError}</p> : <p>Creating your game…</p>
