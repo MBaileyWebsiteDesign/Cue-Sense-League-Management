@@ -171,6 +171,14 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId }),
     }),
+  // "Book all tables for a day" (Table bookings card): books every table for
+  // the whole day (opening to closing) except the 8 Ball / Chinese table, so
+  // it stays free to book online. day = "YYYY-MM-DD" (UK date).
+  bookAllTables: (venueId, day) =>
+    request('/venue-manager/walkins/book-all-tables', {
+      method: 'POST',
+      body: JSON.stringify({ venueId, day }),
+    }),
   // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
   getVenueManagerDuePlayers: (venueId, months) =>
     request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
