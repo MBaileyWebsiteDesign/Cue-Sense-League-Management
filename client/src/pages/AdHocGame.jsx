@@ -13,19 +13,19 @@ const FREE_PLAY_SCHEDULING = 'free_play';
 // "Division name", "Select Players" instead of "Add Division") and with no
 // league picker - every ad hoc game lands in the shared system league
 // automatically (see server/src/index.js's POST /api/adhoc-games).
-// Format cards (mobile redesign, 2026-09-23): the four common formats are
-// shown as tappable cards; the rest sit behind "More formats".
-const MAIN_FORMATS = [
+// Format cards (mobile redesign, 2026-09-23; expanded to show every format
+// as a card, 2026-09-26 - Matt asked to drop the "More formats" toggle and
+// give the rest of the list the same icon + colour treatment as the first
+// four rather than a plain text row).
+const FORMATS = [
   { value: 'free_play', title: 'Free Play', desc: '2 players, no frame target' },
   { value: 'killer_classic', title: 'Killer', desc: 'Everyone in, play in order' },
   { value: 'knockout_single_elim', title: 'Knockout', desc: 'Single elimination' },
   { value: 'round_robin_single', title: 'League', desc: 'Everyone plays each other once' },
-];
-const MORE_FORMATS = [
   { value: 'cards_killer', title: 'Killer Random', desc: 'Player order randomised on each turn' },
   { value: 'knockout_double_elim', title: 'Knockout (double elimination)', desc: 'Two losses and you are out' },
   { value: 'round_robin_double', title: 'League – double leg', desc: 'Everyone plays each other twice, home and away' },
-  { value: 'knockout_double_elim_pcdek', title: 'Pre Configured Double Elimination Knockout', desc: '' },
+  { value: 'knockout_double_elim_pcdek', title: 'Pre Configured Double Elimination Knockout' },
   { value: 'knockout_double_elim_adek', title: 'Adaptive Double Elimination Knockout', desc: 'No rematches before the finals' },
 ];
 const ENTRY_TYPES = [
@@ -39,7 +39,44 @@ function FormatIcon({ value }) {
   if (value === 'free_play') return <svg {...common}><circle cx="8" cy="12" r="3" /><circle cx="16" cy="12" r="3" /></svg>;
   if (value === 'killer_classic') return <svg {...common}><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.5-7 10-7 10z" /></svg>;
   if (value === 'knockout_single_elim') return <svg {...common}><path d="M4 5h5v6h6M4 19h5v-8M15 11h5" /></svg>;
-  return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
+  if (value === 'round_robin_single') return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
+  // Killer Random - the classic Killer heart, with a shuffle mark to show the
+  // turn order is randomised rather than fixed.
+  if (value === 'cards_killer') {
+    return (
+      <svg {...common}>
+        <polyline points="16 3 21 3 21 8" />
+        <line x1="4" y1="20" x2="21" y2="3" />
+        <polyline points="21 16 21 21 16 21" />
+        <line x1="15" y1="15" x2="21" y2="21" />
+        <line x1="4" y1="4" x2="9" y2="9" />
+      </svg>
+    );
+  }
+  // Double-elimination variants - two overlapping brackets, standing for the
+  // winners and losers brackets a double-elim format runs side by side.
+  if (value === 'knockout_double_elim' || value === 'knockout_double_elim_pcdek' || value === 'knockout_double_elim_adek') {
+    return (
+      <svg {...common}>
+        <path d="M3 5h4v5h5" />
+        <path d="M3 14h4v5h5" />
+        <path d="M12 7.5h4" />
+        <path d="M12 16.5h4" />
+        <path d="M16 7.5v9" />
+        {value === 'knockout_double_elim_pcdek' && <rect x="18" y="3" width="4" height="4" rx="1" />}
+        {value === 'knockout_double_elim_adek' && <path d="M19 3.5a3 3 0 1 1-2.6 1.5" strokeWidth="1.6" />}
+      </svg>
+    );
+  }
+  // League - double leg: the league's three lines, played through twice.
+  return (
+    <svg {...common}>
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </svg>
+  );
 }
 
 function StepIndicator({ step }) {
@@ -64,13 +101,11 @@ function GameSetupForm({ onCreated }) {
   const [formatMode, setFormatMode] = useState('raceTo');
   const [formatValue, setFormatValue] = useState(6);
   const [startingLives, setStartingLives] = useState(3);
-  const [showMore, setShowMore] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const isKiller = KILLER_SCHEDULING.includes(scheduling);
   const isFreePlay = scheduling === FREE_PLAY_SCHEDULING;
-  const moreSelected = MORE_FORMATS.some((f) => f.value === scheduling);
 
   const onSchedulingChange = (value) => {
     setScheduling(value);
@@ -144,26 +179,8 @@ function GameSetupForm({ onCreated }) {
       <div className="ah-field">
         <span className="ah-label">Format</span>
         <div className="ah-formats">
-          {MAIN_FORMATS.map((f) => <FormatCard key={f.value} f={f} />)}
+          {FORMATS.map((f) => <FormatCard key={f.value} f={f} />)}
         </div>
-        {(showMore || moreSelected) ? (
-          <div className="ah-more">
-            {MORE_FORMATS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                className={`ah-more-row${scheduling === f.value ? ' ah-format-on' : ''}`}
-                aria-pressed={scheduling === f.value}
-                onClick={() => onSchedulingChange(f.value)}
-              >
-                <strong>{f.title}</strong>
-                {f.desc && <span>{f.desc}</span>}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <button type="button" className="ah-link" onClick={() => setShowMore(true)}>More formats</button>
-        )}
         <span className="ah-hint">
           {isFreePlay
             ? 'No frame target - finish whenever someone is ahead.'
