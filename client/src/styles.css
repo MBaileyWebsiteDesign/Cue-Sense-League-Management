@@ -2425,6 +2425,26 @@ button.vm-tile { cursor: pointer; }
 .mf-vis-yes { background: #e7f2ea; color: var(--win-ink, #065f46); }
 .mf-vis-no { background: #f1efe8; color: #4b5563; }
 
+/* Venue Manager > Today's check-ins: Clear list + per-row delete (2026-09-26). */
+.ci-today-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 14px 0 6px; }
+.ci-today-bar .ci-today-head { margin: 0; }
+.ci-clear { padding: 4px 12px; font-size: 0.85rem; min-height: 0; }
+.ci-today li:not(.vmm-visit) { grid-template-columns: auto 1fr auto auto auto; }
+.ci-today li.ci-hidden { opacity: 0.55; }
+.ci-del { border: 1px solid var(--border); background: transparent; color: var(--ink, inherit); border-radius: 999px; min-width: 32px; height: 32px; padding: 0 8px; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+.ci-del-armed { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.ci-del:disabled { opacity: 0.5; cursor: default; }
+.ci-show-cleared { margin-top: 8px; background: none; border: none; padding: 4px 0; color: var(--primary); text-decoration: underline; cursor: pointer; font-size: 0.85rem; }
+/* Phone: time | name | delete on the first line, source + status below. */
+@media (max-width: 640px) {
+  .ci-today li:not(.vmm-visit) { grid-template-columns: auto auto 1fr auto; grid-template-areas: "time who who del" ". src chip del"; row-gap: 2px; }
+  .ci-today li:not(.vmm-visit) > :nth-child(1) { grid-area: time; }
+  .ci-today li:not(.vmm-visit) > :nth-child(2) { grid-area: who; min-width: 0; overflow-wrap: anywhere; }
+  .ci-today li:not(.vmm-visit) > :nth-child(3) { grid-area: src; }
+  .ci-today li:not(.vmm-visit) > :nth-child(4) { grid-area: chip; justify-self: start; }
+  .ci-today li:not(.vmm-visit) > :nth-child(5) { grid-area: del; }
+}
+
 /* Walk-in form: Day + Start side by side (2026-09-26). */
 .vm-wi-daytime { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 480px) { .vm-wi-daytime { grid-template-columns: 1fr; } }
