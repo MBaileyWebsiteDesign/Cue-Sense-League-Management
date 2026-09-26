@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 // Player messaging (private 1-to-1 chat for arranging games). Two views on
@@ -55,6 +56,9 @@ function dayLabel(iso) {
 }
 
 function Inbox() {
+  const { isAdmin, isCaptain, isLeagueManager } = useAuth();
+  const isPlayerSession = !isAdmin && !isCaptain && !isLeagueManager;
+  const homePath = isPlayerSession ? '/account' : '/';
   const [threads, setThreads] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [blocks, setBlocks] = useState([]);
@@ -100,8 +104,13 @@ function Inbox() {
 
   return (
     <div className="msg-page">
-      <div className="msg-intro">
+      <div className="au-head">
+        <Link to={homePath} className="msg-icon-btn" aria-label={isPlayerSession ? 'Back to my account' : 'Back to home'}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
         <h1>Messages</h1>
+      </div>
+      <div className="msg-intro">
         <p className="muted">Arrange games with players you share a league or venue with.</p>
       </div>
       {error && <p className="error">{error}</p>}
