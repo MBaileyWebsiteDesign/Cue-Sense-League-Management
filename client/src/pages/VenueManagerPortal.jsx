@@ -688,6 +688,71 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
   );
 }
 
+// "Book all tables for a day" (Matt, 2026-09-26): fills every table except
+// the 8 Ball / Chinese table for a whole day (opening to closing), so a
+// private event or league night can block online bookings on the rest of
+// the tables in one go, leaving that one table free to book online.
+function BookAllTablesForm({ venueId, onDone, onClose }) {
+  const [startOpts, setStartOpts] = useState(() => walkinStartOptions());
+  const dayOpts = walkinDayOptions(startOpts);
+  const [day, setDay] = useState(() => (dayOpts[0] ? dayOpts[0].value : ''));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getWalkinTables(venueId)
+      .then((d) => {
+        if (Array.isArray(d.openingHours) && d.openingHours.length === 7) {
+          setStartOpts(walkinStartOptions(d.openingHours));
+        }
+      })
+      .catch(() => {});
+  }, [venueId]);
+
+  useEffect(() => {
+    const opts = walkinDayOptions(startOpts);
+    setDay((cur) => (opts.find((o) => o.value === cur) ? cur : (opts[0] ? opts[0].value : '')));
+  }, [startOpts]);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!day) { setError('Choose a day.'); return; }
+    setBusy(true);
+    setError('');
+    api.bookAllTables(venueId, day)
+      .then((r) => {
+        const lines = (r.results || []).map((x) => (x.ok
+          ? `${x.table}: booked ${ukTime(x.start)}–${ukTime(x.end)}.`
+          : `${x.table}: ${x.error}`));
+        const excludedLine = r.excluded && r.excluded.length
+          ? `Left free to book online: ${r.excluded.join(', ')}.`
+          : '';
+        onDone(['All other tables booked for the day:', ...lines, excludedLine].filter(Boolean).join(' '));
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <form className="vm-wi" onSubmit={submit}>
+      <label className="vm-wi-field">
+        <span>Day</span>
+        <select className="mm-input" value={day} onChange={(e) => setDay(e.target.value)} disabled={busy}>
+          {dayOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </label>
+      <span className="vm-wi-hours">Books every table for the whole day (opening to closing) except the 8 Ball / Chinese table, which stays free to book online.</span>
+      {error && <p className="error vm-small">{error}</p>}
+      <div className="vm-wi-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || !dayOpts.length}>
+          {busy ? 'Booking…' : 'Book all tables'}
+        </button>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Close</button>
+      </div>
+    </form>
+  );
+}
+
 // Table bookings shows this many days that have bookings at a time.
 const BOOKING_DAYS_STEP = 5;
 
@@ -697,6 +762,7 @@ function BookingsCard({ venueId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [walkinOpen, setWalkinOpen] = useState(false);
+  const [bookAllOpen, setBookAllOpen] = useState(false);
   const [daysShown, setDaysShown] = useState(BOOKING_DAYS_STEP);
   const [notice, setNotice] = useState('');
   const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
@@ -840,10 +906,25 @@ function BookingsCard({ venueId }) {
                 api.getVenueBookings(venueId).then(setData).catch(() => {});
               }}
             />
+          ) : bookAllOpen ? (
+            <BookAllTablesForm
+              venueId={venueId}
+              onClose={() => setBookAllOpen(false)}
+              onDone={(msg) => {
+                setBookAllOpen(false);
+                setNotice(msg);
+                api.getVenueBookings(venueId).then(setData).catch(() => {});
+              }}
+            />
           ) : (
-            <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setWalkinOpen(true); }}>
-              + Book walk-in
-            </button>
+            <>
+              <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setWalkinOpen(true); }}>
+                + Book walk-in
+              </button>
+              <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setBookAllOpen(true); }}>
+                Book all tables for a day
+              </button>
+            </>
           )
         )}
 
