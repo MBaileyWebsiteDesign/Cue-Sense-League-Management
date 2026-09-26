@@ -1106,12 +1106,43 @@ function CheckinCard({ venueId }) {
   const linkRef = useRef(null);
   linkRef.current = linkFor;
 
+  // Today's check-ins (Matt, 2026-09-26): "Clear list" hides everything so
+  // far (kept on record, "Show cleared" brings them back into view) and
+  // each row has a remove button that deletes that visit. Both need a
+  // second tap to confirm.
+  const [showCleared, setShowCleared] = useState(false);
+  const [armedClear, setArmedClear] = useState(false);
+  const [armedDelete, setArmedDelete] = useState(null); // visit id waiting for a second tap
+  const [todayBusy, setTodayBusy] = useState(false);
+  useEffect(() => {
+    if (!armedClear && !armedDelete) return undefined;
+    const t = setTimeout(() => { setArmedClear(false); setArmedDelete(null); }, 4000);
+    return () => clearTimeout(t);
+  }, [armedClear, armedDelete]);
+
   const loadToday = () => {
     if (typeof api.getVenueCheckinsToday !== 'function') return;
-    api.getVenueCheckinsToday(venueId).then(setToday).catch(() => {});
+    api.getVenueCheckinsToday(venueId, true).then(setToday).catch(() => {});
+  };
+  const clearToday = () => {
+    if (!armedClear) { setArmedClear(true); setArmedDelete(null); return; }
+    setArmedClear(false); setTodayBusy(true); setError('');
+    api.clearVenueCheckins(venueId)
+      .then(() => { setShowCleared(false); loadToday(); })
+      .catch((err) => setError(err.message))
+      .finally(() => setTodayBusy(false));
+  };
+  const deleteVisit = (v) => {
+    if (armedDelete !== v.id) { setArmedDelete(v.id); setArmedClear(false); return; }
+    setArmedDelete(null); setTodayBusy(true); setError('');
+    api.deleteVenueCheckin(venueId, v.id)
+      .then(() => setToday((list) => (list || []).filter((x) => x.id !== v.id)))
+      .catch((err) => setError(err.message))
+      .finally(() => setTodayBusy(false));
   };
   useEffect(() => {
     setResult(null); setLinkFor(null); setLinking(false); setToday(null); setWalkinFor(null);
+    setShowCleared(false); setArmedClear(false); setArmedDelete(null);
     loadToday();
     const t = setInterval(loadToday, 30000);
     return () => clearInterval(t);
@@ -1278,21 +1309,57 @@ function CheckinCard({ venueId }) {
           )}
         </div>
 
-        <h3 className="ci-today-head">Today's check-ins</h3>
-        {!today ? <p className="muted vm-small">Loading…</p> : today.length === 0 ? (
-          <p className="muted vm-small">Nobody has checked in yet today.</p>
-        ) : (
-          <ul className="ci-today">
-            {today.map((v) => (
-              <li key={v.id}>
-                <span className="ci-time">{ukTime(v.at)}</span>
-                <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
-                <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
-                <CheckinStatusChip status={v.membershipStatus} small />
-              </li>
-            ))}
-          </ul>
-        )}
+        {(() => {
+          const all = today || [];
+          const visible = all.filter((v) => !v.hidden);
+          const hiddenCount = all.length - visible.length;
+          const rows = showCleared ? all : visible;
+          return (
+            <>
+              <div className="ci-today-bar">
+                <h3 className="ci-today-head">Today's check-ins</h3>
+                {visible.length > 0 && (
+                  <button
+                    type="button"
+                    className={`btn ci-clear${armedClear ? ' btn-danger' : ''}`}
+                    onClick={clearToday}
+                    disabled={todayBusy}
+                  >
+                    {armedClear ? 'Tap to confirm' : 'Clear list'}
+                  </button>
+                )}
+              </div>
+              {!today ? <p className="muted vm-small">Loading…</p> : rows.length === 0 ? (
+                <p className="muted vm-small">{hiddenCount > 0 ? 'List cleared. New check-ins will show here.' : 'Nobody has checked in yet today.'}</p>
+              ) : (
+                <ul className="ci-today">
+                  {rows.map((v) => (
+                    <li key={v.id} className={v.hidden ? 'ci-hidden' : undefined}>
+                      <span className="ci-time">{ukTime(v.at)}</span>
+                      <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
+                      <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
+                      <CheckinStatusChip status={v.membershipStatus} small />
+                      <button
+                        type="button"
+                        className={`ci-del${armedDelete === v.id ? ' ci-del-armed' : ''}`}
+                        onClick={() => deleteVisit(v)}
+                        disabled={todayBusy}
+                        aria-label={armedDelete === v.id ? `Confirm deleting ${v.name}'s check-in at ${ukTime(v.at)}` : `Delete ${v.name}'s check-in at ${ukTime(v.at)}`}
+                      >
+                        {armedDelete === v.id ? 'Delete?' : '✕'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {hiddenCount > 0 && (
+                <button type="button" className="ci-show-cleared" onClick={() => setShowCleared((s) => !s)}>
+                  {showCleared ? 'Hide cleared check-ins' : `Show ${hiddenCount} cleared check-in${hiddenCount === 1 ? '' : 's'}`}
+                </button>
+              )}
+            </>
+          );
+        })()}
 
         <BarTagPanel venueId={venueId} />
       </div>

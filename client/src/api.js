@@ -183,8 +183,13 @@ const networkApi = {
   // Member page "Add to <venue>": joins a checked-in player to the venue (no dates).
   addPlayerToVenue: (venueId, userId) =>
     request(`/venue-manager/players/${encodeURIComponent(userId)}/venue`, { method: 'POST', body: JSON.stringify({ venueId }) }),
-  getVenueCheckinsToday: (venueId) =>
-    request(`/venue-manager/checkins?venueId=${encodeURIComponent(venueId)}`),
+  getVenueCheckinsToday: (venueId, all = false) =>
+    request(`/venue-manager/checkins?venueId=${encodeURIComponent(venueId)}${all ? '&all=1' : ''}`),
+  // Today's check-ins: hide everything so far (visits kept) / delete one visit.
+  clearVenueCheckins: (venueId) =>
+    request('/venue-manager/checkins/clear', { method: 'POST', body: JSON.stringify({ venueId }) }),
+  deleteVenueCheckin: (venueId, id) =>
+    request(`/venue-manager/checkins/${encodeURIComponent(id)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
   linkVenueCard: (venueId, playerId, uid, label = '') =>
     request(`/venue-manager/players/${playerId}/cards`, { method: 'POST', body: JSON.stringify({ venueId, uid, label }) }),
   unlinkVenueCard: (venueId, playerId, uid) =>
