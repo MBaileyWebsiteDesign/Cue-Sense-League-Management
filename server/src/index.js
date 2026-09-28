@@ -38,6 +38,7 @@ import {
 } from './userAuth.js';
 import { recordAudit } from './services/auditLog.js';
 import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
+import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -2163,6 +2164,25 @@ registerPlayerBookingRoutes(app, {
   resyncAfterWalkin,
   walkinWixError,
   asyncRoute,
+});
+
+registerBookAllTablesRoute(app, {
+  requireVenueManager,
+  ApiError,
+  walkinVenue,
+  getWalkinTables,
+  walkinWixError,
+  bookWalkinPart,
+  cancelWixBooking,
+  loadWalkins,
+  saveWalkins,
+  readDb,
+  writeDb,
+  recordAudit,
+  resyncAfterWalkin,
+  WALKIN_OPENING_HOURS,
+  WALKIN_MAX_AHEAD_MS,
+  londonWallTimeToUtc,
 });
 
 // Quick-renew buttons (Search players, Registered players, the check-in
