@@ -173,11 +173,12 @@ const networkApi = {
     }),
   // "Book all tables for a day" (Table bookings card): books every table for
   // the whole day (opening to closing) except the 8 Ball / Chinese table, so
-  // it stays free to book online. day = "YYYY-MM-DD" (UK date).
-  bookAllTables: (venueId, day) =>
+  // it stays free to book online. day = "YYYY-MM-DD" (UK date). Pass tableId
+  // to book just that one table instead (any table, including 8 Ball/Chinese).
+  bookAllTables: (venueId, day, tableId) =>
     request('/venue-manager/walkins/book-all-tables', {
       method: 'POST',
-      body: JSON.stringify({ venueId, day }),
+      body: JSON.stringify({ venueId, day, ...(tableId ? { tableId } : {}) }),
     }),
   // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
   getVenueManagerDuePlayers: (venueId, months) =>

@@ -691,11 +691,16 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
 // "Book all tables for a day" (Matt, 2026-09-26): fills every table except
 // the 8 Ball / Chinese table for a whole day (opening to closing), so a
 // private event or league night can block online bookings on the rest of
-// the tables in one go, leaving that one table free to book online.
+// the tables in one go, leaving that one table free to book online. The
+// table picker (Matt, 2026-09-28) also allows booking just one specific
+// table for the day instead - including the 8 Ball / Chinese table, since
+// that's an explicit choice rather than the bulk "leave it free" default.
 function BookAllTablesForm({ venueId, onDone, onClose }) {
   const [startOpts, setStartOpts] = useState(() => walkinStartOptions());
   const dayOpts = walkinDayOptions(startOpts);
   const [day, setDay] = useState(() => (dayOpts[0] ? dayOpts[0].value : ''));
+  const [tables, setTables] = useState([]);
+  const [tableId, setTableId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -705,6 +710,7 @@ function BookAllTablesForm({ venueId, onDone, onClose }) {
         if (Array.isArray(d.openingHours) && d.openingHours.length === 7) {
           setStartOpts(walkinStartOptions(d.openingHours));
         }
+        if (Array.isArray(d.tables)) setTables(d.tables);
       })
       .catch(() => {});
   }, [venueId]);
@@ -719,7 +725,7 @@ function BookAllTablesForm({ venueId, onDone, onClose }) {
     if (!day) { setError('Choose a day.'); return; }
     setBusy(true);
     setError('');
-    api.bookAllTables(venueId, day)
+    api.bookAllTables(venueId, day, tableId || undefined)
       .then((r) => {
         const lines = (r.results || []).map((x) => (x.ok
           ? `${x.table}: booked ${ukTime(x.start)}–${ukTime(x.end)}.`
@@ -727,7 +733,8 @@ function BookAllTablesForm({ venueId, onDone, onClose }) {
         const excludedLine = r.excluded && r.excluded.length
           ? `Left free to book online: ${r.excluded.join(', ')}.`
           : '';
-        onDone(['All other tables booked for the day:', ...lines, excludedLine].filter(Boolean).join(' '));
+        const heading = tableId ? `${lines.length ? r.results[0].table : 'Table'} booked for the day:` : 'All other tables booked for the day:';
+        onDone([heading, ...lines, excludedLine].filter(Boolean).join(' '));
       })
       .catch((err) => setError(err.message))
       .finally(() => setBusy(false));
@@ -741,11 +748,22 @@ function BookAllTablesForm({ venueId, onDone, onClose }) {
           {dayOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </label>
-      <span className="vm-wi-hours">Books every table for the whole day (opening to closing) except the 8 Ball / Chinese table, which stays free to book online.</span>
+      <label className="vm-wi-field">
+        <span>Table</span>
+        <select className="mm-input" value={tableId} onChange={(e) => setTableId(e.target.value)} disabled={busy}>
+          <option value="">All tables (except 8 Ball / Chinese)</option>
+          {tables.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </label>
+      <span className="vm-wi-hours">
+        {tableId
+          ? 'Books that table for the whole day (opening to closing).'
+          : 'Books every table for the whole day (opening to closing) except the 8 Ball / Chinese table, which stays free to book online.'}
+      </span>
       {error && <p className="error vm-small">{error}</p>}
       <div className="vm-wi-actions">
         <button type="submit" className="btn btn-primary" disabled={busy || !dayOpts.length}>
-          {busy ? 'Booking…' : 'Book all tables'}
+          {busy ? 'Booking…' : (tableId ? 'Book table' : 'Book all tables')}
         </button>
         <button type="button" className="btn" onClick={onClose} disabled={busy}>Close</button>
       </div>
