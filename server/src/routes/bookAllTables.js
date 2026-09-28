@@ -59,7 +59,7 @@ export function registerBookAllTablesRoute(app, deps) {
   } = deps;
 
   app.post('/api/venue-manager/walkins/book-all-tables', requireVenueManager, (req, res, next) => (async () => {
-    const { venueId, day } = req.body || {};
+    const { venueId, day, tableId } = req.body || {};
     const { venue, siteId } = walkinVenue(req, venueId);
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
     if (!m) throw new ApiError(400, 'Choose a day.');
@@ -81,9 +81,17 @@ export function registerBookAllTablesRoute(app, deps) {
     } catch (err) {
       throw walkinWixError(err, 'Could not load the tables from Wix');
     }
-    const toBook = tables.filter((t) => !BOOK_ALL_EXCLUDE_RE.test(t.name));
-    const excluded = tables.filter((t) => BOOK_ALL_EXCLUDE_RE.test(t.name)).map((t) => t.name);
-    if (!toBook.length) throw new ApiError(400, 'No other tables to book - only the 8 Ball / Chinese table is set up.');
+    let toBook, excluded;
+    if (tableId) {
+      const single = tables.find((t) => t.id === tableId);
+      if (!single) throw new ApiError(400, 'Table not found.');
+      toBook = [single];
+      excluded = [];
+    } else {
+      toBook = tables.filter((t) => !BOOK_ALL_EXCLUDE_RE.test(t.name));
+      excluded = tables.filter((t) => BOOK_ALL_EXCLUDE_RE.test(t.name)).map((t) => t.name);
+      if (!toBook.length) throw new ApiError(400, 'No other tables to book - only the 8 Ball / Chinese table is set up.');
+    }
 
     const parts = [];
     { let remaining = totalMinutes; while (remaining > 0) { const chunk = Math.min(120, remaining); parts.push(chunk); remaining -= chunk; } }
@@ -123,7 +131,9 @@ export function registerBookAllTablesRoute(app, deps) {
       action: 'venue.bookAllTables',
       targetType: 'venue',
       targetId: venue.id,
-      details: `Booked all tables for ${day} (except ${excluded.join(', ') || 'none set up'}): ${results.map((r) => `${r.table} ${r.ok ? 'OK' : `FAILED - ${r.error}`}`).join('; ')}`,
+      details: tableId
+        ? `Booked ${toBook[0].name} for ${day}: ${results.map((r) => `${r.table} ${r.ok ? 'OK' : `FAILED - ${r.error}`}`).join('; ')}`
+        : `Booked all tables for ${day} (except ${excluded.join(', ') || 'none set up'}): ${results.map((r) => `${r.table} ${r.ok ? 'OK' : `FAILED - ${r.error}`}`).join('; ')}`,
     });
     writeDb(db);
     await resyncAfterWalkin(siteId);
