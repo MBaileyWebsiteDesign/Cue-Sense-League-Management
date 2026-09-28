@@ -688,6 +688,71 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
   );
 }
 
+// "Book all tables for a day" (Matt, 2026-09-26): fills every table except
+// the 8 Ball / Chinese table for a whole day (opening to closing), so a
+// private event or league night can block online bookings on the rest of
+// the tables in one go, leaving that one table free to book online.
+function BookAllTablesForm({ venueId, onDone, onClose }) {
+  const [startOpts, setStartOpts] = useState(() => walkinStartOptions());
+  const dayOpts = walkinDayOptions(startOpts);
+  const [day, setDay] = useState(() => (dayOpts[0] ? dayOpts[0].value : ''));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getWalkinTables(venueId)
+      .then((d) => {
+        if (Array.isArray(d.openingHours) && d.openingHours.length === 7) {
+          setStartOpts(walkinStartOptions(d.openingHours));
+        }
+      })
+      .catch(() => {});
+  }, [venueId]);
+
+  useEffect(() => {
+    const opts = walkinDayOptions(startOpts);
+    setDay((cur) => (opts.find((o) => o.value === cur) ? cur : (opts[0] ? opts[0].value : '')));
+  }, [startOpts]);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!day) { setError('Choose a day.'); return; }
+    setBusy(true);
+    setError('');
+    api.bookAllTables(venueId, day)
+      .then((r) => {
+        const lines = (r.results || []).map((x) => (x.ok
+          ? `${x.table}: booked ${ukTime(x.start)}–${ukTime(x.end)}.`
+          : `${x.table}: ${x.error}`));
+        const excludedLine = r.excluded && r.excluded.length
+          ? `Left free to book online: ${r.excluded.join(', ')}.`
+          : '';
+        onDone(['All other tables booked for the day:', ...lines, excludedLine].filter(Boolean).join(' '));
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <form className="vm-wi" onSubmit={submit}>
+      <label className="vm-wi-field">
+        <span>Day</span>
+        <select className="mm-input" value={day} onChange={(e) => setDay(e.target.value)} disabled={busy}>
+          {dayOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </label>
+      <span className="vm-wi-hours">Books every table for the whole day (opening to closing) except the 8 Ball / Chinese table, which stays free to book online.</span>
+      {error && <p className="error vm-small">{error}</p>}
+      <div className="vm-wi-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || !dayOpts.length}>
+          {busy ? 'Booking…' : 'Book all tables'}
+        </button>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Close</button>
+      </div>
+    </form>
+  );
+}
+
 // Table bookings shows this many days that have bookings at a time.
 const BOOKING_DAYS_STEP = 5;
 
@@ -697,6 +762,7 @@ function BookingsCard({ venueId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [walkinOpen, setWalkinOpen] = useState(false);
+  const [bookAllOpen, setBookAllOpen] = useState(false);
   const [daysShown, setDaysShown] = useState(BOOKING_DAYS_STEP);
   const [notice, setNotice] = useState('');
   const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
@@ -840,10 +906,25 @@ function BookingsCard({ venueId }) {
                 api.getVenueBookings(venueId).then(setData).catch(() => {});
               }}
             />
+          ) : bookAllOpen ? (
+            <BookAllTablesForm
+              venueId={venueId}
+              onClose={() => setBookAllOpen(false)}
+              onDone={(msg) => {
+                setBookAllOpen(false);
+                setNotice(msg);
+                api.getVenueBookings(venueId).then(setData).catch(() => {});
+              }}
+            />
           ) : (
-            <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setWalkinOpen(true); }}>
-              + Book walk-in
-            </button>
+            <>
+              <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setWalkinOpen(true); }}>
+                + Book walk-in
+              </button>
+              <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setBookAllOpen(true); }}>
+                Book all tables for a day
+              </button>
+            </>
           )
         )}
 
@@ -1141,12 +1222,43 @@ function CheckinCard({ venueId }) {
   const linkRef = useRef(null);
   linkRef.current = linkFor;
 
+  // Today's check-ins (Matt, 2026-09-26): "Clear list" hides everything so
+  // far (kept on record, "Show cleared" brings them back into view) and
+  // each row has a remove button that deletes that visit. Both need a
+  // second tap to confirm.
+  const [showCleared, setShowCleared] = useState(false);
+  const [armedClear, setArmedClear] = useState(false);
+  const [armedDelete, setArmedDelete] = useState(null); // visit id waiting for a second tap
+  const [todayBusy, setTodayBusy] = useState(false);
+  useEffect(() => {
+    if (!armedClear && !armedDelete) return undefined;
+    const t = setTimeout(() => { setArmedClear(false); setArmedDelete(null); }, 4000);
+    return () => clearTimeout(t);
+  }, [armedClear, armedDelete]);
+
   const loadToday = () => {
     if (typeof api.getVenueCheckinsToday !== 'function') return;
-    api.getVenueCheckinsToday(venueId).then(setToday).catch(() => {});
+    api.getVenueCheckinsToday(venueId, true).then(setToday).catch(() => {});
+  };
+  const clearToday = () => {
+    if (!armedClear) { setArmedClear(true); setArmedDelete(null); return; }
+    setArmedClear(false); setTodayBusy(true); setError('');
+    api.clearVenueCheckins(venueId)
+      .then(() => { setShowCleared(false); loadToday(); })
+      .catch((err) => setError(err.message))
+      .finally(() => setTodayBusy(false));
+  };
+  const deleteVisit = (v) => {
+    if (armedDelete !== v.id) { setArmedDelete(v.id); setArmedClear(false); return; }
+    setArmedDelete(null); setTodayBusy(true); setError('');
+    api.deleteVenueCheckin(venueId, v.id)
+      .then(() => setToday((list) => (list || []).filter((x) => x.id !== v.id)))
+      .catch((err) => setError(err.message))
+      .finally(() => setTodayBusy(false));
   };
   useEffect(() => {
     setResult(null); setLinkFor(null); setLinking(false); setToday(null); setWalkinFor(null);
+    setShowCleared(false); setArmedClear(false); setArmedDelete(null);
     loadToday();
     const t = setInterval(loadToday, 30000);
     return () => clearInterval(t);
@@ -1313,21 +1425,57 @@ function CheckinCard({ venueId }) {
           )}
         </div>
 
-        <h3 className="ci-today-head">Today's check-ins</h3>
-        {!today ? <p className="muted vm-small">Loading…</p> : today.length === 0 ? (
-          <p className="muted vm-small">Nobody has checked in yet today.</p>
-        ) : (
-          <ul className="ci-today">
-            {today.map((v) => (
-              <li key={v.id}>
-                <span className="ci-time">{ukTime(v.at)}</span>
-                <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
-                <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
-                <CheckinStatusChip status={v.membershipStatus} small />
-              </li>
-            ))}
-          </ul>
-        )}
+        {(() => {
+          const all = today || [];
+          const visible = all.filter((v) => !v.hidden);
+          const hiddenCount = all.length - visible.length;
+          const rows = showCleared ? all : visible;
+          return (
+            <>
+              <div className="ci-today-bar">
+                <h3 className="ci-today-head">Today's check-ins</h3>
+                {visible.length > 0 && (
+                  <button
+                    type="button"
+                    className={`btn ci-clear${armedClear ? ' btn-danger' : ''}`}
+                    onClick={clearToday}
+                    disabled={todayBusy}
+                  >
+                    {armedClear ? 'Tap to confirm' : 'Clear list'}
+                  </button>
+                )}
+              </div>
+              {!today ? <p className="muted vm-small">Loading…</p> : rows.length === 0 ? (
+                <p className="muted vm-small">{hiddenCount > 0 ? 'List cleared. New check-ins will show here.' : 'Nobody has checked in yet today.'}</p>
+              ) : (
+                <ul className="ci-today">
+                  {rows.map((v) => (
+                    <li key={v.id} className={v.hidden ? 'ci-hidden' : undefined}>
+                      <span className="ci-time">{ukTime(v.at)}</span>
+                      <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
+                      <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
+                      <CheckinStatusChip status={v.membershipStatus} small />
+                      <button
+                        type="button"
+                        className={`ci-del${armedDelete === v.id ? ' ci-del-armed' : ''}`}
+                        onClick={() => deleteVisit(v)}
+                        disabled={todayBusy}
+                        aria-label={armedDelete === v.id ? `Confirm deleting ${v.name}'s check-in at ${ukTime(v.at)}` : `Delete ${v.name}'s check-in at ${ukTime(v.at)}`}
+                      >
+                        {armedDelete === v.id ? 'Delete?' : '✕'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {hiddenCount > 0 && (
+                <button type="button" className="ci-show-cleared" onClick={() => setShowCleared((s) => !s)}>
+                  {showCleared ? 'Hide cleared check-ins' : `Show ${hiddenCount} cleared check-in${hiddenCount === 1 ? '' : 's'}`}
+                </button>
+              )}
+            </>
+          );
+        })()}
 
         <BarTagPanel venueId={venueId} />
       </div>
