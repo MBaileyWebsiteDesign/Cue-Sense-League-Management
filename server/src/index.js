@@ -1653,15 +1653,15 @@ const WALKIN_LENGTHS = [60, 120, 180]; // minutes; 180 = 120 + 60
 // Top Spin opening hours (Matt, 2026-09-24), UK time, as minutes after
 // midnight, indexed by day of week (0 = Sunday). Walk-ins must start at or
 // after opening and finish by closing, so nothing can start at closing time.
-// Mon-Sat 11:00-24:00, Sun 11:00-22:00.
+// Mon-Sat 11:00-23:00, Sun 11:00-22:00.
 const WALKIN_OPENING_HOURS = [
   { open: 11 * 60, close: 22 * 60 }, // Sun
-  { open: 11 * 60, close: 24 * 60 }, // Mon
-  { open: 11 * 60, close: 24 * 60 }, // Tue
-  { open: 11 * 60, close: 24 * 60 }, // Wed
-  { open: 11 * 60, close: 24 * 60 }, // Thu
-  { open: 11 * 60, close: 24 * 60 }, // Fri
-  { open: 11 * 60, close: 24 * 60 }, // Sat
+  { open: 11 * 60, close: 23 * 60 }, // Mon
+  { open: 11 * 60, close: 23 * 60 }, // Tue
+  { open: 11 * 60, close: 23 * 60 }, // Wed
+  { open: 11 * 60, close: 23 * 60 }, // Thu
+  { open: 11 * 60, close: 23 * 60 }, // Fri
+  { open: 11 * 60, close: 23 * 60 }, // Sat
 ];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 function hhmm(mins) {
