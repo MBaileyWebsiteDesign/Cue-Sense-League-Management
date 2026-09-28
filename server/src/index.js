@@ -1612,9 +1612,17 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
   // yesterday's bookings until the 09:00 sync.
   const fromIso = startOfTodayLondonIso();
   const walkins = loadWalkins();
-  const bookings = (snap.bookings || [])
+  const realBookings = (snap.bookings || [])
     .filter((b) => b.start && new Date(b.start) >= new Date(fromIso))
+    // Cancelled/declined bookings pile up here indefinitely otherwise - the
+    // customer already sees a "cancelled" notice at the moment of cancelling
+    // (see cancelWalkin in VenueManagerPortal.jsx), so there's no reason to
+    // keep showing them in this list afterwards.
+    .filter((b) => b.status !== 'CANCELED' && b.status !== 'DECLINED')
     .map((b) => (walkins[b.id] ? { ...b, walkIn: true } : b));
+  const blockedEvents = await getBlockedTableEvents(siteId);
+  const bookings = [...realBookings, ...blockedEvents.filter((e) => new Date(e.start) >= new Date(fromIso))]
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
   res.json({
     linked: true,
     walkIns: true,
@@ -1785,6 +1793,55 @@ async function blockTableForDay(siteId, table, start, end, title) {
   });
   if (!data.event || !data.event.id) throw new Error('Wix did not return the new blocked event');
   return data.event;
+}
+
+// Blocked-table entries for the Table bookings card (Matt, 2026-09-29): the
+// card reads Wix Bookings, which block events never appear in (see
+// blockTableForDay above), so this queries each table's own events schedule
+// directly and shapes the results to look like a booking row. Cached
+// briefly since it's one Wix call per table on every card load/refresh.
+const BLOCKED_EVENTS_CACHE_MS = 2 * 60 * 1000;
+const blockedEventsCache = new Map(); // siteId -> { at, events }
+async function getBlockedTableEvents(siteId) {
+  const hit = blockedEventsCache.get(siteId);
+  if (hit && Date.now() - hit.at < BLOCKED_EVENTS_CACHE_MS) return hit.events;
+  let tables;
+  try {
+    tables = await getWalkinTables(siteId);
+  } catch {
+    return [];
+  }
+  const from = new Date();
+  const to = new Date(Date.now() + WALKIN_MAX_AHEAD_MS + 24 * 60 * 60 * 1000);
+  const perTable = await Promise.all(tables.map(async (table) => {
+    try {
+      const data = await wixPost(siteId, 'https://www.wixapis.com/calendar/v3/events/query', {
+        fromLocalDate: londonLocalString(from),
+        toLocalDate: londonLocalString(to),
+        query: { filter: { externalScheduleId: table.resourceId } },
+      });
+      return (data.events || []).map((e) => {
+        const start = e.start && e.start.localDate && parseLondonLocal(e.start.localDate.slice(0, 16));
+        const end = e.end && e.end.localDate && parseLondonLocal(e.end.localDate.slice(0, 16));
+        if (!start) return null;
+        return {
+          id: e.id,
+          table: table.name,
+          start: start.toISOString(),
+          end: end ? end.toISOString() : null,
+          status: 'CONFIRMED',
+          customerName: e.title || 'Blocked',
+          blocked: true,
+        };
+      }).filter(Boolean);
+    } catch (err) {
+      console.warn(`Could not load blocked events for ${table.name}:`, err.message);
+      return [];
+    }
+  }));
+  const events = perTable.flat();
+  blockedEventsCache.set(siteId, { at: Date.now(), events });
+  return events;
 }
 
 let walkinStore = null; // bookingId -> { siteId, venueId, table, start, end, createdAt, by, cancelledAt? }

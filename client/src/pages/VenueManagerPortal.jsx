@@ -979,8 +979,9 @@ function BookingsCard({ venueId }) {
                       </span>
                       <span className="vm-bk-chips">
                         <span className={`status ${st.cls}`}>{st.label}</span>
+                        {b.blocked && <span className="vm-bk-walkin">Blocked</span>}
                         {b.walkIn && <span className="vm-bk-walkin">Walk-in</span>}
-                        {data.walkIns && !cancelled && (
+                        {data.walkIns && !cancelled && !b.blocked && (
                           <button
                             type="button"
                             className={`vm-bk-cancel${armedCancel === b.id ? ' vm-bk-cancel-armed' : ''}`}
@@ -991,13 +992,13 @@ function BookingsCard({ venueId }) {
                             {cancelling === b.id ? 'Cancelling…' : armedCancel === b.id ? 'Tap to confirm' : 'Cancel'}
                           </button>
                         )}
-                        {!cancelled && !b.walkIn && b.paymentStatus && (
+                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && (
                           <span className={`vm-bk-pay${b.paymentStatus === 'PAID' ? ' vm-bk-paid' : ''}`}>
                             {PAYMENT_LABEL[b.paymentStatus] || b.paymentStatus}
                           </span>
                         )}
                       </span>
-                      {armedCancel === b.id && !b.walkIn && (
+                      {armedCancel === b.id && !b.walkIn && !b.blocked && (
                         <span className="vm-bk-cancel-hint">Wix will email/text {b.customerName || 'the customer'} to say it's cancelled.</span>
                       )}
                     </li>
