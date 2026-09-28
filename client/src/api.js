@@ -171,6 +171,13 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId }),
     }),
+  // Reverses a "Book all tables for a day" block - id is a Calendar Events
+  // id, not a Bookings id, so this is a separate endpoint from cancelWalkin.
+  cancelBlock: (venueId, eventId) =>
+    request(`/venue-manager/blocks/${encodeURIComponent(eventId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId }),
+    }),
   // "Book all tables for a day" (Table bookings card): books every table for
   // the whole day (opening to closing) except the 8 Ball / Chinese table, so
   // it stays free to book online. day = "YYYY-MM-DD" (UK date). Pass tableId

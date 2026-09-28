@@ -798,11 +798,13 @@ function BookingsCard({ venueId }) {
     setArmedCancel(null);
     setCancelling(b.id);
     setError('');
-    api.cancelWalkin(venueId, b.id)
+    (b.blocked ? api.cancelBlock(venueId, b.id) : api.cancelWalkin(venueId, b.id))
       .then((r) => {
-        setNotice(b.walkIn
-          ? `Walk-in on ${b.table} at ${ukTime(b.start)} cancelled - the table is free to book online again.`
-          : `${b.customerName || 'Booking'} on ${b.table} at ${ukTime(b.start)} cancelled${r && r.notified ? ' - Wix will let the customer know' : ''}. The table is free to book online again.`);
+        setNotice(b.blocked
+          ? `Block on ${b.table} removed - the table is free to book online again.`
+          : b.walkIn
+            ? `Walk-in on ${b.table} at ${ukTime(b.start)} cancelled - the table is free to book online again.`
+            : `${b.customerName || 'Booking'} on ${b.table} at ${ukTime(b.start)} cancelled${r && r.notified ? ' - Wix will let the customer know' : ''}. The table is free to book online again.`);
         return api.getVenueBookings(venueId).then(setData);
       })
       .catch((e) => setError(e.message))
@@ -981,15 +983,19 @@ function BookingsCard({ venueId }) {
                         <span className={`status ${st.cls}`}>{st.label}</span>
                         {b.blocked && <span className="vm-bk-walkin">Blocked</span>}
                         {b.walkIn && <span className="vm-bk-walkin">Walk-in</span>}
-                        {data.walkIns && !cancelled && !b.blocked && (
+                        {data.walkIns && !cancelled && (
                           <button
                             type="button"
                             className={`vm-bk-cancel${armedCancel === b.id ? ' vm-bk-cancel-armed' : ''}`}
                             onClick={() => cancelWalkin(b)}
                             disabled={cancelling === b.id}
-                            aria-label={armedCancel === b.id ? `Confirm cancelling ${b.table} at ${ukTime(b.start)}` : `Cancel ${b.table} at ${ukTime(b.start)}`}
+                            aria-label={armedCancel === b.id
+                              ? `Confirm ${b.blocked ? 'removing the block on' : 'cancelling'} ${b.table} at ${ukTime(b.start)}`
+                              : `${b.blocked ? 'Unblock' : 'Cancel'} ${b.table} at ${ukTime(b.start)}`}
                           >
-                            {cancelling === b.id ? 'Cancelling…' : armedCancel === b.id ? 'Tap to confirm' : 'Cancel'}
+                            {cancelling === b.id
+                              ? (b.blocked ? 'Removing…' : 'Cancelling…')
+                              : armedCancel === b.id ? 'Tap to confirm' : (b.blocked ? 'Unblock' : 'Cancel')}
                           </button>
                         )}
                         {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && (
