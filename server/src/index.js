@@ -1731,6 +1731,62 @@ async function getWalkinTables(siteId) {
   return tables;
 }
 
+async function wixGet(siteId, url) {
+  const resp = await fetch(url, {
+    headers: { Authorization: process.env.WIX_API_KEY, 'wix-site-id': siteId },
+  });
+  const text = await resp.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
+  if (!resp.ok) {
+    const appErr = data && data.details && data.details.applicationError;
+    const err = new Error(`Wix returned ${resp.status}: ${(data && data.message) || text.slice(0, 200)}`);
+    err.wixStatus = resp.status;
+    err.wixCode = (appErr && appErr.code) || null;
+    throw err;
+  }
+  return data;
+}
+
+// Each Wix Bookings resource (table) has its own "events schedule" - the
+// calendar that Wix Bookings availability checks against, and the same one
+// the "Block staff time" panel in the Wix dashboard writes to. Cached
+// alongside the table list since it rarely changes.
+const RESOURCE_SCHEDULE_CACHE_MS = 60 * 60 * 1000;
+const resourceScheduleCache = new Map(); // resourceId -> { at, scheduleId }
+async function getResourceScheduleId(siteId, resourceId) {
+  const hit = resourceScheduleCache.get(resourceId);
+  if (hit && Date.now() - hit.at < RESOURCE_SCHEDULE_CACHE_MS) return hit.scheduleId;
+  const data = await wixGet(siteId, `https://www.wixapis.com/bookings/v2/resources/${encodeURIComponent(resourceId)}`);
+  const scheduleId = data.resource && data.resource.eventsSchedule && data.resource.eventsSchedule.scheduleId;
+  if (!scheduleId) throw new Error(`Resource ${resourceId} has no events schedule`);
+  resourceScheduleCache.set(resourceId, { at: Date.now(), scheduleId });
+  return scheduleId;
+}
+
+// "Book all tables for a day" (Matt, 2026-09-29 rewrite) creates a plain
+// calendar block on the table's own events schedule - the same thing the
+// Wix dashboard's "Block staff time" panel does - instead of creating a
+// walk-in Bookings appointment. This sidesteps Wix's SLOT_NOT_AVAILABLE
+// availability check entirely (which was giving false negatives on rapid
+// back-to-back appointment-create calls), and needs only one Wix write per
+// table regardless of how long the day is, instead of one per <=2h chunk.
+// Downside: because this isn't a Bookings appointment, it won't appear in
+// this app's own "Table bookings" list - only in Wix's own calendar/dashboard.
+async function blockTableForDay(siteId, table, start, end, title) {
+  const scheduleId = await getResourceScheduleId(siteId, table.resourceId);
+  const data = await wixPost(siteId, 'https://www.wixapis.com/calendar/v3/events', {
+    event: {
+      scheduleId,
+      title,
+      start: { localDate: londonLocalString(start) },
+      end: { localDate: londonLocalString(end) },
+    },
+  });
+  if (!data.event || !data.event.id) throw new Error('Wix did not return the new blocked event');
+  return data.event;
+}
+
 let walkinStore = null; // bookingId -> { siteId, venueId, table, start, end, createdAt, by, cancelledAt? }
 function loadWalkins() {
   if (walkinStore) return walkinStore;
@@ -2172,14 +2228,10 @@ registerBookAllTablesRoute(app, {
   walkinVenue,
   getWalkinTables,
   walkinWixError,
-  bookWalkinPart,
-  cancelWixBooking,
-  loadWalkins,
-  saveWalkins,
+  blockTableForDay,
   readDb,
   writeDb,
   recordAudit,
-  resyncAfterWalkin,
   WALKIN_OPENING_HOURS,
   WALKIN_MAX_AHEAD_MS,
   londonWallTimeToUtc,
