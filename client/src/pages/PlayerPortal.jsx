@@ -587,12 +587,198 @@ function myBookingDayHeading(key) {
   return label;
 }
 
+// Book a table (Matt, 2026-09-30): shown inside My Bookings only when the
+// player has an active membership at a venue that has table booking set up
+// (api.getMyBookingVenues - active membership + a linked Wix site). Reuses
+// the exact same start-time/day/length picker and Wix rules as the Venue
+// Manager's "Book walk-in" form (VenueManagerPortal.jsx's WalkinForm), just
+// without the player-details fieldset since the booking is for yourself.
+const BOOK_LENGTH_LABEL = { 60: '1 hr', 120: '2 hrs', 180: '3 hrs' };
+// Fallback if the server doesn't send opening hours (minutes after midnight,
+// 0 = Sunday): Mon-Sat 11:00-24:00, Sun 11:00-22:00.
+const BOOK_DEFAULT_OPENING_HOURS = [
+  { open: 660, close: 1320 },
+  { open: 660, close: 1440 }, { open: 660, close: 1440 }, { open: 660, close: 1440 },
+  { open: 660, close: 1440 }, { open: 660, close: 1440 }, { open: 660, close: 1440 },
+];
+
+function bookSlotInfo(value, hours) {
+  const [datePart, timePart] = value.split('T');
+  const [y, m, d] = datePart.split('-').map(Number);
+  const [h, mi] = timePart.split(':').map(Number);
+  const day = hours[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] || { open: 0, close: 0 };
+  return { startMin: h * 60 + mi, open: day.open, close: day.close };
+}
+
+// Start-time choices: every half-hour start over the next 7 days (the
+// current half hour first, as "Now") that falls inside opening hours and
+// leaves at least an hour before closing. Each option carries its UK day so
+// the form can show a Day picker and then that day's times. Values are UK
+// wall-clock "YYYY-MM-DDTHH:MM".
+function bookStartOptions(hours = BOOK_DEFAULT_OPENING_HOURS) {
+  const step = 30 * 60 * 1000;
+  const first = Math.floor(Date.now() / step) * step;
+  const opts = [];
+  for (let i = 0; i < 7 * 48; i++) {
+    const d = new Date(first + i * step);
+    const iso = d.toISOString();
+    const day = myBookingDayKey(iso);
+    const value = `${day}T${myBookingTime(iso)}`;
+    const { startMin, open, close } = bookSlotInfo(value, hours);
+    if (startMin < open || startMin + 60 > close) continue;
+    opts.push({ value, day, label: i === 0 ? `Now (${myBookingTime(iso)})` : myBookingTime(iso) });
+  }
+  return opts;
+}
+
+// Day picker choices: the UK days that have at least one start option.
+function bookDayOptions(startOpts) {
+  const todayKey = myBookingDayKey(new Date(Date.now()).toISOString());
+  const tomorrowKey = myBookingDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  const seen = [];
+  startOpts.forEach((o) => { if (!seen.includes(o.day)) seen.push(o.day); });
+  return seen.map((day) => {
+    const [y, m, d] = day.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d, 12));
+    const name = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(date);
+    const label = day === todayKey ? `Today (${name})` : day === tomorrowKey ? `Tomorrow (${name})` : name;
+    return { value: day, label };
+  });
+}
+
+function BookTableForm({ venues, onDone, onClose }) {
+  const [venueId, setVenueId] = useState(() => (venues[0] ? venues[0].id : ''));
+  const [tables, setTables] = useState(null);
+  const [lengths, setLengths] = useState([60, 120, 180]);
+  const [tableId, setTableId] = useState('');
+  const [openingHours, setOpeningHours] = useState(BOOK_DEFAULT_OPENING_HOURS);
+  const [startOpts, setStartOpts] = useState(() => bookStartOptions());
+  const [start, setStart] = useState(() => (startOpts[0] ? startOpts[0].value : ''));
+  const [day, setDay] = useState(() => (startOpts[0] ? startOpts[0].day : ''));
+  const dayOpts = bookDayOptions(startOpts);
+  const dayStarts = startOpts.filter((o) => o.day === day);
+  const pickDay = (value) => {
+    setDay(value);
+    const firstOfDay = startOpts.find((o) => o.day === value);
+    setStart(firstOfDay ? firstOfDay.value : '');
+  };
+  const [minutes, setMinutes] = useState(60);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const minutesToClose = start ? (() => { const i = bookSlotInfo(start, openingHours); return i.close - i.startMin; })() : 0;
+  useEffect(() => {
+    if (minutes > minutesToClose) {
+      const fit = lengths.filter((m) => m <= minutesToClose);
+      if (fit.length) setMinutes(fit[fit.length - 1]);
+    }
+  }, [start, minutesToClose]);
+
+  useEffect(() => {
+    setTables(null);
+    setTableId('');
+    if (!venueId) return;
+    api.getMyBookingTables(venueId)
+      .then((d) => {
+        setTables(d.tables || []);
+        if (Array.isArray(d.lengths) && d.lengths.length) setLengths(d.lengths);
+        if (Array.isArray(d.openingHours) && d.openingHours.length === 7) {
+          setOpeningHours(d.openingHours);
+          const opts = bookStartOptions(d.openingHours);
+          setStartOpts(opts);
+          setStart((cur) => {
+            const keep = opts.find((o) => o.value === cur);
+            const next = keep || opts[0];
+            setDay(next ? next.day : '');
+            return next ? next.value : '';
+          });
+        }
+      })
+      .catch((e) => setError(e.message));
+  }, [venueId]);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!tableId) { setError('Choose a table.'); return; }
+    if (!start) { setError('Choose a start time.'); return; }
+    if (minutes > minutesToClose) { setError('That would run past closing time - choose a shorter length.'); return; }
+    setBusy(true);
+    setError('');
+    api.bookMyTable(venueId, tableId, start, minutes)
+      .then((r) => {
+        onDone(`${r.table} booked ${myBookingTime(r.start)}–${myBookingTime(r.end)} on ${myBookingDayHeading(myBookingDayKey(r.start))}.`);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <form className="vm-wi" onSubmit={submit}>
+      {venues.length > 1 && (
+        <label className="vm-wi-field">
+          <span>Venue</span>
+          <select className="mm-input" value={venueId} onChange={(e) => setVenueId(e.target.value)} disabled={busy}>
+            {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </label>
+      )}
+      <label className="vm-wi-field">
+        <span>Table</span>
+        <select className="mm-input" value={tableId} onChange={(e) => setTableId(e.target.value)} disabled={!tables || busy}>
+          <option value="">{tables ? 'Choose a table' : 'Loading tables…'}</option>
+          {(tables || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </label>
+      <div className="vm-wi-daytime">
+        <label className="vm-wi-field">
+          <span>Day</span>
+          <select className="mm-input" value={day} onChange={(e) => pickDay(e.target.value)} disabled={busy}>
+            {dayOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        <label className="vm-wi-field">
+          <span>Start</span>
+          <select className="mm-input" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy}>
+            {dayStarts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="vm-wi-field">
+        <span>How long</span>
+        <div className="vm-wi-lengths" role="group" aria-label="How long">
+          {lengths.map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`vm-wi-len${minutes === m ? ' vm-wi-len-on' : ''}`}
+              aria-pressed={minutes === m}
+              onClick={() => setMinutes(m)}
+              disabled={busy || m > minutesToClose}
+              title={m > minutesToClose ? 'Would run past closing time' : undefined}
+            >
+              {BOOK_LENGTH_LABEL[m] || `${m} min`}
+            </button>
+          ))}
+        </div>
+      </div>
+      {error && <p className="error vm-small">{error}</p>}
+      <div className="vm-wi-actions">
+        <button type="submit" className="btn btn-primary" disabled={busy || !tables}>
+          {busy ? 'Booking…' : 'Book table'}
+        </button>
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Close</button>
+      </div>
+    </form>
+  );
+}
+
 function MyBookings() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
   const [cancelling, setCancelling] = useState(null);
+  const [bookVenues, setBookVenues] = useState(null); // null = loading, [] = none eligible
+  const [bookOpen, setBookOpen] = useState(false);
 
   const load = () => {
     if (typeof api.getMyBookings !== 'function') return;
@@ -601,6 +787,13 @@ function MyBookings() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // "Book a table" only shows at all once we know whether this player has
+  // an active membership at a venue that has table booking set up.
+  useEffect(() => {
+    if (typeof api.getMyBookingVenues !== 'function') { setBookVenues([]); return; }
+    api.getMyBookingVenues().then(setBookVenues).catch(() => setBookVenues([]));
+  }, []);
 
   // Two taps to cancel, same pattern as the Venue Manager's Table bookings card.
   useEffect(() => {
@@ -639,6 +832,26 @@ function MyBookings() {
       <h2>My Bookings</h2>
       {error && <p className="error">{error}</p>}
       {notice && <p className="banner banner-success">{notice}</p>}
+      {bookVenues && bookVenues.length > 0 && (
+        bookOpen ? (
+          <BookTableForm
+            venues={bookVenues}
+            onClose={() => setBookOpen(false)}
+            onDone={(msg) => {
+              setBookOpen(false);
+              setNotice(msg);
+              load();
+            }}
+          />
+        ) : (
+          <div className="vm-bk-actions">
+            <button type="button" className="btn vm-act vm-act-primary" onClick={() => { setNotice(''); setBookOpen(true); }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              Book a table
+            </button>
+          </div>
+        )
+      )}
       {data.length === 0 ? (
         <p className="muted">No table bookings today or coming up.</p>
       ) : (
