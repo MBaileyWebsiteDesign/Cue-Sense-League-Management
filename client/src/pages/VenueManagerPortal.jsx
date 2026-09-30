@@ -129,7 +129,7 @@ function PlayerCard({ p, busy, onRenew, showStatus = true }) {
 }
 
 // The list of players behind whichever "Due in N months" tile is currently
-// selected - same table pattern as PlayerSearchBox's results below, minus
+// selected - same table pattern as the Registered players list below, minus
 // the Status column (Registered-players-only players are already filtered
 // to non-suspended by the API, so it'd always read the same thing).
 // `months` is 2, 4 or 6 for a renewal window, or 'all' for the Registered
@@ -270,88 +270,18 @@ function RenewButtons({ player, busy, onRenew }) {
   );
 }
 
-function PlayerSearchBox({ venueId }) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState(null);
-  const [searching, setSearching] = useState(false);
-  const [error, setError] = useState('');
-  const [renewingId, setRenewingId] = useState(null);
-  const [renewError, setRenewError] = useState('');
-
-  const onSearch = async (e) => {
-    e.preventDefault();
-    setSearching(true);
-    setError('');
-    try {
-      const players = await api.searchVenuePlayers(venueId, query);
-      setResults(players);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const onRenew = async (player, months) => {
-    setRenewingId(player.id);
-    setRenewError('');
-    try {
-      const updated = await api.renewVenuePlayer(venueId, player.id, months);
-      setResults((prev) => prev && prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
-    } catch (err) {
-      setRenewError(err.message);
-    } finally {
-      setRenewingId(null);
-    }
-  };
-
-  return (
-    <section className="card sx-card vm-panel">
-      <div className="vm-bk-band">
-        <span className="vm-bk-band-title">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
-          <h2>Search players</h2>
-        </span>
-      </div>
-      <div className="vm-panel-body">
-      <form className="au-search" onSubmit={onSearch} role="search">
-        <input
-          type="search"
-          className="ah-search"
-          aria-label="Search players by first name, last name or both"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="First name, last name or both"
-        />
-        <button className="btn btn-primary" type="submit" disabled={searching}>
-          {searching ? 'Searching…' : 'Search'}
-        </button>
-      </form>
-      {error && <p className="error">{error}</p>}
-      {renewError && <p className="error">{renewError}</p>}
-      {results && (
-        results.length === 0 ? (
-          <p className="muted">No players at this venue match that search.</p>
-        ) : (
-          <ul className="vm-players">
-            {results.map((p) => (
-              <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} />
-            ))}
-          </ul>
-        )
-      )}
-      </div>
-    </section>
-  );
-}
-
-// New card, under Search players per Matt's request: every user currently
-// registered to this venue, not just search matches. Reuses the same
-// GET /api/venue-manager/players endpoint the search box calls, just with
-// an empty query (the server already returns everyone at the venue when
-// `q` is blank), so no server change was needed for this list itself.
+// Registered players card, with the player search built into the top of it.
+// With the box empty the card lists everyone registered to this venue; Search
+// swaps the list for just the matches (same GET /api/venue-manager/players
+// endpoint, which already returns everyone when `q` is blank), and Clear
+// brings the full list back. The header count always shows the venue's total
+// registered players, not the number of matches.
 function RegisteredPlayersList({ venueId }) {
   const [players, setPlayers] = useState(null);
+  const [total, setTotal] = useState(null);
+  const [query, setQuery] = useState('');
+  const [activeQuery, setActiveQuery] = useState('');
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [renewingId, setRenewingId] = useState(null);
   const [renewError, setRenewError] = useState('');
@@ -359,12 +289,41 @@ function RegisteredPlayersList({ venueId }) {
   useEffect(() => {
     let cancelled = false;
     setPlayers(null);
+    setTotal(null);
+    setQuery('');
+    setActiveQuery('');
     setError('');
     api.searchVenuePlayers(venueId, '')
-      .then((p) => { if (!cancelled) setPlayers(p); })
+      .then((p) => { if (!cancelled) { setPlayers(p); setTotal(p.length); } })
       .catch((e) => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
   }, [venueId]);
+
+  const runSearch = async (q) => {
+    const trimmed = q.trim();
+    setSearching(true);
+    setError('');
+    try {
+      const found = await api.searchVenuePlayers(venueId, trimmed);
+      setPlayers(found);
+      setActiveQuery(trimmed);
+      if (!trimmed) setTotal(found.length);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const onSearch = (e) => {
+    e.preventDefault();
+    runSearch(query);
+  };
+
+  const onClear = () => {
+    setQuery('');
+    runSearch('');
+  };
 
   const onRenew = async (player, months) => {
     setRenewingId(player.id);
@@ -385,17 +344,44 @@ function RegisteredPlayersList({ venueId }) {
         <span className="vm-bk-band-title">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.6 3.5 6" /></svg>
           <h2>Registered players</h2>
-          {players && <span className="vm-bk-count" aria-label={`${players.length} registered players`}>{players.length}</span>}
+          {total !== null && <span className="vm-bk-count" aria-label={`${total} registered players`}>{total}</span>}
         </span>
       </div>
       <div className="vm-panel-body">
+      <form className="au-search" onSubmit={onSearch} role="search">
+        <input
+          type="search"
+          className="ah-search"
+          aria-label="Search players by first name, last name or both"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="First name, last name or both"
+        />
+        <button className="btn btn-primary" type="submit" disabled={searching}>
+          {searching ? 'Searching…' : 'Search'}
+        </button>
+        {activeQuery && (
+          <button className="btn" type="button" onClick={onClear} disabled={searching}>
+            Clear
+          </button>
+        )}
+      </form>
       {error && <p className="error">{error}</p>}
       {renewError && <p className="error">{renewError}</p>}
+      {activeQuery && players && (
+        <p className="muted">
+          {players.length} of {total} player{total === 1 ? '' : 's'} match “{activeQuery}”.
+        </p>
+      )}
       {!players && !error ? (
         <p>Loading…</p>
       ) : players && (
         players.length === 0 ? (
-          <p className="muted">No players are registered to this venue yet.</p>
+          <p className="muted">
+            {activeQuery
+              ? 'No players at this venue match that search.'
+              : 'No players are registered to this venue yet.'}
+          </p>
         ) : (
           <ul className="vm-players">
             {players.map((p) => (
@@ -1593,7 +1579,6 @@ export default function VenueManagerPortal() {
           {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
           {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
           <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
-          {selectedVenueId && <PlayerSearchBox venueId={selectedVenueId} />}
           {selectedVenueId && <RegisteredPlayersList venueId={selectedVenueId} />}
         </>
       )}
