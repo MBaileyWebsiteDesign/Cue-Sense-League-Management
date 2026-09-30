@@ -1947,7 +1947,11 @@ async function createWalkinPart(siteId, table, start, end, skipWixCheck, contact
         },
       },
       contactDetails: contact && contact.firstName
-        ? { firstName: contact.firstName, ...(contact.lastName ? { lastName: contact.lastName } : {}) }
+        ? {
+          firstName: contact.firstName,
+          ...(contact.lastName ? { lastName: contact.lastName } : {}),
+          ...(contact.email ? { email: contact.email } : {}),
+        }
         : { firstName: 'Walk-in' },
       totalParticipants: 1,
       selectedPaymentOption: 'OFFLINE',
@@ -2311,6 +2315,15 @@ registerPlayerBookingRoutes(app, {
   resyncAfterWalkin,
   walkinWixError,
   asyncRoute,
+  membershipAt,
+  membershipActive,
+  getWalkinTables,
+  bookWalkinPart,
+  assertWithinOpeningHours,
+  parseLondonLocal,
+  WALKIN_LENGTHS,
+  WALKIN_OPENING_HOURS,
+  WALKIN_MAX_AHEAD_MS,
 });
 
 registerBookAllTablesRoute(app, {

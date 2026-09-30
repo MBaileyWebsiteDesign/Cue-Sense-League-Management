@@ -73,6 +73,18 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId }),
     }),
+  // Book a table (My Bookings card, Matt, 2026-09-30): venues this account
+  // can book at right now (active membership + table booking set up), the
+  // tables/lengths/opening hours for one of them, and making the booking -
+  // same rules and same Wix data as the Venue Manager's walk-in booking.
+  getMyBookingVenues: () => request('/users/me/booking-venues'),
+  getMyBookingTables: (venueId) =>
+    request(`/users/me/booking-tables?venueId=${encodeURIComponent(venueId)}`),
+  bookMyTable: (venueId, tableId, start, minutes) =>
+    request('/users/me/bookings', {
+      method: 'POST',
+      body: JSON.stringify({ venueId, tableId, start, minutes }),
+    }),
 
   // Admin: user management
   adminListUsers: (q = '') => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
