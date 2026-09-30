@@ -1795,6 +1795,16 @@ async function blockTableForDay(siteId, table, start, end, title) {
   return data.event;
 }
 
+// Reverses blockTableForDay - a block is a Calendar Event, not a Booking, so
+// it needs the Calendar Events API's own cancel endpoint, not
+// cancelWixBooking. Also drops the blockedEventsCache entry so the Table
+// bookings card stops showing it immediately, rather than waiting out
+// BLOCKED_EVENTS_CACHE_MS.
+async function unblockTable(siteId, eventId) {
+  await wixPost(siteId, `https://www.wixapis.com/calendar/v3/events/${encodeURIComponent(eventId)}/cancel`, {});
+  blockedEventsCache.delete(siteId);
+}
+
 // Blocked-table entries for the Table bookings card (Matt, 2026-09-29): the
 // card reads Wix Bookings, which block events never appear in (see
 // blockTableForDay above), so this queries each table's own events schedule
@@ -2258,6 +2268,30 @@ function cancelVenueBookingHandler(req, res, next) {
 app.post('/api/venue-manager/bookings/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
 // Older clients (cached by the service worker) still call this path.
 app.post('/api/venue-manager/walkins/:id/cancel', requireVenueManager, cancelVenueBookingHandler);
+
+// Reverses "Book all tables for a day" / the single-table option - id is a
+// Calendar Events id (blockTableForDay), never a Bookings id, so this can't
+// go through cancelVenueBookingHandler above.
+app.post('/api/venue-manager/blocks/:id/cancel', requireVenueManager, (req, res, next) => (async () => {
+  const { venue, siteId } = walkinVenue(req, (req.body || {}).venueId);
+  const eventId = String(req.params.id || '');
+  try {
+    await unblockTable(siteId, eventId);
+  } catch (err) {
+    throw walkinWixError(err, 'Wix would not remove the block');
+  }
+  const db = readDb();
+  const by = (req.adminSession && req.adminSession.label) || null;
+  recordAudit(db, {
+    actor: by,
+    action: 'venue.unblockTable',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `Removed table block (${eventId})`,
+  });
+  writeDb(db);
+  res.json({ ok: true });
+})().catch(next));
 
 // Player Portal "My Bookings" card (Matt, 2026-09-26): a player's own view
 // of, and ability to cancel, their table bookings - see
