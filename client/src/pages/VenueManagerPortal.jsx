@@ -760,6 +760,31 @@ function BookAllTablesForm({ venueId, onDone, onClose }) {
 // Table bookings shows this many days that have bookings at a time.
 const BOOKING_DAYS_STEP = 5;
 
+// Groups one day's bookings into display rows. Active table blocks that share
+// the same start, end and blocker (what "Block all tables for a day" creates -
+// one block per table) collapse into a single row with one "Unblock" button;
+// real bookings and walk-ins are never grouped, so they are never touched by it.
+function groupRows(items) {
+  const rows = [];
+  const blockGroups = new Map();
+  for (const b of items) {
+    const cancelled = b.status === 'CANCELED' || b.status === 'DECLINED';
+    if (b.blocked && !cancelled) {
+      const key = `${b.start}|${b.end || ''}|${b.customerName || ''}`;
+      let grp = blockGroups.get(key);
+      if (!grp) {
+        grp = { type: 'blocks', key, blocks: [] };
+        blockGroups.set(key, grp);
+        rows.push(grp);
+      }
+      grp.blocks.push(b);
+    } else {
+      rows.push({ type: 'booking', b });
+    }
+  }
+  return rows;
+}
+
 function BookingsCard({ venueId }) {
   const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
@@ -795,6 +820,34 @@ function BookingsCard({ venueId }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setCancelling(null));
+  };
+
+  // Unblock one grouped row: removes each table's block in turn (one request
+  // per table, sequential so Wix isn't hit in parallel), then re-reads the list.
+  // Two taps, like cancelling a booking. Only blocks are ever removed here.
+  const cancelBlockGroup = async (grp) => {
+    const armKey = `grp:${grp.key}`;
+    if (armedCancel !== armKey) { setArmedCancel(armKey); return; }
+    setArmedCancel(null);
+    setCancelling(armKey);
+    setError('');
+    const failed = [];
+    for (const b of grp.blocks) {
+      try {
+        await api.cancelBlock(venueId, b.id);
+      } catch (e) {
+        failed.push(`${b.table} (${e.message})`);
+      }
+    }
+    const removed = grp.blocks.length - failed.length;
+    if (removed > 0) {
+      setNotice(grp.blocks.length === 1
+        ? `Block on ${grp.blocks[0].table} removed - the table is free to book online again.`
+        : `Blocks removed on ${removed} table${removed === 1 ? '' : 's'} - free to book online again.`);
+    }
+    if (failed.length) setError(`Couldn't remove the block on: ${failed.join(', ')}.`);
+    try { setData(await api.getVenueBookings(venueId)); } catch (e) { /* list refreshes on the next live update */ }
+    setCancelling(null);
   };
 
   // refresh=true asks the server to pull from Wix now rather than waiting
@@ -924,12 +977,16 @@ function BookingsCard({ venueId }) {
             />
           ) : (
             <>
-              <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setWalkinOpen(true); }}>
-                + Book walk-in
-              </button>
-              <button type="button" className="btn vm-wi-open" onClick={() => { setNotice(''); setBookAllOpen(true); }}>
-                Book all tables for a day
-              </button>
+              <div className="vm-bk-actions">
+                <button type="button" className="btn vm-act vm-act-primary" onClick={() => { setNotice(''); setWalkinOpen(true); }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                  Book walk-in
+                </button>
+                <button type="button" className="btn vm-act vm-act-secondary" onClick={() => { setNotice(''); setBookAllOpen(true); }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+                  Block all tables for a day
+                </button>
+              </div>
             </>
           )
         )}
@@ -951,7 +1008,51 @@ function BookingsCard({ venueId }) {
             <div key={g.key} className="vm-bk-day">
               <h3 className="vm-bk-day-head">{dayHeading(g.key)}</h3>
               <ul className="vm-bk-list">
-                {g.items.map((b) => {
+                {groupRows(g.items).map((row) => {
+                  if (row.type === 'blocks') {
+                    const first = row.blocks[0];
+                    const n = row.blocks.length;
+                    const armKey = `grp:${row.key}`;
+                    const armed = armedCancel === armKey;
+                    const busyGrp = cancelling === armKey;
+                    const what = n > 1 ? `the blocks on ${n} tables` : `the block on ${first.table}`;
+                    return (
+                      <li key={row.key} className="vm-bk vm-bk-block">
+                        <span className="vm-bk-time">
+                          <strong>{ukTime(first.start)}</strong>
+                          {first.end && <span>to {ukTime(first.end)}</span>}
+                        </span>
+                        <span className="vm-bk-main vm-bk-block-main">
+                          <span className="vm-bk-block-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+                            <strong>{n > 1 ? `${n} tables blocked` : `${first.table} blocked`}</strong>
+                          </span>
+                          <span className="vm-bk-block-by">{first.customerName || 'Blocked'}</span>
+                          {n > 1 && (
+                            <span className="vm-bk-block-tags">
+                              {row.blocks.map((blk) => (
+                                <span key={blk.id} className="vm-bk-block-tag">{blk.table}</span>
+                              ))}
+                            </span>
+                          )}
+                        </span>
+                        {data.walkIns && (
+                          <span className="vm-bk-chips">
+                            <button
+                              type="button"
+                              className={`vm-bk-cancel${armed ? ' vm-bk-cancel-armed' : ''}`}
+                              onClick={() => cancelBlockGroup(row)}
+                              disabled={busyGrp}
+                              aria-label={armed ? `Confirm removing ${what}` : `Remove ${what}`}
+                            >
+                              {busyGrp ? 'Removing…' : armed ? 'Tap to confirm' : (n > 1 ? 'Unblock all' : 'Unblock')}
+                            </button>
+                          </span>
+                        )}
+                      </li>
+                    );
+                  }
+                  const b = row.b;
                   const st = BOOKING_STATUS[b.status] || { label: b.status || 'Unknown', cls: '' };
                   const cancelled = b.status === 'CANCELED' || b.status === 'DECLINED';
                   const tone = cancelled ? 'cancelled' : b.status === 'CONFIRMED' ? 'confirmed' : 'pending';
@@ -959,16 +1060,21 @@ function BookingsCard({ venueId }) {
                     <li key={b.id} className={`vm-bk vm-bk-${tone}`}>
                       <span className="vm-bk-time">
                         <strong>{ukTime(b.start)}</strong>
-                        {b.end && <span>{ukTime(b.end)}</span>}
+                        {b.end && <span>to {ukTime(b.end)}</span>}
                       </span>
                       <span className="vm-bk-main">
                         <strong>{b.table}</strong>
                         <span>{b.customerName || 'No name given'}</span>
                       </span>
                       <span className="vm-bk-chips">
-                        <span className={`status ${st.cls}`}>{st.label}</span>
+                        {b.status !== 'CONFIRMED' && <span className={`status ${st.cls}`}>{st.label}</span>}
                         {b.blocked && <span className="vm-bk-walkin">Blocked</span>}
                         {b.walkIn && <span className="vm-bk-walkin">Walk-in</span>}
+                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && (
+                          <span className={`vm-bk-pay${b.paymentStatus === 'PAID' ? ' vm-bk-paid' : ''}`}>
+                            {PAYMENT_LABEL[b.paymentStatus] || b.paymentStatus}
+                          </span>
+                        )}
                         {data.walkIns && !cancelled && (
                           <button
                             type="button"
@@ -984,11 +1090,6 @@ function BookingsCard({ venueId }) {
                               : armedCancel === b.id ? 'Tap to confirm' : (b.blocked ? 'Unblock' : 'Cancel')}
                           </button>
                         )}
-                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && (
-                          <span className={`vm-bk-pay${b.paymentStatus === 'PAID' ? ' vm-bk-paid' : ''}`}>
-                            {PAYMENT_LABEL[b.paymentStatus] || b.paymentStatus}
-                          </span>
-                        )}
                       </span>
                       {armedCancel === b.id && !b.walkIn && !b.blocked && (
                         <span className="vm-bk-cancel-hint">Wix will email/text {b.customerName || 'the customer'} to say it's cancelled.</span>
@@ -1001,16 +1102,17 @@ function BookingsCard({ venueId }) {
           ))
         )}
         {data && data.configured !== false && !data.error && bookings.length > 0 && (
-          <button
-            type="button"
-            className="btn vm-bk-more"
-            onClick={() => setDaysShown((n) => n + BOOKING_DAYS_STEP)}
-            disabled={hiddenDays === 0}
-          >
-            {hiddenDays > 0
-              ? `Show more (${Math.min(hiddenDays, BOOKING_DAYS_STEP)} more ${Math.min(hiddenDays, BOOKING_DAYS_STEP) === 1 ? 'day' : 'days'})`
-              : 'No more bookings'}
-          </button>
+          hiddenDays > 0 ? (
+            <button
+              type="button"
+              className="btn vm-bk-more"
+              onClick={() => setDaysShown((n) => n + BOOKING_DAYS_STEP)}
+            >
+              {`Show more (${Math.min(hiddenDays, BOOKING_DAYS_STEP)} more ${Math.min(hiddenDays, BOOKING_DAYS_STEP) === 1 ? 'day' : 'days'})`}
+            </button>
+          ) : (
+            <p className="vm-bk-end">No more bookings</p>
+          )
         )}
       </div>
     </section>

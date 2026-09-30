@@ -2227,14 +2227,14 @@ button.vm-tile { cursor: pointer; }
 .vm-bk { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--border); border-left: 5px solid #9ca3af; border-radius: 12px; padding: 8px 10px; background: #fff; }
 .vm-bk-confirmed { border-left-color: #16a34a; }
 .vm-bk-pending { border-left-color: var(--cta); }
-.vm-bk-time { display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--primary); color: #fff; border-radius: 10px; padding: 6px 8px; min-width: 54px; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.vm-bk-time { display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--primary); color: #fff; border-radius: 10px; padding: 6px 8px; min-width: 64px; font-variant-numeric: tabular-nums; line-height: 1.15; }
 .vm-bk-time strong { font-size: 1.05rem; }
 .vm-bk-time span { font-size: 0.75rem; opacity: 0.8; }
 .vm-bk-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .vm-bk-main strong { font-size: 1.02rem; }
 .vm-bk-main span { color: #4b5563; }
 .vm-bk-main > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vm-bk-chips { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.vm-bk-chips { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 10px; }
 .vm-bk-pay { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #fef3c7; color: #92400e; white-space: nowrap; }
 .vm-bk-paid { background: #d1fae5; color: #065f46; }
 .vm-bk-cancelled { border-left-color: #dc2626; background: #f9fafb; }
@@ -2308,8 +2308,13 @@ button.vm-tile { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .vm-bk-live-dot { animation: none; } }
 
 /* Walk-in bookings (Venue Manager Table bookings card) */
-.btn.vm-wi-open { align-self: stretch; background: #fff; color: var(--primary); border: 2px dashed var(--primary); font-weight: 700; min-height: 44px; margin: 2px 0 4px; }
-.btn.vm-wi-open:hover:not(:disabled) { background: #f0f7f2; }
+.vm-bk-actions { display: flex; gap: 10px; margin: 2px 0 6px; }
+.btn.vm-act { flex: 1 1 0; min-width: 0; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; border-width: 2px; border-style: solid; font-weight: 800; font-size: 1rem; padding: 8px 14px; }
+.btn.vm-act svg { flex-shrink: 0; }
+.btn.vm-act-primary { background: var(--cta); border-color: var(--cta); color: var(--ink, #1a1a1a); }
+.btn.vm-act-primary:hover:not(:disabled) { background: var(--cta-dark); border-color: var(--cta-dark); color: #fff; }
+.btn.vm-act-secondary { background: #f0f7f2; border-color: var(--primary); color: var(--primary); }
+.btn.vm-act-secondary:hover:not(:disabled) { background: #e3f0e7; }
 .vm-wi { display: flex; flex-direction: column; gap: 10px; border: 2px solid var(--cta); background: #fffbef; border-radius: 12px; padding: 12px; margin: 2px 0 6px; }
 .vm-wi-field { display: flex; flex-direction: column; gap: 4px; }
 .vm-wi-field > span { font-size: 0.8rem; font-weight: 700; color: #4b5563; }
@@ -2322,13 +2327,29 @@ button.vm-tile { cursor: pointer; }
 .vm-wi-actions .btn { min-height: 44px; }
 .vm-wi-notice { margin: 4px 2px; padding: 8px 10px; border-radius: 10px; background: #d1fae5; color: #065f46; font-weight: 600; }
 .vm-bk-walkin { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #e0e7ff; color: #3730a3; white-space: nowrap; }
-.vm-bk-cancel { font-size: 0.75rem; font-weight: 700; border-radius: 8px; padding: 4px 10px; min-height: 30px; border: 1px solid #dc2626; background: #fff; color: #b91c1c; cursor: pointer; white-space: nowrap; }
+.vm-bk-cancel { font-size: 0.875rem; font-weight: 700; border-radius: 8px; padding: 8px 16px; min-height: 44px; border: 1px solid #dc2626; background: #fff; color: #b91c1c; cursor: pointer; white-space: nowrap; }
 .vm-bk-cancel-armed { background: #dc2626; color: #fff; }
 .vm-bk-cancel:disabled { opacity: 0.6; cursor: default; }
 .vm-bk-cancel-hint { grid-column: 1 / -1; font-size: 0.78rem; font-weight: 600; color: #b91c1c; }
 .btn.vm-bk-more { align-self: stretch; min-height: 44px; margin-top: 8px; background: #fff; color: var(--primary); border: 2px solid var(--primary); font-weight: 700; }
 .btn.vm-bk-more:hover:not(:disabled) { background: #f0f7f2; }
 .btn.vm-bk-more:disabled { border-color: var(--border); color: var(--muted); background: #f9fafb; opacity: 1; cursor: default; }
+.vm-bk-end { text-align: center; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
+.vm-bk-block { border-color: #d1d5db; border-left-color: #4b5563; background: repeating-linear-gradient(135deg, #f3f4f6, #f3f4f6 10px, #eceef1 10px, #eceef1 20px); }
+.vm-bk-block .vm-bk-time { background: #4b5563; }
+.vm-bk-block-main { gap: 6px; }
+.vm-bk-block-main > * { white-space: normal; overflow: visible; text-overflow: clip; }
+.vm-bk-main .vm-bk-block-title { display: flex; align-items: center; gap: 8px; color: var(--ink, #1a1a1a); }
+.vm-bk-block-title svg { flex-shrink: 0; color: #374151; }
+.vm-bk-main .vm-bk-block-by { color: #374151; font-size: 0.875rem; }
+.vm-bk-block-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.vm-bk-main .vm-bk-block-tag { font-size: 0.75rem; font-weight: 600; border-radius: 6px; padding: 2px 8px; background: #fff; border: 1px solid #d1d5db; color: #374151; }
+@media (max-width: 640px) {
+  .vm-bk-actions { flex-direction: column; gap: 8px; }
+  .vm-bk { grid-template-columns: auto minmax(0, 1fr); }
+  .vm-bk-chips { grid-column: 1 / -1; justify-content: space-between; }
+  .vm-bk-block .vm-bk-chips { justify-content: flex-end; }
+}
 .vm-wi-player { border: 1px solid #e6d59e; border-radius: 10px; padding: 8px 10px 10px; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .vm-wi-player legend { font-size: 0.8rem; font-weight: 700; color: #4b5563; padding: 0 4px; }
 .vm-wi-player legend span { font-weight: 500; color: var(--muted); }
