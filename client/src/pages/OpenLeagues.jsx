@@ -78,6 +78,7 @@ function LeagueCard({ league, requesting, onRequest }) {
         <span className={`ol-chip${l.payment && l.payment.required ? '' : ' ol-chip-free'}`}>
           {paymentLabel(l.payment)}
         </span>
+        {l.venueName && <span className="ol-chip">{l.venueName} members only</span>}
       </div>
 
       <DivisionsBlock divisions={l.divisions} />

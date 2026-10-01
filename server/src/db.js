@@ -189,6 +189,12 @@ export function readDb() {
     // freshly-created league with the tick box left off. See
     // POST /api/leagues/:id/set-open and GET /api/open-leagues in index.js.
     if (league.isOpenForRegistration === undefined) league.isOpenForRegistration = false;
+    // Venue restriction (2026-10-01): optional venueId limits who can
+    // register interest in a league to players with a membership entry at
+    // that venue (see POST /api/leagues/:id/interests). null = open to
+    // everyone, which is how every league created before this feature
+    // existed behaves.
+    if (league.venueId === undefined) league.venueId = null;
   }
   for (const fixture of state.fixtures) {
     if (fixture.tableId === undefined) fixture.tableId = null;

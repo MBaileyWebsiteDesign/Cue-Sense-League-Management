@@ -2081,6 +2081,7 @@ export const demoApi = {
       payment: normalizePaymentConfig(payment),
       managerUserIds: assignedManagerIds,
       isOpenForRegistration: !!data.isOpenForRegistration,
+      venueId: data.venueId || null,
     };
     db.leagues.push(league);
     if (assignedManagerIds.length > 0) {
@@ -2154,6 +2155,7 @@ export const demoApi = {
     if (data.payment !== undefined) {
       league.payment = normalizePaymentConfig(data.payment);
     }
+    if (data.venueId !== undefined) league.venueId = data.venueId || null;
     recordAudit(db, {
       actor: adminLabel(), action: 'league.edit', targetType: 'league', targetId: league.id,
       details: `Updated settings for "${league.name}"`,
@@ -2480,6 +2482,9 @@ export const demoApi = {
     return { rejected: true, requestId: request.id };
   }),
 
+  // The demo has no venues - the league venue picker just shows none.
+  listVenuesPublic: op(() => []),
+
   setLeagueOpen: op((leagueId, isOpenForRegistration) => {
     const league = db.leagues.find((l) => l.id === leagueId);
     if (!league) throw new ApiError(404, 'League not found');
@@ -2492,8 +2497,12 @@ export const demoApi = {
   getOpenLeagues: op(() => {
     const user = currentUser();
     const myPlayerId = user?.playerId || null;
+    // Venue-restricted leagues are hidden unless the user has a membership
+    // entry at that venue - mirrors server/src/index.js's canJoinLeagueVenue.
+    const inVenue = (l) => !l.venueId || (Array.isArray(user?.venueMemberships) && user.venueMemberships.some((m) => m.venueId === l.venueId));
     return db.leagues
       .filter((l) => l.isOpenForRegistration)
+      .filter(inVenue)
       .map((l) => {
         const divisions = db.divisions.filter((d) => d.leagueId === l.id);
         const alreadyRegistered = myPlayerId
@@ -2532,6 +2541,9 @@ export const demoApi = {
     if (!league) throw new ApiError(404, 'League not found');
     if (!league.isOpenForRegistration) throw new ApiError(400, 'This league is not open for interest registration');
     const user = currentUser();
+    if (league.venueId && !(Array.isArray(user?.venueMemberships) && user.venueMemberships.some((m) => m.venueId === league.venueId))) {
+      throw new ApiError(403, 'This league is only open to players registered at its venue');
+    }
     const playerId = user?.playerId;
     if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
     const existing = db.leagueInterests.find((r) => r.leagueId === league.id && r.playerId === playerId && r.status === 'pending');
