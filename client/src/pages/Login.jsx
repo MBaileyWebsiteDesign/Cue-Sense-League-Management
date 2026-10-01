@@ -26,13 +26,19 @@ export default function Login() {
       // If a protected page redirected here (RequireLogin/RequireAdmin/
       // RequireCaptain sets state.from), honor that - the account is
       // clearly trying to reach something specific (e.g. a player who
-      // tapped the bar check-in tag while logged out). Otherwise a Venue
-      // Manager (who isn't also an Overall Admin) lands on the Venue
-      // Manager Portal (Matt, 2026-09-25 - bar staff at Top Spin); every
-      // other account lands on their own My Account page and reaches any
-      // portal via the nav menu from there.
+      // tapped the bar check-in tag while logged out). Otherwise the landing
+      // page depends on the account: an Overall Admin
+      // always lands on the Admin Portal (Matt, 2026-10-01); a Venue Manager
+      // lands on the Venue Manager Portal only if "land on the Venue Manager
+      // Portal" is ticked on their account (Manage Users -> Permissions &
+      // Status - it used to be automatic for every non-admin Venue Manager,
+      // 2026-09-25, but some Venue Managers are also players who want their
+      // own My Account page); everyone else lands on My Account and reaches
+      // any portal via the nav menu from there.
       const from = location.state?.from?.pathname;
-      const home = user && user.isVenueManager && !user.isAdmin ? '/venue-manager' : '/account';
+      let home = '/account';
+      if (user && user.isAdmin) home = '/admin';
+      else if (user && user.isVenueManager && user.venuePortalDefault) home = '/venue-manager';
       navigate(from || home, { replace: true });
     } catch (err) {
       setError(err.message);

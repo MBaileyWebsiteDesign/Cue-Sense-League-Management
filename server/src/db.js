@@ -269,6 +269,14 @@ export function readDb() {
     // set by an Overall Admin from the Membership Management page.
     if (user.venueId === undefined) user.venueId = null;
     if (user.isVenueManager === undefined) user.isVenueManager = false;
+    // Venue Manager Portal as the login landing page (2026-10-01): a per-
+    // account tickbox (Manage Users -> Permissions & Status). Before this
+    // existed, every Venue Manager who wasn't an Overall Admin landed on the
+    // portal automatically, so existing accounts are backfilled to keep
+    // exactly that behaviour (ticked for non-admin Venue Managers, unticked
+    // for everyone else). This only runs once per account - after that the
+    // stored value is never overwritten.
+    if (user.venuePortalDefault === undefined) user.venuePortalDefault = !!user.isVenueManager && !user.isAdmin;
     // Membership renewal date: null until an admin/venue manager actually
     // sets one against a player - the Venue Manager status box's "due for
     // renewal" counts are correctly 0 for everyone until this is populated,

@@ -496,6 +496,8 @@ function createUserAccount(db, fields) {
       ? [{ venueId: fields.venueId, startDate: null, renewalDate: null, joinedAt: new Date().toISOString() }]
       : [],
     isVenueManager: !!fields.isVenueManager,
+    // Land on the Venue Manager Portal after login - off until an admin ticks it.
+    venuePortalDefault: false,
     status: 'active',
     playerId: linkedPlayer.id,
     createdAt: new Date().toISOString(),
@@ -9013,7 +9015,7 @@ app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
 // Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
 // toggle now that an account can be both, either or neither.
 app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
-  const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isReferee } = req.body;
+  const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isReferee, venuePortalDefault } = req.body;
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
@@ -9055,12 +9057,24 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
     user.isVenueManager = !!isVenueManager;
     changes.push(user.isVenueManager ? 'granted Venue Manager' : 'revoked Venue Manager');
     if (!user.isVenueManager) {
+      // No longer a Venue Manager, so the "land on the portal" tick goes too.
+      user.venuePortalDefault = false;
       for (const venue of db.venues) {
         if (Array.isArray(venue.managerUserIds) && venue.managerUserIds.includes(user.id)) {
           venue.managerUserIds = venue.managerUserIds.filter((id) => id !== user.id);
         }
       }
     }
+  }
+  // Venue Manager Portal as the login landing page (2026-10-01). Only an
+  // account that is a Venue Manager can have it ticked. Overall Admins always
+  // land on the Admin Portal regardless (see Login.jsx).
+  if (venuePortalDefault !== undefined && !!venuePortalDefault !== !!user.venuePortalDefault) {
+    if (venuePortalDefault && !user.isVenueManager) {
+      throw new ApiError(400, 'Grant Venue Manager first - only Venue Managers can land on the Venue Manager Portal');
+    }
+    user.venuePortalDefault = !!venuePortalDefault;
+    changes.push(user.venuePortalDefault ? 'set Venue Manager Portal as login landing page' : 'cleared Venue Manager Portal as login landing page');
   }
   if (changes.length > 0) {
     recordAudit(db, {
