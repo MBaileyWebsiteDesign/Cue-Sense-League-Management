@@ -80,6 +80,8 @@ const networkApi = {
   getMyBookingVenues: () => request('/users/me/booking-venues'),
   getMyBookingTables: (venueId) =>
     request(`/users/me/booking-tables?venueId=${encodeURIComponent(venueId)}`),
+  getMyBookingBusy: (venueId, tableId) =>
+    request(`/users/me/booking-busy?venueId=${encodeURIComponent(venueId)}&tableId=${encodeURIComponent(tableId)}`),
   bookMyTable: (venueId, tableId, start, minutes) =>
     request('/users/me/bookings', {
       method: 'POST',

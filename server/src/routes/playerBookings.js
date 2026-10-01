@@ -50,6 +50,8 @@ export function registerPlayerBookingRoutes(app, {
   WALKIN_LENGTHS,
   WALKIN_OPENING_HOURS,
   WALKIN_MAX_AHEAD_MS,
+  wixBookingsStartingBetween,
+  getBlockedTableEvents,
 }) {
   app.get('/api/users/me/bookings', requireAuth, asyncRoute(async (req, res) => {
     const myEmail = (req.auth.user.email || '').trim().toLowerCase();
@@ -152,6 +154,59 @@ export function registerPlayerBookingRoutes(app, {
       lengths: WALKIN_LENGTHS,
       openingHours: WALKIN_OPENING_HOURS,
     });
+  }));
+
+  // Times already taken on one table (Matt, 2026-10-01): the "Book a table"
+  // form uses this to hide start times and lengths that are already booked,
+  // instead of letting the player pick one and hit a Wix error. Read fresh
+  // from Wix (not the 09/11/17 snapshot) so a booking made or cancelled a
+  // minute ago is reflected. Same table-matching rule as the server's own
+  // walkinTableIsFree check, plus the "Book all tables" calendar blocks.
+  // Returns times only - no names or emails of whoever holds a booking.
+  app.get('/api/users/me/booking-busy', requireAuth, asyncRoute(async (req, res) => {
+    const db = readDb();
+    const user = db.users.find((u) => u.id === req.auth.user.id) || req.auth.user;
+    const venue = db.venues.find((v) => v.id === req.query.venueId);
+    if (!venue) throw new ApiError(404, 'Venue not found');
+    if (!membershipActive(membershipAt(user, venue.id))) {
+      throw new ApiError(403, 'You need an active membership at this venue to book a table.');
+    }
+    const siteId = wixSiteIdForVenue(venue);
+    if (!siteId) throw new ApiError(400, 'This venue does not have table booking set up.');
+    if (!process.env.WIX_API_KEY) throw new ApiError(503, 'Table booking is not connected yet.');
+    let tables;
+    try {
+      tables = await getWalkinTables(siteId);
+    } catch (err) {
+      throw walkinWixError(err, 'Could not load the tables from Wix');
+    }
+    const table = tables.find((t) => t.id === req.query.tableId);
+    if (!table) throw new ApiError(400, 'Choose a table.');
+    const from = new Date(Date.now() - 4 * 60 * 60 * 1000);
+    const to = new Date(Date.now() + WALKIN_MAX_AHEAD_MS + 24 * 60 * 60 * 1000);
+    let list;
+    try {
+      list = await wixBookingsStartingBetween(siteId, from, to);
+    } catch (err) {
+      throw walkinWixError(err, 'Could not check which times are free on Wix');
+    }
+    const busy = [];
+    for (const b of list) {
+      if (['CANCELED', 'DECLINED', 'CREATED'].includes(b.status)) continue;
+      const slot = (b.bookedEntity && b.bookedEntity.slot) || {};
+      const sameTable = (slot.resource && slot.resource.id === table.resourceId) || slot.serviceId === table.id;
+      if (!sameTable || !b.startDate || !b.endDate) continue;
+      busy.push({ start: new Date(b.startDate).toISOString(), end: new Date(b.endDate).toISOString() });
+    }
+    try {
+      for (const e of await getBlockedTableEvents(siteId)) {
+        if (e.table === table.name && e.start && e.end) busy.push({ start: e.start, end: e.end });
+      }
+    } catch (err) {
+      console.warn('Could not read blocked table times:', err.message);
+    }
+    busy.sort((a, b) => a.start.localeCompare(b.start));
+    res.json({ busy });
   }));
 
   // Make a new booking for yourself - same rules (opening hours, 7-day-ahead
