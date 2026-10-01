@@ -375,7 +375,15 @@ app.get('/api/users/me', requireAuth, asyncRoute((req, res) => {
 // be left from here - the venue or an admin has to remove it.
 app.get('/api/venues/list', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
-  res.json(db.venues.map((v) => ({ id: v.id, name: v.name })).sort((a, b) => a.name.localeCompare(b.name)));
+  res.json(db.venues
+    .map((v) => ({
+      id: v.id,
+      name: v.name,
+      joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
+      // This player's own pending request for the venue, if any.
+      requestPending: !!pendingJoinRequest(v, req.auth.user.id),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name)));
 }));
 
 app.post('/api/users/me/venues', requireAuth, asyncRoute((req, res) => {
@@ -385,6 +393,9 @@ app.post('/api/users/me/venues', requireAuth, asyncRoute((req, res) => {
   if (!user) throw new ApiError(404, 'Account not found');
   const venue = db.venues.find((v) => v.id === venueId);
   if (!venue) throw new ApiError(404, 'Venue not found');
+  if (venue.joinPolicy === 'approval' && !membershipAt(user, venue.id)) {
+    throw new ApiError(403, `${venue.name} needs approval to join - send a request instead`);
+  }
   if (!membershipAt(user, venue.id)) {
     ensureMembership(user, venue.id);
     recordAudit(db, {
@@ -397,6 +408,66 @@ app.post('/api/users/me/venues', requireAuth, asyncRoute((req, res) => {
     writeDb(db);
   }
   res.json(publicUser(user));
+}));
+
+// Venues set to 'approval' (see POST /api/venue-manager/venues/:id/join-policy):
+// a player sends a request instead of joining instantly. Venue Managers and
+// admins approve/decline it (routes further down), and the venue's managers
+// get an email when a request comes in.
+app.post('/api/users/me/venue-requests', requireAuth, asyncRoute((req, res) => {
+  const { venueId } = req.body || {};
+  const db = readDb();
+  const user = db.users.find((u) => u.id === req.auth.user.id);
+  if (!user) throw new ApiError(404, 'Account not found');
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  if (membershipAt(user, venue.id)) throw new ApiError(400, `You're already registered at ${venue.name}`);
+  if (venue.joinPolicy !== 'approval') throw new ApiError(400, `${venue.name} doesn't need approval - you can add it directly`);
+  if (pendingJoinRequest(venue, user.id)) throw new ApiError(400, `You already have a request waiting for ${venue.name}`);
+  if (!Array.isArray(venue.joinRequests)) venue.joinRequests = [];
+  venue.joinRequests.push({
+    id: uuid(),
+    userId: user.id,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    decidedAt: null,
+    decidedBy: null,
+  });
+  recordAudit(db, {
+    actor: userDisplayName(user),
+    action: 'venue.join_request',
+    targetType: 'venue',
+    targetId: venue.id,
+    details: `${userDisplayName(user)} asked to join "${venue.name}"`,
+  });
+  writeDb(db);
+  res.status(201).json({ ok: true, status: 'pending' });
+
+  const link = `${baseUrlFor(req)}/venue-manager`;
+  const who = userDisplayName(user);
+  for (const managerId of venue.managerUserIds || []) {
+    const mgr = db.users.find((u) => u.id === managerId);
+    if (!canEmail(mgr)) continue;
+    sendMail({
+      to: mgr.email,
+      toName: userDisplayName(mgr),
+      subject: `New request to join ${venue.name}`,
+      text: `Hi ${mgr.firstName || 'there'},\n\n${who} has asked to join ${venue.name}. Approve or decline it from the Venue Manager Portal:\n${link}`,
+      html: emailHtml('New join request', `<p>Hi ${escapeHtml(mgr.firstName || 'there')},</p><p><strong>${escapeHtml(who)}</strong> has asked to join <strong>${escapeHtml(venue.name)}</strong>.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Review the request</a></p>`),
+    });
+  }
+}));
+
+app.delete('/api/users/me/venue-requests/:venueId', requireAuth, asyncRoute((req, res) => {
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const pending = pendingJoinRequest(venue, req.auth.user.id);
+  if (pending) {
+    venue.joinRequests = venue.joinRequests.filter((r) => r.id !== pending.id);
+    writeDb(db);
+  }
+  res.json({ ok: true });
 }));
 
 app.delete('/api/users/me/venues/:venueId', requireAuth, asyncRoute((req, res) => {
@@ -527,6 +598,17 @@ function membershipAt(user, venueId) {
 function venueNameOf(db, venueId) {
   const v = venueId ? db.venues.find((x) => x.id === venueId) : null;
   return v ? v.name : null;
+}
+// Join requests for venues with joinPolicy 'approval' - see the routes next
+// to POST /api/users/me/venue-requests and /api/venue-manager/join-requests.
+function pendingJoinRequest(venue, userId) {
+  return (venue.joinRequests || []).find((r) => r.userId === userId && r.status === 'pending') || null;
+}
+function userDisplayName(u) {
+  return `${u.firstName || ''} ${u.lastName || ''}`.replace(/\s+/g, ' ').trim() || 'A player';
+}
+function canEmail(u) {
+  return !!(u && u.email && u.status !== 'suspended' && !/@no-login\.cuesense$/.test(u.email));
 }
 // A league restricted to a venue is only open to players with a membership
 // entry (any entry - see Matt 2026-10-01) at that venue.
@@ -1038,7 +1120,7 @@ app.post('/api/venues', requireAdmin, asyncRoute((req, res) => {
   if (db.venues.some((v) => v.name.toLowerCase() === trimmed.toLowerCase())) {
     throw new ApiError(409, 'A venue with this name already exists');
   }
-  const venue = { id: uuid(), name: trimmed, managerUserIds: [], createdAt: new Date().toISOString() };
+  const venue = { id: uuid(), name: trimmed, managerUserIds: [], joinPolicy: 'open', joinRequests: [], createdAt: new Date().toISOString() };
   db.venues.push(venue);
   recordAudit(db, {
     actor: req.adminSession.label,
@@ -1163,8 +1245,114 @@ app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) 
   const venues = user.isAdmin
     ? db.venues
     : db.venues.filter((v) => Array.isArray(v.managerUserIds) && v.managerUserIds.includes(user.id));
-  res.json([...venues].sort((a, b) => a.name.localeCompare(b.name)));
+  res.json([...venues]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(({ joinRequests, ...v }) => ({
+      ...v,
+      joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
+      pendingJoinRequests: (joinRequests || []).filter((r) => r.status === 'pending').length,
+    })));
 }));
+
+// Join policy for a venue: 'open' (players add it themselves) or 'approval'
+// (players send a request that a Venue Manager/admin decides). Switching
+// back to open leaves any pending requests in place for a manager to clear.
+app.post('/api/venue-manager/venues/:id/join-policy', requireVenueManager, asyncRoute((req, res) => {
+  const { joinPolicy } = req.body || {};
+  if (joinPolicy !== 'open' && joinPolicy !== 'approval') throw new ApiError(400, "joinPolicy must be 'open' or 'approval'");
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  if (venue.joinPolicy !== joinPolicy) {
+    venue.joinPolicy = joinPolicy;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.join_policy',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Set "${venue.name}" to ${joinPolicy === 'approval' ? 'require approval to join' : 'let players join freely'}`,
+    });
+    writeDb(db);
+  }
+  res.json({ joinPolicy: venue.joinPolicy });
+}));
+
+// Pending join requests for one venue, for its managers (or any admin).
+app.get('/api/venue-manager/join-requests', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId } = req.query;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  const rows = (venue.joinRequests || [])
+    .filter((r) => r.status === 'pending')
+    .map((r) => {
+      const u = db.users.find((x) => x.id === r.userId);
+      return u ? {
+        id: r.id,
+        userId: u.id,
+        playerId: u.playerId || null,
+        name: userDisplayName(u),
+        email: u.email || '',
+        createdAt: r.createdAt,
+      } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  res.json(rows);
+}));
+
+function decideJoinRequest(decision) {
+  return asyncRoute((req, res) => {
+    const db = readDb();
+    const venue = db.venues.find((v) => (v.joinRequests || []).some((r) => r.id === req.params.id));
+    if (!venue) throw new ApiError(404, 'Request not found');
+    assertVenueAccess(req, venue);
+    const request = venue.joinRequests.find((r) => r.id === req.params.id);
+    if (request.status !== 'pending') throw new ApiError(400, `This request was already ${request.status}`);
+    const user = db.users.find((u) => u.id === request.userId);
+    if (!user) throw new ApiError(404, 'That account no longer exists');
+    request.status = decision === 'approve' ? 'approved' : 'declined';
+    request.decidedAt = new Date().toISOString();
+    request.decidedBy = req.adminSession.label;
+    if (decision === 'approve') ensureMembership(user, venue.id);
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: decision === 'approve' ? 'user.venueMembership' : 'venue.join_declined',
+      targetType: 'user',
+      targetId: user.id,
+      details: decision === 'approve'
+        ? `Approved ${userDisplayName(user)}'s request to join "${venue.name}"`
+        : `Declined ${userDisplayName(user)}'s request to join "${venue.name}"`,
+    });
+    writeDb(db);
+    res.json({ ok: true, status: request.status });
+
+    if (canEmail(user)) {
+      const link = `${baseUrlFor(req)}/account`;
+      const first = user.firstName || 'there';
+      const approved = decision === 'approve';
+      sendMail({
+        to: user.email,
+        toName: userDisplayName(user),
+        subject: approved ? `You're registered at ${venue.name}` : `Your request to join ${venue.name}`,
+        text: approved
+          ? `Hi ${first},\n\nYour request to join ${venue.name} has been approved. You're now registered there.\n${link}`
+          : `Hi ${first},\n\nYour request to join ${venue.name} wasn't approved this time. Speak to the venue if you think this is a mistake.`,
+        html: emailHtml(
+          approved ? 'Request approved' : 'Request not approved',
+          approved
+            ? `<p>Hi ${escapeHtml(first)},</p><p>Your request to join <strong>${escapeHtml(venue.name)}</strong> has been approved. You're now registered there.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Open my account</a></p>`
+            : `<p>Hi ${escapeHtml(first)},</p><p>Your request to join <strong>${escapeHtml(venue.name)}</strong> wasn't approved this time. Speak to the venue if you think this is a mistake.</p>`
+        ),
+      });
+    }
+  });
+}
+app.post('/api/venue-manager/join-requests/:id/approve', requireVenueManager, decideJoinRequest('approve'));
+app.post('/api/venue-manager/join-requests/:id/decline', requireVenueManager, decideJoinRequest('decline'));
 
 // Adds `months` calendar months to `from` (a Date), matching how a renewal
 // window is normally talked about ("due in the next 6 months") rather than

@@ -956,15 +956,32 @@ function MyVenuesForm({ player, onSaved }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  useEffect(() => {
+  const loadVenues = () => {
     if (typeof api.listVenuesPublic !== 'function') { setVenues([]); return; }
     api.listVenuesPublic().then(setVenues).catch((e) => setError(e.message));
-  }, []);
+  };
+  useEffect(loadVenues, []);
 
   const memberships = Array.isArray(player.venueMemberships) ? player.venueMemberships : [];
   const nameOf = (id) => (venues || []).find((v) => v.id === id)?.name || 'Venue';
-  const available = (venues || []).filter((v) => !memberships.some((m) => m.venueId === v.id));
+  const notMember = (venues || []).filter((v) => !memberships.some((m) => m.venueId === v.id));
+  // Venues that need approval show their pending requests separately and
+  // can't be picked again until the request is decided or withdrawn.
+  const pendingVenues = notMember.filter((v) => v.requestPending);
+  const available = notMember.filter((v) => !v.requestPending);
+  const addVenue = (venues || []).find((v) => v.id === addId);
+  const needsApproval = !!addVenue && addVenue.joinPolicy === 'approval';
   const today = todayUk();
+
+  const runRequest = (fn, msg) => {
+    setBusy(true);
+    setError('');
+    setSuccess('');
+    fn()
+      .then(() => { setSuccess(msg); setAddId(''); loadVenues(); })
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(false));
+  };
 
   const run = (fn, msg) => {
     setBusy(true);
@@ -1011,16 +1028,48 @@ function MyVenuesForm({ player, onSaved }) {
           })}
         </ul>
       )}
+      {pendingVenues.length > 0 && (
+        <ul className="cs-venue-list">
+          {pendingVenues.map((v) => (
+            <li key={v.id} className="cs-venue-row">
+              <span className="cs-venue-main">
+                <strong>{v.name}</strong>
+                <span className="muted">Waiting for approval</span>
+              </span>
+              <button
+                type="button"
+                className="btn cs-venue-remove"
+                disabled={busy}
+                onClick={() => runRequest(() => api.cancelMyVenueRequest(v.id), `Request to join ${v.name} cancelled.`)}
+              >
+                Cancel
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {venues && available.length > 0 && (
         <label>
           Add a venue
           <select value={addId} onChange={(e) => setAddId(e.target.value)} disabled={busy}>
             <option value="">Choose a venue</option>
-            {available.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            {available.map((v) => (
+              <option key={v.id} value={v.id}>{v.name}{v.joinPolicy === 'approval' ? ' (needs approval)' : ''}</option>
+            ))}
           </select>
         </label>
       )}
-      {addId && (
+      {addId && needsApproval && (
+        <button
+          type="button"
+          className="btn btn-primary cs-btn-block"
+          disabled={busy}
+          onClick={() => runRequest(() => api.requestMyVenue(addId), `Request sent to ${nameOf(addId)} - you'll get an email when it's decided.`)}
+        >
+          {busy ? 'Sending…' : 'Request to join'}
+        </button>
+      )}
+      {addId && !needsApproval && (
         <button
           type="button"
           className="btn btn-primary cs-btn-block"
