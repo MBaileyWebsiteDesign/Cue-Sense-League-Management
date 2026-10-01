@@ -85,6 +85,9 @@ export function AuthProvider({ children }) {
     isCaptain: !!user?.isCaptain,
     isLeagueManager: !!user?.isLeagueManager,
     isVenueManager: !!user?.isVenueManager,
+    // Venue-manager-only accounts (not players) with the Player Portal switched off in
+    // Manage Users. Overall Admins are never affected.
+    playerPortalDisabled: !!user?.isVenueManager && !user?.isAdmin && !!user?.playerPortalDisabled,
     canManageLeague,
     login,
     logout,

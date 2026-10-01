@@ -498,6 +498,8 @@ function createUserAccount(db, fields) {
     isVenueManager: !!fields.isVenueManager,
     // Land on the Venue Manager Portal after login - off until an admin ticks it.
     venuePortalDefault: false,
+    // Player Portal stays on until an admin switches it off for a venue-manager-only account.
+    playerPortalDisabled: false,
     status: 'active',
     playerId: linkedPlayer.id,
     createdAt: new Date().toISOString(),
@@ -9015,7 +9017,7 @@ app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
 // Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
 // toggle now that an account can be both, either or neither.
 app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
-  const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isReferee, venuePortalDefault } = req.body;
+  const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isReferee, venuePortalDefault, playerPortalDisabled } = req.body;
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
@@ -9059,6 +9061,8 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
     if (!user.isVenueManager) {
       // No longer a Venue Manager, so the "land on the portal" tick goes too.
       user.venuePortalDefault = false;
+      // ...and so does "Player Portal off" (it only applies to Venue Managers).
+      user.playerPortalDisabled = false;
       for (const venue of db.venues) {
         if (Array.isArray(venue.managerUserIds) && venue.managerUserIds.includes(user.id)) {
           venue.managerUserIds = venue.managerUserIds.filter((id) => id !== user.id);
@@ -9075,6 +9079,17 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
     }
     user.venuePortalDefault = !!venuePortalDefault;
     changes.push(user.venuePortalDefault ? 'set Venue Manager Portal as login landing page' : 'cleared Venue Manager Portal as login landing page');
+  }
+  // Player Portal off (2026-10-01): for a venue-manager-only account (e.g. a
+  // venue's staff login) that isn't a player. Only a Venue Manager can have it
+  // set; the client then hides the Player Portal link and redirects / and
+  // /account to the Venue Manager Portal (see App.jsx RequirePlayerPortal).
+  if (playerPortalDisabled !== undefined && !!playerPortalDisabled !== !!user.playerPortalDisabled) {
+    if (playerPortalDisabled && !user.isVenueManager) {
+      throw new ApiError(400, 'Grant Venue Manager first - only Venue Managers can have the Player Portal switched off');
+    }
+    user.playerPortalDisabled = !!playerPortalDisabled;
+    changes.push(user.playerPortalDisabled ? 'switched Player Portal off' : 'switched Player Portal back on');
   }
   if (changes.length > 0) {
     recordAudit(db, {
