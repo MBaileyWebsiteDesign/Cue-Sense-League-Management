@@ -626,7 +626,7 @@ function bookStartOptions(hours = BOOK_DEFAULT_OPENING_HOURS) {
     const value = `${day}T${myBookingTime(iso)}`;
     const { startMin, open, close } = bookSlotInfo(value, hours);
     if (startMin < open || startMin + 60 > close) continue;
-    opts.push({ value, day, label: i === 0 ? `Now (${myBookingTime(iso)})` : myBookingTime(iso) });
+    opts.push({ value, day, ms: d.getTime(), label: i === 0 ? `Now (${myBookingTime(iso)})` : myBookingTime(iso) });
   }
   return opts;
 }
@@ -655,23 +655,55 @@ function BookTableForm({ venues, onDone, onClose }) {
   const [startOpts, setStartOpts] = useState(() => bookStartOptions());
   const [start, setStart] = useState(() => (startOpts[0] ? startOpts[0].value : ''));
   const [day, setDay] = useState(() => (startOpts[0] ? startOpts[0].day : ''));
-  const dayOpts = bookDayOptions(startOpts);
-  const dayStarts = startOpts.filter((o) => o.day === day);
+  // Times already taken on the chosen table (ms intervals), so only free
+  // start times and lengths are offered. null = not known yet / couldn't be
+  // loaded, in which case nothing is hidden and the server still checks.
+  const [taken, setTaken] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const isFree = (ms, mins) => !taken || !taken.some((t) => t.s < ms + mins * 60 * 1000 && t.e > ms);
+  const freeOpts = taken ? startOpts.filter((o) => isFree(o.ms, 60)) : startOpts;
+  const dayOpts = bookDayOptions(freeOpts);
+  const dayStarts = freeOpts.filter((o) => o.day === day);
   const pickDay = (value) => {
     setDay(value);
-    const firstOfDay = startOpts.find((o) => o.day === value);
+    const firstOfDay = freeOpts.find((o) => o.day === value);
     setStart(firstOfDay ? firstOfDay.value : '');
   };
   const [minutes, setMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const minutesToClose = start ? (() => { const i = bookSlotInfo(start, openingHours); return i.close - i.startMin; })() : 0;
+  const startMs = (startOpts.find((o) => o.value === start) || {}).ms;
+  const fitsLen = (m) => m <= minutesToClose && (startMs === undefined || isFree(startMs, m));
   useEffect(() => {
-    if (minutes > minutesToClose) {
-      const fit = lengths.filter((m) => m <= minutesToClose);
-      if (fit.length) setMinutes(fit[fit.length - 1]);
-    }
-  }, [start, minutesToClose]);
+    if (fitsLen(minutes)) return;
+    const fit = lengths.filter(fitsLen);
+    if (fit.length) setMinutes(fit[fit.length - 1]);
+  }, [start, minutesToClose, taken]);
+
+  useEffect(() => {
+    setTaken(null);
+    if (!venueId || !tableId || typeof api.getMyBookingBusy !== 'function') return undefined;
+    let cancelled = false;
+    api.getMyBookingBusy(venueId, tableId)
+      .then((d) => {
+        if (cancelled) return;
+        setTaken((d.busy || [])
+          .map((b) => ({ s: Date.parse(b.start), e: Date.parse(b.end) }))
+          .filter((b) => Number.isFinite(b.s) && Number.isFinite(b.e)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [venueId, tableId, reloadKey]);
+
+  // If the chosen start time was just taken (table changed, or the list
+  // refreshed), move to the nearest free one.
+  useEffect(() => {
+    if (!taken || freeOpts.some((o) => o.value === start)) return;
+    const next = freeOpts.find((o) => o.day === day) || freeOpts[0];
+    setStart(next ? next.value : '');
+    setDay(next ? next.day : '');
+  }, [taken, startOpts]);
 
   useEffect(() => {
     setTables(null);
@@ -701,13 +733,14 @@ function BookTableForm({ venues, onDone, onClose }) {
     if (!tableId) { setError('Choose a table.'); return; }
     if (!start) { setError('Choose a start time.'); return; }
     if (minutes > minutesToClose) { setError('That would run past closing time - choose a shorter length.'); return; }
+    if (!fitsLen(minutes)) { setError('That table is booked for part of that time - choose a shorter length or another time.'); return; }
     setBusy(true);
     setError('');
     api.bookMyTable(venueId, tableId, start, minutes)
       .then((r) => {
         onDone(`${r.table} booked ${myBookingTime(r.start)}–${myBookingTime(r.end)} on ${myBookingDayHeading(myBookingDayKey(r.start))}.`);
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => { setError(err.message); setReloadKey((k) => k + 1); })
       .finally(() => setBusy(false));
   };
 
@@ -728,6 +761,9 @@ function BookTableForm({ venues, onDone, onClose }) {
           {(tables || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
       </label>
+      {taken && freeOpts.length === 0 && (
+        <p className="vm-small">No free times on this table in the next 7 days - try another table.</p>
+      )}
       <div className="vm-wi-daytime">
         <label className="vm-wi-field">
           <span>Day</span>
@@ -752,8 +788,8 @@ function BookTableForm({ venues, onDone, onClose }) {
               className={`vm-wi-len${minutes === m ? ' vm-wi-len-on' : ''}`}
               aria-pressed={minutes === m}
               onClick={() => setMinutes(m)}
-              disabled={busy || m > minutesToClose}
-              title={m > minutesToClose ? 'Would run past closing time' : undefined}
+              disabled={busy || !fitsLen(m)}
+              title={m > minutesToClose ? 'Would run past closing time' : !fitsLen(m) ? 'Table is booked during part of that time' : undefined}
             >
               {BOOK_LENGTH_LABEL[m] || `${m} min`}
             </button>

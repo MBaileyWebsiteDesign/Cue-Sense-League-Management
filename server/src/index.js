@@ -2328,6 +2328,8 @@ registerPlayerBookingRoutes(app, {
   WALKIN_LENGTHS,
   WALKIN_OPENING_HOURS,
   WALKIN_MAX_AHEAD_MS,
+  wixBookingsStartingBetween,
+  getBlockedTableEvents,
 });
 
 registerBookAllTablesRoute(app, {
