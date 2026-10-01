@@ -222,6 +222,23 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
           {user.status === 'suspended' ? 'Reactivate Account' : 'Suspend Account'}
         </button>
       </div>
+      {user.isVenueManager && (
+        <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <input
+              type="checkbox"
+              checked={!!user.venuePortalDefault}
+              disabled={busy}
+              onChange={(e) => setPermission({ venuePortalDefault: e.target.checked })}
+            />
+            Land on the Venue Manager Portal after logging in
+          </label>
+          <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.8rem' }}>
+            Leave unticked for a Venue Manager who is also a player, so they land on their own My Account page
+            (the portal is still in their menu). {user.isAdmin && 'This account is an Overall Admin, so it always lands on the Admin Portal and this tick has no effect while Admin is granted. '}Takes effect next time they log in.
+          </p>
+        </>
+      )}
       <p className="muted" style={{ marginTop: 12, fontSize: '0.8rem' }}>
         Admin unlocks the full Admin Portal (users, seasons, audit log). Captain is
         currently a flag only - team captain tools appear once team leagues launch. League
