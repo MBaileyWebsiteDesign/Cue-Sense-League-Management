@@ -277,6 +277,10 @@ export function readDb() {
     // for everyone else). This only runs once per account - after that the
     // stored value is never overwritten.
     if (user.venuePortalDefault === undefined) user.venuePortalDefault = !!user.isVenueManager && !user.isAdmin;
+    // Player Portal switched off (2026-10-01): for venue-manager-only accounts
+    // (e.g. a venue's staff login) that are not players. Off by default, so
+    // every existing account keeps the Player Portal.
+    if (user.playerPortalDisabled === undefined) user.playerPortalDisabled = false;
     // Membership renewal date: null until an admin/venue manager actually
     // sets one against a player - the Venue Manager status box's "due for
     // renewal" counts are correctly 0 for everyone until this is populated,

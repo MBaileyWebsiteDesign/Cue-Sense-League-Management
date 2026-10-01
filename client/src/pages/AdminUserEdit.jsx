@@ -237,6 +237,20 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
             Leave unticked for a Venue Manager who is also a player, so they land on their own My Account page
             (the portal is still in their menu). {user.isAdmin && 'This account is an Overall Admin, so it always lands on the Admin Portal and this tick has no effect while Admin is granted. '}Takes effect next time they log in.
           </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <input
+              type="checkbox"
+              checked={!!user.playerPortalDisabled}
+              disabled={busy}
+              onChange={(e) => setPermission({ playerPortalDisabled: e.target.checked })}
+            />
+            Switch off the Player Portal for this account
+          </label>
+          <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.8rem' }}>
+            For a venue-manager-only login (e.g. venue staff) that isn't a player: hides the Player Portal link and sends them to
+            the Venue Manager Portal instead, and they will always land there after logging in. Leave unticked for anyone who also plays.
+            {user.isAdmin && ' Has no effect while this account is an Overall Admin. '}Takes effect next time they log in or refresh.
+          </p>
         </>
       )}
       <p className="muted" style={{ marginTop: 12, fontSize: '0.8rem' }}>

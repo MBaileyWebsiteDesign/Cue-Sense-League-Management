@@ -122,6 +122,15 @@ function RequireVenueManager({ children }) {
   return children;
 }
 
+// Player Portal gate: a venue-manager-only account with the Player Portal
+// switched off (Manage Users -> Permissions & Status) is sent to the Venue
+// Manager Portal instead of the player pages. Everyone else passes straight through.
+function RequirePlayerPortal({ children }) {
+  const { playerPortalDisabled } = useAuth();
+  if (playerPortalDisabled) return <Navigate to="/venue-manager" replace />;
+  return children;
+}
+
 // On a narrow (phone-width) screen there isn't room for every link in one
 // row (Admin Portal, Captain Portal, Player Portal, Log out), so below the
 // 640px breakpoint (see styles.css) the link list
@@ -131,7 +140,7 @@ function RequireVenueManager({ children }) {
 // hamburger button is display:none and .header-accounts just renders as
 // the same inline row it always did - nothing changes for desktop/tablet.
 function HeaderNav() {
-  const { isLoggedIn, isAdmin, isCaptain, isLeagueManager, isVenueManager, logout } = useAuth();
+  const { isLoggedIn, isAdmin, isCaptain, isLeagueManager, isVenueManager, playerPortalDisabled, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -184,9 +193,11 @@ function HeaderNav() {
             Open Leagues
           </Link>
         )}
-        <Link to="/account" className="header-link" onClick={closeMenu}>
-          Player Portal
-        </Link>
+        {!playerPortalDisabled && (
+          <Link to="/account" className="header-link" onClick={closeMenu}>
+            Player Portal
+          </Link>
+        )}
         <span className="header-admin">
           <button
             className="header-link header-link-button"
@@ -238,10 +249,11 @@ function StagingBanner() {
 }
 
 function AppShell() {
+  const { playerPortalDisabled } = useAuth();
   return (
     <div className="app-shell">
       <header className="app-header">
-        <Link to="/account" className="brand">
+        <Link to={playerPortalDisabled ? '/venue-manager' : '/account'} className="brand">
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
           <span className="brand-text">
             <span className="brand-name">Cue Sense</span>
@@ -270,19 +282,19 @@ function AppShell() {
                 live here moved to /leagues; see AdminPortal.jsx's "Leagues &
                 Seasons" card and LeagueDetail.jsx's "All leagues" link for
                 the two places that used to point at "/" for that purpose. */}
-            <Route path="/" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
+            <Route path="/" element={<RequireLogin><RequirePlayerPortal><PlayerPortal /></RequirePlayerPortal></RequireLogin>} />
             <Route path="/leagues" element={<RequireLogin><LeagueList /></RequireLogin>} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/account" element={<RequireLogin><PlayerPortal /></RequireLogin>} />
-            <Route path="/adhoc-game/new" element={<RequireLogin><AdHocGame /></RequireLogin>} />
+            <Route path="/account" element={<RequireLogin><RequirePlayerPortal><PlayerPortal /></RequirePlayerPortal></RequireLogin>} />
+            <Route path="/adhoc-game/new" element={<RequireLogin><RequirePlayerPortal><AdHocGame /></RequirePlayerPortal></RequireLogin>} />
             {/* "Quick Game" button on the Player Portal - same AdHocGame
                 component/page, but with quickStart set so it skips
                 GameSetupForm and creates a Free Play/Singles game itself on
                 mount (see AdHocGame.jsx's quickStart prop). */}
-            <Route path="/adhoc-game/quick" element={<RequireLogin><AdHocGame quickStart /></RequireLogin>} />
+            <Route path="/adhoc-game/quick" element={<RequireLogin><RequirePlayerPortal><AdHocGame quickStart /></RequirePlayerPortal></RequireLogin>} />
             <Route path="/open-leagues" element={<RequireLogin><OpenLeagues /></RequireLogin>} />
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
