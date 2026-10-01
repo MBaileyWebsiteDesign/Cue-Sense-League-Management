@@ -522,6 +522,18 @@ function venueMembershipsOf(user) {
 function membershipAt(user, venueId) {
   return venueMembershipsOf(user).find((m) => m.venueId === venueId) || null;
 }
+// Display name for a league's venue restriction (null when unrestricted or
+// the venue has since been deleted).
+function venueNameOf(db, venueId) {
+  const v = venueId ? db.venues.find((x) => x.id === venueId) : null;
+  return v ? v.name : null;
+}
+// A league restricted to a venue is only open to players with a membership
+// entry (any entry - see Matt 2026-10-01) at that venue.
+function canJoinLeagueVenue(user, league) {
+  if (!league.venueId) return true;
+  return !!(user && membershipAt(user, league.venueId));
+}
 function userVenueIds(user) {
   return venueMembershipsOf(user).map((m) => m.venueId);
 }
@@ -792,14 +804,17 @@ app.get('/api/leagues', requireAuth, asyncRoute((req, res) => {
   // listing goes through, so every client picker built on GET /api/leagues
   // (home page, League Manager assignment, etc.) is covered automatically.
   if (!user.isAdmin) leagues = leagues.filter((l) => !l.isAdHocPool);
-  res.json(leagues);
+  res.json(leagues.map((l) => ({ ...l, venueName: venueNameOf(db, l.venueId) })));
 }));
 
 app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
-  const { name, sport = 'English 8-Ball Pool', scheduling = 'round_robin_single', payment, managerUserIds } = req.body;
+  const { name, sport = 'English 8-Ball Pool', scheduling = 'round_robin_single', payment, managerUserIds, venueId } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'League name is required');
 
   const db = readDb();
+
+  // Optional venue restriction - see canJoinLeagueVenue above.
+  if (venueId && !db.venues.some((v) => v.id === venueId)) throw new ApiError(400, 'Venue not found');
 
   // Optional: grant League Manager access to one or more already-flagged
   // users at creation time, same as POST /api/leagues/:id/managers would -
@@ -840,6 +855,8 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
     // "---------- Open leagues ----------" block further down for the full
     // browse/interest/bulk-assign flow.
     isOpenForRegistration: !!req.body.isOpenForRegistration,
+    // Only players registered at this venue can register interest (null = anyone).
+    venueId: venueId || null,
   };
   db.leagues.push(league);
 
@@ -904,7 +921,7 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
   const divisions = db.divisions
     .filter((d) => d.leagueId === league.id)
     .sort((a, b) => a.order - b.order);
-  res.json({ ...league, divisions });
+  res.json({ ...league, divisions, venueName: venueNameOf(db, league.venueId) });
 }));
 
 // Leagues could previously only be created or deleted, never edited - this
@@ -922,6 +939,13 @@ app.patch('/api/leagues/:id', requireAnyAdmin, asyncRoute((req, res) => {
   }
   if (req.body.payment !== undefined) {
     league.payment = normalizePaymentConfig(req.body.payment);
+  }
+  // Venue restriction: a venue id limits interest registration to players
+  // registered at that venue; null/'' clears it (open to everyone).
+  if (req.body.venueId !== undefined) {
+    const newVenueId = req.body.venueId || null;
+    if (newVenueId && !db.venues.some((v) => v.id === newVenueId)) throw new ApiError(400, 'Venue not found');
+    league.venueId = newVenueId;
   }
 
   recordAudit(db, {
@@ -4671,6 +4695,9 @@ app.get('/api/open-leagues', optionalAuth, asyncRoute((req, res) => {
   const myPlayerId = req.auth?.user?.playerId || null;
   const result = db.leagues
     .filter((l) => l.isOpenForRegistration)
+    // Venue-restricted leagues are hidden from anyone not registered at that
+    // venue, including logged-out visitors (Matt 2026-10-01).
+    .filter((l) => canJoinLeagueVenue(req.auth?.user, l))
     .map((l) => {
       const divisions = db.divisions.filter((d) => d.leagueId === l.id);
       const alreadyRegistered = myPlayerId
@@ -4683,6 +4710,7 @@ app.get('/api/open-leagues', optionalAuth, asyncRoute((req, res) => {
         leagueId: l.id,
         leagueName: l.name,
         sport: l.sport,
+        venueName: venueNameOf(db, l.venueId),
         divisionCount: divisions.length,
         // So the public "Open Leagues" browse page can say up front whether
         // joining costs anything, and how much, before a player registers
@@ -4721,6 +4749,9 @@ app.post('/api/leagues/:id/interests', requireAuth, asyncRoute((req, res) => {
   const league = db.leagues.find((l) => l.id === req.params.id);
   if (!league) throw new ApiError(404, 'League not found');
   if (!league.isOpenForRegistration) throw new ApiError(400, 'This league is not open for interest registration');
+  if (!canJoinLeagueVenue(req.auth.user, league)) {
+    throw new ApiError(403, `This league is only open to players registered at ${venueNameOf(db, league.venueId) || 'its venue'}`);
+  }
   const playerId = req.auth.user.playerId;
   if (!playerId) throw new ApiError(400, 'Your account has no linked player profile yet - contact an admin');
   const existing = db.leagueInterests.find((r) => r.leagueId === league.id && r.playerId === playerId && r.status === 'pending');

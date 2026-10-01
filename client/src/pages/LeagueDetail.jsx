@@ -215,6 +215,10 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   // a division, so an assigned player's payment is cleared by definition -
   // there's nothing left to manage for them here.
   const [leagueOpenBusy, setLeagueOpenBusy] = useState(false);
+  // Venue restriction - only players registered at the chosen venue can
+  // register interest (managers can still assign anyone to a division).
+  const [venues, setVenues] = useState([]);
+  const [venueBusy, setVenueBusy] = useState(false);
   const [leagueInterests, setLeagueInterests] = useState([]);
   const [selectedInterestIds, setSelectedInterestIds] = useState([]);
   const [assignDivisionId, setAssignDivisionId] = useState('');
@@ -243,6 +247,24 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
     loadLeagueInterests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, canManage, league.id]);
+
+  useEffect(() => {
+    if (!open || !canManage) return;
+    api.listVenuesPublic().then(setVenues).catch(() => {});
+  }, [open, canManage]);
+
+  const onChangeVenue = async (venueId) => {
+    setVenueBusy(true);
+    setError('');
+    try {
+      await api.updateLeague(league.id, { venueId: venueId || null });
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setVenueBusy(false);
+    }
+  };
 
   const onToggleLeagueOpen = async (isOpenForRegistration) => {
     setLeagueOpenBusy(true);
@@ -460,6 +482,23 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
                   onChange={(e) => onToggleLeagueOpen(e.target.checked)}
                 />
                 {league.isOpenForRegistration ? 'Open for interest registration' : 'Closed to interest registration'}
+              </label>
+              <label style={{ display: 'block', marginBottom: '0.75rem' }}>
+                Restrict to a venue
+                <select
+                  value={league.venueId || ''}
+                  disabled={venueBusy}
+                  onChange={(e) => onChangeVenue(e.target.value)}
+                >
+                  <option value="">Open to everyone</option>
+                  {venues.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name} members only</option>
+                  ))}
+                </select>
+                <span className="muted" style={{ display: 'block' }}>
+                  When set, only players registered at that venue can see this league on Open Leagues and register
+                  interest. You can still place any player into a division yourself.
+                </span>
               </label>
               {leagueInterests.length === 0 ? (
                 <p className="muted">No pending interest registrations for this league right now.</p>
@@ -817,6 +856,7 @@ export default function LeagueDetail() {
             </span>
           ) : null}
           {league.isOpenForRegistration && <span className="ol-chip lg-chip-open">Open for registration</span>}
+          {league.venueName && <span className="ol-chip">{league.venueName} members only</span>}
         </div>
         {canManage && (
           <button className="btn cs-btn-block" onClick={() => setShowForm((v) => !v)}>

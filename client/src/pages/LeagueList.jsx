@@ -28,6 +28,10 @@ export default function LeagueList() {
   // browse/register side and LeagueDetail.jsx's ManageLeaguePanel for the
   // toggle-after-creation and "League Interests" bulk-assign side.
   const [isOpenForRegistration, setIsOpenForRegistration] = useState(false);
+  // Optional venue restriction: only players registered at this venue can
+  // register interest. '' = open to everyone.
+  const [venues, setVenues] = useState([]);
+  const [venueId, setVenueId] = useState('');
 
   const load = () => api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
 
@@ -38,6 +42,7 @@ export default function LeagueList() {
   useEffect(() => {
     if (!isAdmin) return;
     api.adminListUsers().then((users) => setManagerCandidates(users.filter((u) => u.isLeagueManager))).catch(() => {});
+    api.listVenuesPublic().then(setVenues).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
@@ -62,7 +67,9 @@ export default function LeagueList() {
           : { required: false },
         managerUserIds: selectedManagerIds,
         isOpenForRegistration,
+        venueId: venueId || null,
       });
+      setVenueId('');
       setForm({ name: '' });
       setPaymentRequired(false);
       setPaymentAmount('');
@@ -175,6 +182,16 @@ export default function LeagueList() {
             </button>
           </div>
 
+          <label className="ll-field">
+            Restrict to a venue <span className="muted">(optional)</span>
+            <select value={venueId} onChange={(e) => setVenueId(e.target.value)}>
+              <option value="">Open to everyone</option>
+              {venues.map((v) => (
+                <option key={v.id} value={v.id}>{v.name} members only</option>
+              ))}
+            </select>
+          </label>
+
           <fieldset className="ll-managers">
             <legend>
               League managers <span className="muted">(optional)</span>
@@ -237,6 +254,7 @@ export default function LeagueList() {
                     <span className="ol-chips">
                       {league.isAdHocPool && <span className="ol-chip">System - ad hoc games</span>}
                       {league.isOpenForRegistration && <span className="ol-chip lg-chip-open">Open for registration</span>}
+                      {league.venueName && <span className="ol-chip">{league.venueName} members only</span>}
                       {pay && <span className="ol-chip">{pay}</span>}
                       {manages && <span className="ol-chip ol-chip-free">You manage this</span>}
                     </span>
