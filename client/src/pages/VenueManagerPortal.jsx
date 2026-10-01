@@ -1625,6 +1625,95 @@ function CheckinCard({ venueId }) {
   }
 }
 
+// Join policy + pending join requests for one venue. 'open' = players add
+// the venue to their account themselves; 'approval' = they send a request
+// that is approved/declined here (the player is emailed either way).
+function JoinRequestsCard({ venue, onApproved }) {
+  const venueId = venue.id;
+  const [policy, setPolicy] = useState(venue.joinPolicy === 'approval' ? 'approval' : 'open');
+  const [requests, setRequests] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const load = () => api.getVenueJoinRequests(venueId).then(setRequests).catch((e) => setError(e.message));
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [venueId]);
+
+  const changePolicy = async (next) => {
+    setSavingPolicy(true);
+    setError('');
+    setNotice('');
+    try {
+      await api.setVenueJoinPolicy(venueId, next);
+      setPolicy(next);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const decide = async (r, decision) => {
+    setBusyId(r.id);
+    setError('');
+    setNotice('');
+    try {
+      await api.decideVenueJoinRequest(r.id, decision);
+      setNotice(decision === 'approve' ? `${r.name} approved.` : `${r.name} declined.`);
+      await load();
+      if (decision === 'approve') onApproved();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const count = requests ? requests.length : 0;
+  return (
+    <section className="card sx-card vm-panel">
+      <div className="vm-bk-band">
+        <span className="vm-bk-band-title">
+          <h2>Join requests</h2>
+          {requests !== null && count > 0 && <span className="vm-bk-count" aria-label={`${count} pending`}>{count}</span>}
+        </span>
+      </div>
+      <div className="vm-panel-body">
+        <label className="ll-field">
+          How players join this venue
+          <select className="mm-input" value={policy} disabled={savingPolicy} onChange={(e) => changePolicy(e.target.value)}>
+            <option value="open">Anyone can join instantly</option>
+            <option value="approval">Players must be approved</option>
+          </select>
+        </label>
+        {error && <p className="error">{error}</p>}
+        {notice && <p className="banner banner-success">{notice}</p>}
+        {requests === null ? (
+          <p className="muted">Loading…</p>
+        ) : count === 0 ? (
+          <p className="muted">No requests waiting.</p>
+        ) : (
+          <ul className="cs-venue-list">
+            {requests.map((r) => (
+              <li key={r.id} className="cs-venue-row">
+                <span className="cs-venue-main">
+                  <strong>{r.name}</strong>
+                  <span className="muted">{r.email} · {formatDateUK(String(r.createdAt).slice(0, 10))}</span>
+                </span>
+                <span style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="btn btn-primary" disabled={busyId === r.id} onClick={() => decide(r, 'approve')}>Approve</button>
+                  <button type="button" className="btn btn-danger" disabled={busyId === r.id} onClick={() => decide(r, 'decline')}>Decline</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function VenueManagerPortal() {
   const { user, isAdmin } = useAuth();
   const [venues, setVenues] = useState(null);
@@ -1632,6 +1721,9 @@ export default function VenueManagerPortal() {
   const [status, setStatus] = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [error, setError] = useState('');
+  // Bumped when a join request is approved so the status counts and the
+  // registered-players list reload with the new member.
+  const [memberRefresh, setMemberRefresh] = useState(0);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal' }]);
   const selectedVenue = (venues || []).find((v) => v.id === selectedVenueId);
@@ -1652,7 +1744,7 @@ export default function VenueManagerPortal() {
       .then(setStatus)
       .catch((e) => setError(e.message))
       .finally(() => setStatusLoading(false));
-  }, [selectedVenueId]);
+  }, [selectedVenueId, memberRefresh]);
 
   return (
     <div className="sx-page">
@@ -1696,8 +1788,9 @@ export default function VenueManagerPortal() {
           )}
           {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
           {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
+          {selectedVenue && <JoinRequestsCard key={selectedVenue.id} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
           <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
-          {selectedVenueId && <RegisteredPlayersList venueId={selectedVenueId} />}
+          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} venueId={selectedVenueId} />}
         </>
       )}
     </div>

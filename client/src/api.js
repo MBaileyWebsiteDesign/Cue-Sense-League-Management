@@ -118,6 +118,15 @@ const networkApi = {
   listVenuesPublic: () => request('/venues/list'),
   joinMyVenue: (venueId) => request('/users/me/venues', { method: 'POST', body: JSON.stringify({ venueId }) }),
   leaveMyVenue: (venueId) => request(`/users/me/venues/${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  // Venues that need approval: send / withdraw a join request.
+  requestMyVenue: (venueId) => request('/users/me/venue-requests', { method: 'POST', body: JSON.stringify({ venueId }) }),
+  cancelMyVenueRequest: (venueId) => request(`/users/me/venue-requests/${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  // Venue Manager side: open/approval policy and the pending requests.
+  setVenueJoinPolicy: (venueId, joinPolicy) =>
+    request(`/venue-manager/venues/${encodeURIComponent(venueId)}/join-policy`, { method: 'POST', body: JSON.stringify({ joinPolicy }) }),
+  getVenueJoinRequests: (venueId) => request(`/venue-manager/join-requests?venueId=${encodeURIComponent(venueId)}`),
+  decideVenueJoinRequest: (id, decision) =>
+    request(`/venue-manager/join-requests/${encodeURIComponent(id)}/${decision === 'approve' ? 'approve' : 'decline'}`, { method: 'POST' }),
 
   // Membership Management: Venues (client/src/pages/MembershipManagement.jsx)
   // - Overall-Admin-only to create/rename/delete a venue and to grant/revoke

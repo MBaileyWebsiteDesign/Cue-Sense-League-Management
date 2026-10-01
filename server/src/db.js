@@ -165,6 +165,13 @@ export function readDb() {
   // existed (shouldn't happen post-launch, but costs nothing to guard).
   for (const venue of state.venues) {
     if (!Array.isArray(venue.managerUserIds)) venue.managerUserIds = [];
+    // Join policy (2026-10-01): 'open' = a player can add the venue to their
+    // account instantly (how it has always worked, so every existing venue
+    // stays open); 'approval' = they send a request that a Venue Manager or
+    // admin approves/declines. joinRequests: [{ id, userId, status:
+    // 'pending'|'approved'|'declined', createdAt, decidedAt, decidedBy }].
+    if (venue.joinPolicy !== 'approval') venue.joinPolicy = 'open';
+    if (!Array.isArray(venue.joinRequests)) venue.joinRequests = [];
   }
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see
