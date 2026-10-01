@@ -1332,6 +1332,10 @@ function CheckinCard({ venueId }) {
   const [today, setToday] = useState(null);
   const [walkinFor, setWalkinFor] = useState(null);
   const [renewing, setRenewing] = useState(false);
+  // Minimised by default (Matt, 2026-10-01) - the header (with today's check-in
+  // count) stays visible and toggles it. A card tap or typed card number opens
+  // it again so the result is never hidden.
+  const [open, setOpen] = useState(false);
   const linkRef = useRef(null);
   linkRef.current = linkFor;
 
@@ -1378,6 +1382,7 @@ function CheckinCard({ venueId }) {
   }, [venueId]);
 
   const handleUid = (uid) => {
+    setOpen(true);
     setError(''); setNotice(''); setWalkinFor(null);
     setBusy(true);
     const target = linkRef.current;
@@ -1436,13 +1441,23 @@ function CheckinCard({ venueId }) {
   const p = result && result.data;
   return (
     <section className="card sx-card vm-panel ci-card">
-      <div className="vm-bk-band">
+      <div
+        className="vm-bk-band"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        style={{ cursor: 'pointer' }}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); } }}
+      >
         <span className="vm-bk-band-title">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M7 10.5a3 3 0 0 1 0 3M10 9a5.5 5.5 0 0 1 0 6" /></svg>
           <h2>Tap to check in</h2>
           {today && <span className="vm-bk-count" aria-label={`${today.length} check-ins today`}>{today.length}</span>}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6, transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }}><path d="M6 9l6 6 6-6" /></svg>
         </span>
       </div>
+      {open && (
       <div className="vm-panel-body">
         {NFC_SUPPORTED ? (
           <div className={`ci-reader ci-reader-${reader.state}`}>
@@ -1592,6 +1607,7 @@ function CheckinCard({ venueId }) {
 
         <BarTagPanel venueId={venueId} />
       </div>
+      )}
     </section>
   );
 
