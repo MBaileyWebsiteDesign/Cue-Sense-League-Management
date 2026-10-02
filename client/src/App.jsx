@@ -248,8 +248,25 @@ function StagingBanner() {
   );
 }
 
+// Admin Portal colour overhaul (2026-10-02): the Admin Portal and the six
+// admin pages it links to for day-to-day work get a coloured theme (see the
+// "Admin Portal colour & UI overhaul" block at the end of styles.css). Done
+// as a class on <main> keyed off the route so none of those pages' own markup
+// has to change. Every other page - including the Venue Manager Portal, which
+// shares the same header classes - is untouched.
+function adminThemeClass(pathname) {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  if (path === '/admin') return ' admin-theme admin-theme-home';
+  if (path === '/admin/users' || path === '/admin/membership') return ' admin-theme admin-theme-people';
+  if (['/admin/audit-log', '/admin/email', '/admin/api-keys', '/admin/backup'].includes(path)) {
+    return ' admin-theme admin-theme-system';
+  }
+  return '';
+}
+
 function AppShell() {
   const { playerPortalDisabled } = useAuth();
+  const location = useLocation();
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -273,7 +290,7 @@ function AppShell() {
       </header>
       <StagingBanner />
       <Breadcrumbs />
-      <main className="app-main">
+      <main className={`app-main${adminThemeClass(location.pathname)}`}>
         <Suspense fallback={<p className="muted">Loading…</p>}>
           <Routes>
             {/* Home ("/") is the Player Portal - matches the unified landing

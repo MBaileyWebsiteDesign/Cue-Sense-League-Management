@@ -14,6 +14,12 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 // open message reports, same sources the League Manager Portal uses), a
 // primary New Season button, then the tools grouped into sections of compact
 // tiles with a filter box.
+//
+// Colour overhaul (2026-10-02): a hero banner (with the New Season button),
+// a row of headline stat cards that replaces the old Needs-attention strip
+// (disputed results, open message reports, venue join requests waiting,
+// total accounts - each a real count from the same endpoints the tools
+// themselves use, and each a link into that tool), and a colour per section.
 
 const Icon = ({ d }) => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -39,6 +45,7 @@ const ICONS = {
 const SECTIONS = [
   {
     title: 'Seasons & matches',
+    accent: 'seasons',
     tools: [
       { to: '/leagues', icon: 'leagues', title: 'Leagues & Seasons', desc: 'Every league and division - rosters and fixtures.' },
       { to: '/admin/manage-fixtures', icon: 'fixtures', title: 'Manage Fixtures', desc: 'Release rounds to players week by week.' },
@@ -47,6 +54,7 @@ const SECTIONS = [
   },
   {
     title: 'People',
+    accent: 'people',
     tools: [
       { to: '/admin/users', icon: 'users', title: 'Manage Users', desc: 'Edit accounts, roles, suspensions and password resets.' },
       { to: '/admin/membership', icon: 'membership', title: 'Membership', desc: 'Venues, Venue Managers and memberships.' },
@@ -55,6 +63,7 @@ const SECTIONS = [
   },
   {
     title: 'Help & feedback',
+    accent: 'help',
     tools: [
       { to: '/guides', icon: 'guides', title: 'Guides', desc: 'Upload guides and choose who can see them.' },
       { to: '/issues-bugs-features', icon: 'issues', title: 'Issues / Bugs / Features', desc: 'Open issues and feature requests.' },
@@ -62,6 +71,7 @@ const SECTIONS = [
   },
   {
     title: 'System',
+    accent: 'system',
     tools: [
       { to: '/admin/audit-log', icon: 'audit', title: 'Audit Log', desc: 'Who changed what, and when.' },
       { to: '/admin/email', icon: 'email', title: 'Email', desc: 'Check sending works and see recent results.' },
@@ -77,11 +87,18 @@ export default function AdminPortal() {
   // Open abuse reports from Player Messages, and disputed results (same
   // "fixtures needing attention" source as Game Adjustments / the League
   // Manager Portal).
-  const [openReports, setOpenReports] = useState(0);
-  const [disputeCount, setDisputeCount] = useState(0);
+  const [openReports, setOpenReports] = useState(null);
+  const [disputeCount, setDisputeCount] = useState(null);
+  const [joinRequests, setJoinRequests] = useState(null);
+  const [accounts, setAccounts] = useState(null);
   const [filter, setFilter] = useState('');
 
   useEffect(() => {
+    // Venue join requests waiting across every venue (an admin sees them all).
+    api.getMyManagedVenues()
+      .then((venues) => setJoinRequests((venues || []).reduce((n, v) => n + (v.pendingJoinRequests || 0), 0)))
+      .catch(() => {});
+    api.adminListUsers().then((users) => setAccounts((users || []).length)).catch(() => {});
     api.getMessageReportSummary().then((r) => setOpenReports(r.open || 0)).catch(() => {});
     api.adminGetFixturesNeedingAttention()
       .then((items) => setDisputeCount((items || []).filter((item) => item.status === 'disputed').length))
@@ -95,38 +112,40 @@ export default function AdminPortal() {
     tools: q ? s.tools.filter((t) => `${t.title} ${t.desc}`.toLowerCase().includes(q)) : s.tools,
   })).filter((s) => s.tools.length > 0);
   const showNewSeason = !q || 'new season'.includes(q) || q.includes('season');
+  const stats = [
+    { key: 'disputes', label: 'Disputed results', value: disputeCount, to: '/admin/game-adjustments', alert: true },
+    { key: 'reports', label: 'Message reports', value: openReports, to: '/message-reports', alert: true },
+    { key: 'joins', label: 'Venue join requests', value: joinRequests, to: '/venue-manager', alert: true },
+    { key: 'accounts', label: 'Accounts', value: accounts, to: '/admin/users' },
+  ];
 
   return (
     <div className="ap-page">
-      <div className="ap-intro">
-        <h1>Admin Portal</h1>
-        <p className="muted">Manage accounts, seasons and the system.</p>
-      </div>
+      <section className="ap-hero">
+        <div className="ap-hero-text">
+          <h1>Admin Portal</h1>
+          <p>Manage accounts, seasons and the system.</p>
+        </div>
+        {showNewSeason && (
+          <Link to="/admin/seasons/new" className="ap-hero-cta">
+            + New Season
+            <span className="ap-hero-cta-sub">Guided set-up: leagues, players, dates and fixtures</span>
+          </Link>
+        )}
+      </section>
 
-      {(disputeCount > 0 || openReports > 0) && (
-        <section className="ap-attention" aria-label="Needs attention">
-          <span className="ap-attention-title">Needs attention</span>
-          {disputeCount > 0 && (
-            <Link to="/admin/game-adjustments" className="ap-attention-row">
-              <span>Disputed results</span>
-              <span className="ap-count">{disputeCount}</span>
+      <section className="ap-stats" aria-label="At a glance">
+        {stats.map((st) => {
+          const loaded = st.value !== null;
+          const hot = st.alert && loaded && st.value > 0;
+          return (
+            <Link key={st.key} to={st.to} className={`ap-stat ap-stat-${hot ? 'alert' : st.alert ? 'ok' : 'info'}`}>
+              <span className="ap-stat-value">{loaded ? st.value : '–'}</span>
+              <span className="ap-stat-label">{st.label}</span>
             </Link>
-          )}
-          {openReports > 0 && (
-            <Link to="/message-reports" className="ap-attention-row">
-              <span>Open message reports</span>
-              <span className="ap-count">{openReports}</span>
-            </Link>
-          )}
-        </section>
-      )}
-
-      {showNewSeason && (
-        <Link to="/admin/seasons/new" className="btn btn-primary ap-new-season">
-          + New Season
-          <span className="ap-new-season-sub">Guided set-up: leagues, players, dates and fixtures</span>
-        </Link>
-      )}
+          );
+        })}
+      </section>
 
       <input
         type="search"
@@ -140,7 +159,7 @@ export default function AdminPortal() {
       {sections.length === 0 && !showNewSeason && <p className="muted">No tools match “{filter.trim()}”.</p>}
 
       {sections.map((s) => (
-        <section key={s.title} className="ap-section">
+        <section key={s.title} className={`ap-section ap-sec-${s.accent}`}>
           <h2 className="ap-section-title">{s.title}</h2>
           <div className="ap-grid">
             {s.tools.map((t) => {
