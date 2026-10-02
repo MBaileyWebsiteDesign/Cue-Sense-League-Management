@@ -2508,3 +2508,107 @@ button.vm-tile { cursor: pointer; }
 .pv-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .pv-list li:last-child { border-bottom: 0; }
 .pv-how { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: rgba(0, 0, 0, 0.06); white-space: nowrap; }
+
+/* ---- Admin Portal colour & UI overhaul (2026-10-02) ----
+   Landing page: hero banner, headline stat cards and a colour per section
+   (green = seasons, blue = people, gold = help, slate = system). The same
+   blue/slate palettes are applied to the six admin pages via the
+   .admin-theme-* class App.jsx puts on <main> for those routes only. */
+.ap-sec-seasons { --ap-accent: #2f7d39; --ap-ink: #1f6a2b; --ap-tint: #e4f3e6; --ap-edge: #bfe0c4; }
+.ap-sec-people  { --ap-accent: #2a78d6; --ap-ink: #1d5db0; --ap-tint: #e3eefb; --ap-edge: #bcd6f5; }
+.ap-sec-help    { --ap-accent: #a8740d; --ap-ink: #8a6514; --ap-tint: #fbf0d3; --ap-edge: #ecd79b; }
+.ap-sec-system  { --ap-accent: #475569; --ap-ink: #334155; --ap-tint: #e8ecf1; --ap-edge: #cbd3dd; }
+
+.admin-theme-home .ap-page { gap: 18px; }
+.ap-hero {
+  position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 22px 20px; border-radius: 20px; color: #fff;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 10px 28px rgba(10, 38, 23, 0.28);
+}
+.ap-hero::after {
+  content: ''; position: absolute; right: -60px; top: -80px; width: 260px; height: 260px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 70%); pointer-events: none;
+}
+.ap-hero-text { position: relative; z-index: 1; min-width: 0; }
+.ap-hero h1 { margin: 0 0 4px; color: #fff; font-size: 1.9rem; }
+.ap-hero p { margin: 0; color: rgba(255, 255, 255, 0.9); }
+.ap-hero-cta {
+  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none;
+  background: var(--cta); color: #1a1a1a; font-weight: 800; font-size: 1.1rem; padding: 12px 20px; border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25); transition: transform 0.12s ease, background 0.12s ease;
+}
+.ap-hero-cta:hover { background: #e6b53c; transform: translateY(-1px); }
+.ap-hero-cta-sub { font-size: 0.78rem; font-weight: 600; color: rgba(26, 26, 26, 0.78); text-align: center; }
+@media (max-width: 640px) {
+  .ap-hero { padding: 18px 16px; }
+  .ap-hero-cta { width: 100%; box-sizing: border-box; }
+}
+
+.ap-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (min-width: 760px) { .ap-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.ap-stat {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; text-decoration: none; background: #fff; color: var(--ink);
+  border: 1px solid var(--border); border-left: 5px solid #2a78d6; border-radius: 16px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.ap-stat:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1); }
+.ap-stat-value { font-size: 1.9rem; font-weight: 800; line-height: 1.1; color: #1d5db0; }
+.ap-stat-label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.ap-stat-ok { border-left-color: var(--secondary); }
+.ap-stat-ok .ap-stat-value { color: var(--secondary-dark); }
+.ap-stat-alert { border-color: #f1c7c3; border-left-color: #b3413a; background: #fff6f5; }
+.ap-stat-alert .ap-stat-value { color: #b3413a; }
+.ap-stat-alert .ap-stat-label { color: #7f1d1d; }
+
+.admin-theme-home .ap-section { gap: 10px; }
+.admin-theme-home .ap-section .ap-section-title {
+  display: flex; align-items: center; gap: 8px; margin: 6px 0 0; color: var(--ap-ink, var(--muted)); font-size: 0.8rem;
+}
+.admin-theme-home .ap-section .ap-section-title::before {
+  content: ''; flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--ap-accent, var(--primary));
+}
+.admin-theme-home .ap-section .ap-section-title::after { content: ''; flex: 1; height: 1px; background: var(--ap-edge, var(--border)); }
+.admin-theme-home .ap-section .ap-tile {
+  border: 1px solid var(--ap-edge, var(--border)); border-top: 4px solid var(--ap-accent, var(--primary)); border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.admin-theme-home .ap-section .ap-tile:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1); border-color: var(--ap-accent, var(--primary)); }
+.admin-theme-home .ap-icon { width: 42px; height: 42px; border-radius: 12px; background: var(--ap-tint, #e7f2ea); color: var(--ap-accent, var(--primary)); transition: background 0.12s ease, color 0.12s ease; }
+.admin-theme-home .ap-tile:hover .ap-icon { background: var(--ap-accent, var(--primary)); color: #fff; }
+.admin-theme-home .ap-tile-alert { background: #fffafa; }
+.admin-theme-home .ap-tile-danger {
+  --ap-accent: #b91c1c; --ap-tint: #fef2f2; --ap-edge: #f1c7c3;
+}
+.admin-theme-home .ap-tile-danger .ap-icon { background: #fef2f2; color: #b91c1c; }
+.admin-theme-home .ap-tile-danger:hover .ap-icon { background: #b91c1c; color: #fff; }
+
+/* Admin sub-pages (Manage Users, Membership, Audit Log, Email, API Keys,
+   Backup): coloured page header band, softer accent-edged cards. Scoped to
+   .admin-theme so the Venue Manager Portal, which shares .au-head, is not
+   affected. */
+.admin-theme-home { --at-accent: #2f7d39; --at-ink: #1f6a2b; --at-tint: #e4f3e6; --at-edge: #bfe0c4; --at-grad: linear-gradient(135deg, #123d24 0%, #2f7d39 100%); }
+.admin-theme-people { --at-accent: #2a78d6; --at-ink: #1d5db0; --at-tint: #e3eefb; --at-edge: #bcd6f5; --at-grad: linear-gradient(135deg, #184d94 0%, #2468bd 100%); }
+.admin-theme-system { --at-accent: #475569; --at-ink: #334155; --at-tint: #e8ecf1; --at-edge: #cbd3dd; --at-grad: linear-gradient(135deg, #1e293b 0%, #475569 100%); }
+.admin-theme .au-head {
+  padding: 12px 14px; border-radius: 16px; background: var(--at-grad); color: #fff; box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+}
+.admin-theme .au-head h1 { color: #fff; font-size: 1.4rem; }
+.admin-theme .au-head .muted, .admin-theme .au-head .au-total { color: rgba(255, 255, 255, 0.92); }
+.admin-theme .au-head .msg-icon-btn { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.4); color: #fff; }
+.admin-theme .au-head .msg-icon-btn:hover { background: rgba(255, 255, 255, 0.28); border-color: #fff; }
+.admin-theme .card {
+  border: 1px solid var(--at-edge); border-top: 4px solid var(--at-accent); border-radius: 16px; box-shadow: 0 2px 10px rgba(15, 23, 42, 0.07);
+}
+.admin-theme .sx-safe { border-left: 4px solid var(--secondary); }
+.admin-theme .sx-caution { border-color: #e6d59e; border-top-color: var(--cta); }
+.admin-theme .sx-card-head h2, .admin-theme .mm-venue-head h2 { color: var(--at-ink); }
+.admin-theme .mm-venue-icon { background: var(--at-tint); color: var(--at-accent); }
+.admin-theme .au-filter-on { background: var(--at-accent); border-color: var(--at-accent); }
+.admin-theme .au-card { border-color: var(--at-edge); border-radius: 16px; transition: box-shadow 0.12s ease, border-color 0.12s ease; }
+.admin-theme .sx-log { border-color: var(--at-edge); }
+.admin-theme .au-card:hover { border-color: var(--at-accent); box-shadow: 0 6px 14px rgba(15, 23, 42, 0.09); }
+.admin-theme .au-card-selected { border-color: var(--at-accent); background: var(--at-tint); }
+.admin-theme .au-add-toggle { color: var(--at-ink); }
+.admin-theme .sx-day .ap-section-title { color: var(--at-ink); }
+.admin-theme .au-selbar { border-color: var(--at-edge); border-top: 3px solid var(--at-accent); }
