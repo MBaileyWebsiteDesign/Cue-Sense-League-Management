@@ -1376,6 +1376,12 @@ function inRenewalBand(now, renewalDate, lowMonths, highMonths) {
     : renewalDate > lowerCutoff && renewalDate <= upperCutoff;
 }
 
+// A venue manager login with "Switch off the Player Portal" ticked (e.g. a
+// bar-staff account) is staff only, not a player, even though it carries a
+// venue membership - so it never appears in the Venue Manager Portal's
+// registered-player counts, due-renewal tiles or player lists.
+const isVenuePlayerAt = (u, venueId) => !!membershipAt(u, venueId) && !u.playerPortalDisabled;
+
 app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) => {
   const { venueId } = req.query;
   if (!venueId) throw new ApiError(400, 'venueId is required');
@@ -1388,7 +1394,7 @@ app.get('/api/venue-manager/status', requireVenueManager, asyncRoute((req, res) 
   // Venue is a variable on all of them, not just plain players) assigned to
   // this venue, excluding suspended accounts, same as everywhere else in
   // the app that counts "active" accounts.
-  const venuePlayers = db.users.filter((u) => membershipAt(u, venue.id) && u.status !== 'suspended');
+  const venuePlayers = db.users.filter((u) => isVenuePlayerAt(u, venue.id) && u.status !== 'suspended');
 
   const now = new Date();
   // Each tier counts only players whose renewal falls in that tier's own
@@ -1433,7 +1439,7 @@ app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((re
   if (!venue) throw new ApiError(404, 'Venue not found');
   assertVenueAccess(req, venue);
 
-  const venuePlayers = db.users.filter((u) => membershipAt(u, venue.id) && u.status !== 'suspended');
+  const venuePlayers = db.users.filter((u) => isVenuePlayerAt(u, venue.id) && u.status !== 'suspended');
   const now = new Date();
   // Same exclusive band as the Status tile this drill-down was opened from
   // (see inRenewalBand above), so the list's length always matches the
@@ -1472,7 +1478,7 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
   assertVenueAccess(req, venue);
 
   const query = q.trim().toLowerCase();
-  let players = db.users.filter((u) => membershipAt(u, venue.id));
+  let players = db.users.filter((u) => isVenuePlayerAt(u, venue.id));
   if (query) {
     players = players.filter((u) =>
       (u.firstName || '').toLowerCase().includes(query) ||
