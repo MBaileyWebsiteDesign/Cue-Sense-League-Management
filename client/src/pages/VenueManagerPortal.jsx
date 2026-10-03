@@ -528,11 +528,11 @@ function walkinSlotInfo(value, hours) {
 // midnight it ran 11:00-17:00 and later times couldn't be booked).
 // Values are UK wall-clock "YYYY-MM-DDTHH:MM". UK offsets are whole hours,
 // so flooring to 30 minutes in UTC matches UK.
-function walkinStartOptions(hours = DEFAULT_OPENING_HOURS) {
+function walkinStartOptions(hours = DEFAULT_OPENING_HOURS, days = 7) {
   const step = 30 * 60 * 1000;
   const first = Math.floor(Date.now() / step) * step;
   const opts = [];
-  for (let i = 0; i < 7 * 48; i++) {
+  for (let i = 0; i < days * 48; i++) {
     const d = new Date(first + i * step);
     const iso = d.toISOString();
     const day = ukDayKey(iso);
@@ -737,6 +737,8 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
 // ticked table is genuinely free (opening hours minus the bookings and
 // blocks already on those tables, read fresh from Wix by the server).
 const BOOK_ALL_EXCLUDE_RE = /\b(8[\s-]?ball|chinese)\b/i;
+// Blocks (unlike walk-in bookings) can go two weeks ahead.
+const BLOCK_DAYS_AHEAD = 14;
 
 function hmLabel(mins) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
@@ -744,7 +746,7 @@ function hmLabel(mins) {
 
 function BookTablesForm({ venueId, timed, onDone, onClose }) {
   const [openingHours, setOpeningHours] = useState(DEFAULT_OPENING_HOURS);
-  const [startOpts, setStartOpts] = useState(() => walkinStartOptions());
+  const [startOpts, setStartOpts] = useState(() => walkinStartOptions(undefined, BLOCK_DAYS_AHEAD));
   const dayOpts = walkinDayOptions(startOpts);
   const [day, setDay] = useState(() => (dayOpts[0] ? dayOpts[0].value : ''));
   const [tables, setTables] = useState([]);
@@ -761,7 +763,7 @@ function BookTablesForm({ venueId, timed, onDone, onClose }) {
       .then((d) => {
         if (Array.isArray(d.openingHours) && d.openingHours.length === 7) {
           setOpeningHours(d.openingHours);
-          setStartOpts(walkinStartOptions(d.openingHours));
+          setStartOpts(walkinStartOptions(d.openingHours, BLOCK_DAYS_AHEAD));
         }
         if (Array.isArray(d.tables)) {
           setTables(d.tables);

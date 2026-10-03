@@ -38,7 +38,7 @@ export function registerBookAllTablesRoute(app, deps) {
     writeDb,
     recordAudit,
     WALKIN_OPENING_HOURS,
-    WALKIN_MAX_AHEAD_MS,
+    BLOCK_MAX_AHEAD_MS,
     londonWallTimeToUtc,
   } = deps;
 
@@ -87,7 +87,7 @@ export function registerBookAllTablesRoute(app, deps) {
     const dayCloseAt = wall(y, mo, d, hours.close);
     const now = Date.now();
     const nowFloored = new Date(Math.floor(now / (30 * 60 * 1000)) * 30 * 60 * 1000);
-    if (dayOpenAt.getTime() > now + WALKIN_MAX_AHEAD_MS) throw new ApiError(400, 'Days can be booked up to 7 days ahead.');
+    if (dayOpenAt.getTime() > now + BLOCK_MAX_AHEAD_MS) throw new ApiError(400, 'Tables can be blocked up to 14 days ahead.');
 
     const timed = startTime != null || endTime != null;
     let startAt;
