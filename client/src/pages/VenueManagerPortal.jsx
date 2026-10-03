@@ -859,22 +859,22 @@ function BookTablesForm({ venueId, timed, onDone, onClose }) {
       </label>
       <div className="vm-wi-field">
         <span>Table(s)</span>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="vm-wi-tables">
           {tables.map((t) => (
-            <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label key={t.id} className="vm-wi-check">
               <input type="checkbox" checked={picked.includes(t.id)} onChange={() => togglePicked(t.id)} disabled={saving} />
-              {t.name}
+              <span>{t.name}</span>
             </label>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-          <button type="button" className="btn" disabled={saving} onClick={() => setPicked(tables.map((t) => t.id))}>All</button>
-          <button type="button" className="btn" disabled={saving} onClick={() => setPicked(tables.filter((t) => !BOOK_ALL_EXCLUDE_RE.test(t.name)).map((t) => t.id))}>All except 8 Ball / Chinese</button>
-          <button type="button" className="btn" disabled={saving} onClick={() => setPicked([])}>None</button>
+        <div className="vm-wi-quick">
+          <button type="button" className="btn vm-wi-quick-btn" disabled={saving} onClick={() => setPicked(tables.map((t) => t.id))}>All</button>
+          <button type="button" className="btn vm-wi-quick-btn" disabled={saving} onClick={() => setPicked(tables.filter((t) => !BOOK_ALL_EXCLUDE_RE.test(t.name)).map((t) => t.id))}>All except 8 Ball / Chinese</button>
+          <button type="button" className="btn vm-wi-quick-btn" disabled={saving} onClick={() => setPicked([])}>None</button>
         </div>
       </div>
       {timed && (
-        <>
+        <div className="vm-wi-times">
           <label className="vm-wi-field">
             <span>Start</span>
             <select className="mm-input" value={startVal == null ? '' : startVal} onChange={(ev) => setStartMin(Number(ev.target.value))} disabled={saving || availLoading || !startChoices.length}>
@@ -887,7 +887,7 @@ function BookTablesForm({ venueId, timed, onDone, onClose }) {
               {endChoices.map((m) => <option key={m} value={m}>{hmLabel(m)}</option>)}
             </select>
           </label>
-        </>
+        </div>
       )}
       <span className="vm-wi-hours">
         {timed
