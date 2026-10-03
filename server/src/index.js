@@ -1907,6 +1907,10 @@ function assertWithinOpeningHours(start, mins) {
 }
 const WALKIN_NOTICE_MS = 15 * 60 * 1000; // a little wider than Wix's 10-minute online notice
 const WALKIN_MAX_AHEAD_MS = 7 * 24 * 60 * 60 * 1000; // Wix's own 7-day booking limit
+// Table blocks are calendar events, not bookings, so Wix's 7-day booking
+// limit doesn't apply to them - "Book table(s) for a day" / "Block book
+// table(s) for a day" can reach two weeks ahead (Matt, 2026-10-03).
+const BLOCK_MAX_AHEAD_MS = 14 * 24 * 60 * 60 * 1000;
 const WALKIN_TABLES_CACHE_MS = 10 * 60 * 1000;
 const walkinTablesCache = new Map(); // siteId -> { at, tables }
 
@@ -2038,7 +2042,7 @@ async function getBlockedTableEvents(siteId) {
     return [];
   }
   const from = new Date();
-  const to = new Date(Date.now() + WALKIN_MAX_AHEAD_MS + 24 * 60 * 60 * 1000);
+  const to = new Date(Date.now() + BLOCK_MAX_AHEAD_MS + 24 * 60 * 60 * 1000);
   const perTable = await Promise.all(tables.map(async (table) => {
     try {
       const data = await wixPost(siteId, 'https://www.wixapis.com/calendar/v3/events/query', {
@@ -2146,6 +2150,29 @@ async function walkinTableIsFree(siteId, table, start, end) {
     const be = new Date(b.endDate).getTime();
     return bs < end.getTime() && be > start.getTime();
   });
+}
+
+// Every live booking and table block that overlaps [from, to), as
+// { tableId, start, end } (Dates). Reads Wix fresh (the saved bookings list
+// only updates at 09:00/11:00/17:00), so "Block book table(s)" only ever
+// offers - and accepts - times that are genuinely free.
+async function tableBusyIntervals(siteId, tables, from, to) {
+  const busy = [];
+  const list = await wixBookingsStartingBetween(siteId, new Date(from.getTime() - 4 * 60 * 60 * 1000), to);
+  for (const b of list) {
+    if (['CANCELED', 'DECLINED', 'CREATED'].includes(b.status)) continue;
+    const slot = (b.bookedEntity && b.bookedEntity.slot) || {};
+    const table = tables.find((t) => (slot.resource && slot.resource.id === t.resourceId) || slot.serviceId === t.id);
+    if (!table || !b.startDate || !b.endDate) continue;
+    busy.push({ tableId: table.id, start: new Date(b.startDate), end: new Date(b.endDate) });
+  }
+  blockedEventsCache.delete(siteId);
+  for (const e of await getBlockedTableEvents(siteId)) {
+    const table = tables.find((t) => t.name === e.table);
+    if (!table || !e.end) continue;
+    busy.push({ tableId: table.id, start: new Date(e.start), end: new Date(e.end) });
+  }
+  return busy.filter((b) => b.start.getTime() < to.getTime() && b.end.getTime() > from.getTime());
 }
 
 async function createWalkinPart(siteId, table, start, end, skipWixCheck, contact = null) {
@@ -2551,11 +2578,12 @@ registerBookAllTablesRoute(app, {
   getWalkinTables,
   walkinWixError,
   blockTableForDay,
+  tableBusyIntervals,
   readDb,
   writeDb,
   recordAudit,
   WALKIN_OPENING_HOURS,
-  WALKIN_MAX_AHEAD_MS,
+  BLOCK_MAX_AHEAD_MS,
   londonWallTimeToUtc,
 });
 
