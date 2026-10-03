@@ -7861,23 +7861,24 @@ app.post('/api/fixtures/:id/submit-result', requireAuth, asyncRoute((req, res) =
   if (fixture.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress match can be submitted for confirmation');
 
   // Free Play has no race target - either player can finish the match
-  // themselves the moment the scores aren't level, and it completes right
-  // away rather than waiting on the other side to also confirm (see the
-  // FREE_PLAY comment above createDivision).
+  // themselves at any point, and it completes right away rather than waiting
+  // on the other side to also confirm (see the FREE_PLAY comment above
+  // createDivision). Level scores finish as a draw: winnerPlayerId stays null,
+  // which standings/career stats already treat as a void (played, no win/loss).
   if (division.scheduling === FREE_PLAY) {
-    if (fixture.homeFrameScore === fixture.awayFrameScore) {
-      throw new ApiError(400, 'Scores are level - record another frame before finishing this Free Play match');
-    }
-    fixture.winnerPlayerId = fixture.homeFrameScore > fixture.awayFrameScore ? fixture.homePlayerId : fixture.awayPlayerId;
+    const drawn = fixture.homeFrameScore === fixture.awayFrameScore;
+    fixture.winnerPlayerId = drawn ? null : (fixture.homeFrameScore > fixture.awayFrameScore ? fixture.homePlayerId : fixture.awayPlayerId);
     fixture.status = 'completed';
     fixture.homeConfirmed = true;
     fixture.awayConfirmed = true;
     fixture.resultSubmittedAt = new Date().toISOString();
     fixture.resultSubmittedBy = req.auth.user.id;
-    propagateWinner(db, division, fixture, fixture.winnerPlayerId);
-    const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
-    propagateLoser(db, division, fixture, loserPlayerId);
-    checkGrandFinalReset(db, division, fixture);
+    if (!drawn) {
+      propagateWinner(db, division, fixture, fixture.winnerPlayerId);
+      const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+      propagateLoser(db, division, fixture, loserPlayerId);
+      checkGrandFinalReset(db, division, fixture);
+    }
     writeDb(db);
     return res.json(fixture);
   }
