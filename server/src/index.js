@@ -2148,6 +2148,29 @@ async function walkinTableIsFree(siteId, table, start, end) {
   });
 }
 
+// Every live booking and table block that overlaps [from, to), as
+// { tableId, start, end } (Dates). Reads Wix fresh (the saved bookings list
+// only updates at 09:00/11:00/17:00), so "Block book table(s)" only ever
+// offers - and accepts - times that are genuinely free.
+async function tableBusyIntervals(siteId, tables, from, to) {
+  const busy = [];
+  const list = await wixBookingsStartingBetween(siteId, new Date(from.getTime() - 4 * 60 * 60 * 1000), to);
+  for (const b of list) {
+    if (['CANCELED', 'DECLINED', 'CREATED'].includes(b.status)) continue;
+    const slot = (b.bookedEntity && b.bookedEntity.slot) || {};
+    const table = tables.find((t) => (slot.resource && slot.resource.id === t.resourceId) || slot.serviceId === t.id);
+    if (!table || !b.startDate || !b.endDate) continue;
+    busy.push({ tableId: table.id, start: new Date(b.startDate), end: new Date(b.endDate) });
+  }
+  blockedEventsCache.delete(siteId);
+  for (const e of await getBlockedTableEvents(siteId)) {
+    const table = tables.find((t) => t.name === e.table);
+    if (!table || !e.end) continue;
+    busy.push({ tableId: table.id, start: new Date(e.start), end: new Date(e.end) });
+  }
+  return busy.filter((b) => b.start.getTime() < to.getTime() && b.end.getTime() > from.getTime());
+}
+
 async function createWalkinPart(siteId, table, start, end, skipWixCheck, contact = null) {
   const data = await wixPost(siteId, WIX_BOOKINGS_WRITE_URL, {
     booking: {
@@ -2551,6 +2574,7 @@ registerBookAllTablesRoute(app, {
   getWalkinTables,
   walkinWixError,
   blockTableForDay,
+  tableBusyIntervals,
   readDb,
   writeDb,
   recordAudit,

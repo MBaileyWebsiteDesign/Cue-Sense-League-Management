@@ -728,29 +728,45 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
   );
 }
 
-// "Book all tables for a day" (Matt, 2026-09-26): fills every table except
-// the 8 Ball / Chinese table for a whole day (opening to closing), so a
-// private event or league night can block online bookings on the rest of
-// the tables in one go, leaving that one table free to book online. The
-// table picker (Matt, 2026-09-28) also allows booking just one specific
-// table for the day instead - including the 8 Ball / Chinese table, since
-// that's an explicit choice rather than the bulk "leave it free" default.
-function BookAllTablesForm({ venueId, onDone, onClose }) {
+// "Book table(s) for a day" and "Block book table(s) for a day" (Matt,
+// 2026-09-26, reworked 2026-10-03): block one or more tables so they can't
+// be booked online. Tick the table(s) - by default every table except the
+// 8 Ball / Chinese one, as the old "all tables" option did. Day mode blocks
+// each ticked table from opening (or now) to closing; timed mode blocks a
+// chosen start-to-finish window instead, and only offers times when every
+// ticked table is genuinely free (opening hours minus the bookings and
+// blocks already on those tables, read fresh from Wix by the server).
+const BOOK_ALL_EXCLUDE_RE = /\b(8[\s-]?ball|chinese)\b/i;
+
+function hmLabel(mins) {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+
+function BookTablesForm({ venueId, timed, onDone, onClose }) {
+  const [openingHours, setOpeningHours] = useState(DEFAULT_OPENING_HOURS);
   const [startOpts, setStartOpts] = useState(() => walkinStartOptions());
   const dayOpts = walkinDayOptions(startOpts);
   const [day, setDay] = useState(() => (dayOpts[0] ? dayOpts[0].value : ''));
   const [tables, setTables] = useState([]);
-  const [tableId, setTableId] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState([]);
+  const [busyList, setBusyList] = useState([]);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [startMin, setStartMin] = useState(null);
+  const [endMin, setEndMin] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.getWalkinTables(venueId)
       .then((d) => {
         if (Array.isArray(d.openingHours) && d.openingHours.length === 7) {
+          setOpeningHours(d.openingHours);
           setStartOpts(walkinStartOptions(d.openingHours));
         }
-        if (Array.isArray(d.tables)) setTables(d.tables);
+        if (Array.isArray(d.tables)) {
+          setTables(d.tables);
+          setPicked(d.tables.filter((t) => !BOOK_ALL_EXCLUDE_RE.test(t.name)).map((t) => t.id));
+        }
       })
       .catch(() => {});
   }, [venueId]);
@@ -760,52 +776,136 @@ function BookAllTablesForm({ venueId, onDone, onClose }) {
     setDay((cur) => (opts.find((o) => o.value === cur) ? cur : (opts[0] ? opts[0].value : '')));
   }, [startOpts]);
 
-  const submit = (e) => {
-    e.preventDefault();
+  // Timed mode: what's already booked or blocked that day.
+  useEffect(() => {
+    if (!timed || !day) return undefined;
+    let cancelled = false;
+    setAvailLoading(true);
+    setBusyList([]);
+    api.getTableAvailability(venueId, day)
+      .then((d) => { if (!cancelled) { setBusyList(Array.isArray(d.busy) ? d.busy : []); setError(''); } })
+      .catch((err) => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setAvailLoading(false); });
+    return () => { cancelled = true; };
+  }, [timed, venueId, day]);
+
+  // Free half-hour slots for the ticked tables (timed mode).
+  let startChoices = [];
+  let endChoices = [];
+  let startVal = null;
+  let endVal = null;
+  if (timed && day) {
+    const [yy, mm, dd] = day.split('-').map(Number);
+    const hours = openingHours[new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay()] || { open: 660, close: 1380 };
+    const todayKey = ukDayKey(new Date().toISOString());
+    const [nh, nm] = ukTime(new Date().toISOString()).split(':').map(Number);
+    const nowMin = Math.floor((nh * 60 + nm) / 30) * 30;
+    const minOf = (iso) => {
+      const k = ukDayKey(iso);
+      if (k < day) return 0;
+      if (k > day) return 1440;
+      const [h, m] = ukTime(iso).split(':').map(Number);
+      return h * 60 + m;
+    };
+    const intervals = busyList.filter((b) => picked.includes(b.tableId)).map((b) => [minOf(b.start), minOf(b.end)]);
+    const slotFree = (m) => !intervals.some(([s, en]) => s < m + 30 && en > m);
+    for (let m = hours.open; m <= hours.close - 30; m += 30) {
+      if (day === todayKey && m < nowMin) continue;
+      if (slotFree(m)) startChoices.push(m);
+    }
+    startVal = startChoices.includes(startMin) ? startMin : (startChoices.length ? startChoices[0] : null);
+    if (startVal != null) {
+      for (let m = startVal + 30; m <= hours.close; m += 30) {
+        if (!slotFree(m - 30)) break;
+        endChoices.push(m);
+      }
+    }
+    endVal = endChoices.includes(endMin) ? endMin : (endChoices.length ? endChoices[endChoices.length - 1] : null);
+  }
+
+  const togglePicked = (id) => setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+
+  const submit = (ev) => {
+    ev.preventDefault();
     if (!day) { setError('Choose a day.'); return; }
-    setBusy(true);
+    if (!picked.length) { setError('Choose at least one table.'); return; }
+    if (timed && (startVal == null || endVal == null)) { setError('Choose a start and finish time.'); return; }
+    setSaving(true);
     setError('');
-    api.bookAllTables(venueId, day, tableId || undefined)
+    const opts = { tableIds: picked, ...(timed ? { startTime: hmLabel(startVal), endTime: hmLabel(endVal) } : {}) };
+    api.bookAllTables(venueId, day, opts)
       .then((r) => {
         const lines = (r.results || []).map((x) => (x.ok
           ? `${x.table}: booked ${ukTime(x.start)}–${ukTime(x.end)}.`
           : `${x.table}: ${x.error}`));
-        const excludedLine = r.excluded && r.excluded.length
-          ? `Left free to book online: ${r.excluded.join(', ')}.`
-          : '';
-        const heading = tableId ? `${lines.length ? r.results[0].table : 'Table'} booked for the day:` : 'All other tables booked for the day:';
-        onDone([heading, ...lines, excludedLine].filter(Boolean).join(' '));
+        const heading = timed ? `Table(s) blocked ${hmLabel(startVal)}–${hmLabel(endVal)}:` : 'Table(s) booked for the day:';
+        onDone([heading, ...lines].join(' '));
       })
       .catch((err) => setError(err.message))
-      .finally(() => setBusy(false));
+      .finally(() => setSaving(false));
   };
+
+  const noTimes = timed && !availLoading && picked.length > 0 && startChoices.length === 0;
 
   return (
     <form className="vm-wi" onSubmit={submit}>
       <label className="vm-wi-field">
         <span>Day</span>
-        <select className="mm-input" value={day} onChange={(e) => setDay(e.target.value)} disabled={busy}>
+        <select className="mm-input" value={day} onChange={(ev) => setDay(ev.target.value)} disabled={saving}>
           {dayOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </label>
-      <label className="vm-wi-field">
-        <span>Table</span>
-        <select className="mm-input" value={tableId} onChange={(e) => setTableId(e.target.value)} disabled={busy}>
-          <option value="">All tables (except 8 Ball / Chinese)</option>
-          {tables.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-      </label>
+      <div className="vm-wi-field">
+        <span>Table(s)</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {tables.map((t) => (
+            <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={picked.includes(t.id)} onChange={() => togglePicked(t.id)} disabled={saving} />
+              {t.name}
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          <button type="button" className="btn" disabled={saving} onClick={() => setPicked(tables.map((t) => t.id))}>All</button>
+          <button type="button" className="btn" disabled={saving} onClick={() => setPicked(tables.filter((t) => !BOOK_ALL_EXCLUDE_RE.test(t.name)).map((t) => t.id))}>All except 8 Ball / Chinese</button>
+          <button type="button" className="btn" disabled={saving} onClick={() => setPicked([])}>None</button>
+        </div>
+      </div>
+      {timed && (
+        <>
+          <label className="vm-wi-field">
+            <span>Start</span>
+            <select className="mm-input" value={startVal == null ? '' : startVal} onChange={(ev) => setStartMin(Number(ev.target.value))} disabled={saving || availLoading || !startChoices.length}>
+              {startChoices.map((m) => <option key={m} value={m}>{hmLabel(m)}</option>)}
+            </select>
+          </label>
+          <label className="vm-wi-field">
+            <span>Finish</span>
+            <select className="mm-input" value={endVal == null ? '' : endVal} onChange={(ev) => setEndMin(Number(ev.target.value))} disabled={saving || availLoading || !endChoices.length}>
+              {endChoices.map((m) => <option key={m} value={m}>{hmLabel(m)}</option>)}
+            </select>
+          </label>
+        </>
+      )}
       <span className="vm-wi-hours">
-        {tableId
-          ? 'Books that table for the whole day (opening to closing).'
-          : 'Books every table for the whole day (opening to closing) except the 8 Ball / Chinese table, which stays free to book online.'}
+        {timed
+          ? (availLoading
+            ? 'Checking what is already booked…'
+            : noTimes
+              ? 'No free times that day on the ticked table(s) - untick a table or pick another day.'
+              : 'Blocks the ticked table(s) between the start and finish. Only times when every ticked table is free are shown.')
+          : 'Books each ticked table for the whole day (opening to closing, or from now if the day has started).'}
       </span>
       {error && <p className="error vm-small">{error}</p>}
       <div className="vm-wi-actions">
-        <button type="submit" className="btn btn-primary" disabled={busy || !dayOpts.length}>
-          {busy ? 'Booking…' : (tableId ? 'Book table' : 'Book all tables')}
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={saving || !dayOpts.length || !picked.length || (timed && (availLoading || startVal == null || endVal == null))}
+        >
+          {saving ? 'Booking…' : (timed ? 'Block book table(s)' : 'Book table(s)')}
         </button>
-        <button type="button" className="btn" onClick={onClose} disabled={busy}>Close</button>
+        <button type="button" className="btn" onClick={onClose} disabled={saving}>Close</button>
       </div>
     </form>
   );
@@ -845,7 +945,7 @@ function BookingsCard({ venueId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [walkinOpen, setWalkinOpen] = useState(false);
-  const [bookAllOpen, setBookAllOpen] = useState(false);
+  const [bookAllOpen, setBookAllOpen] = useState(false); // false | 'day' | 'timed'
   const [daysShown, setDaysShown] = useState(BOOKING_DAYS_STEP);
   const [notice, setNotice] = useState('');
   const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
@@ -1020,8 +1120,9 @@ function BookingsCard({ venueId }) {
               }}
             />
           ) : bookAllOpen ? (
-            <BookAllTablesForm
+            <BookTablesForm
               venueId={venueId}
+              timed={bookAllOpen === 'timed'}
               onClose={() => setBookAllOpen(false)}
               onDone={(msg) => {
                 setBookAllOpen(false);
@@ -1036,9 +1137,13 @@ function BookingsCard({ venueId }) {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
                   Book walk-in
                 </button>
-                <button type="button" className="btn vm-act vm-act-secondary" onClick={() => { setNotice(''); setBookAllOpen(true); }}>
+                <button type="button" className="btn vm-act vm-act-secondary" onClick={() => { setNotice(''); setBookAllOpen('day'); }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
-                  Block all tables for a day
+                  Book table(s) for a day
+                </button>
+                <button type="button" className="btn vm-act vm-act-secondary" onClick={() => { setNotice(''); setBookAllOpen('timed'); }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                  Block book table(s) for a day
                 </button>
               </div>
             </>

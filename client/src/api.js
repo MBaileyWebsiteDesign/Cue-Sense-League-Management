@@ -201,15 +201,19 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId }),
     }),
-  // "Book all tables for a day" (Table bookings card): books every table for
-  // the whole day (opening to closing) except the 8 Ball / Chinese table, so
-  // it stays free to book online. day = "YYYY-MM-DD" (UK date). Pass tableId
-  // to book just that one table instead (any table, including 8 Ball/Chinese).
-  bookAllTables: (venueId, day, tableId) =>
+  // "Book table(s) for a day" / "Block book table(s) for a day" (Table
+  // bookings card). day = "YYYY-MM-DD" (UK date). opts: { tableIds: [...] }
+  // blocks those tables for the whole day; add startTime/endTime ("HH:MM" UK
+  // time, on :00/:30) to block just that window instead.
+  bookAllTables: (venueId, day, opts = {}) =>
     request('/venue-manager/walkins/book-all-tables', {
       method: 'POST',
-      body: JSON.stringify({ venueId, day, ...(tableId ? { tableId } : {}) }),
+      body: JSON.stringify({ venueId, day, ...opts }),
     }),
+  // Booked/blocked windows on each table for one UK day, read fresh from
+  // Wix - lets "Block book table(s)" offer only the free times.
+  getTableAvailability: (venueId, day) =>
+    request(`/venue-manager/table-availability?venueId=${encodeURIComponent(venueId)}&day=${encodeURIComponent(day)}`),
   // Backs the clickable "Due in N months" stat tiles - months must be 2, 4, or 6.
   getVenueManagerDuePlayers: (venueId, months) =>
     request(`/venue-manager/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
