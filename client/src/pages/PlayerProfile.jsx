@@ -476,6 +476,7 @@ export default function PlayerProfile() {
             tiles={[
               { key: 'played', label: 'Played', value: career.played },
               { key: 'won', label: 'Won', value: career.won, tone: 'win' },
+              { key: 'drawn', label: 'Drawn', value: career.drawn || 0, tone: 'draw' },
               { key: 'lost', label: 'Lost', value: career.lost, tone: 'loss' },
             ]}
           />
@@ -558,7 +559,7 @@ export default function PlayerProfile() {
                   <span className="cs-row-score">{h.won}–{h.lost}</span>
                 </div>
                 <SplitBar a={h.won} b={h.lost} height={8} label={`${h.won} won, ${h.lost} lost against ${h.opponentName}`} />
-                <span className="muted cs-small">{h.played} played{h.played - h.won - h.lost > 0 ? ` · ${h.played - h.won - h.lost} void` : ''}</span>
+                <span className="muted cs-small">{h.played} played{(h.drawn || 0) > 0 ? ` · ${h.drawn} drawn` : ''}{h.played - h.won - h.lost - (h.drawn || 0) > 0 ? ` · ${h.played - h.won - h.lost - (h.drawn || 0)} void` : ''}</span>
               </Link>
             ))}
           </div>

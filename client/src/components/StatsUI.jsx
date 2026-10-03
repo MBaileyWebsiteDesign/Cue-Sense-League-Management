@@ -5,10 +5,10 @@ import { useState } from 'react';
 // app has no charting library. Every chart also states its numbers in text,
 // so nothing relies on colour alone.
 
-// W / L / V chips, most recent first.
+// W / L / D / V chips, most recent first.
 export function FormStrip({ form, label = 'Form', note = 'latest first' }) {
   if (!form || form.length === 0) return null;
-  const names = { W: 'Win', L: 'Loss', V: 'Void' };
+  const names = { W: 'Win', L: 'Loss', D: 'Draw', V: 'Void' };
   return (
     <div className="cs-form">
       <span className="cs-form-label">{label}</span>
@@ -68,7 +68,7 @@ export function StatTiles({ tiles }) {
   const current = tiles.find((t) => t.key === open && t.info);
   return (
     <>
-      <div className="cs-tiles">
+      <div className="cs-tiles" style={tiles.length === 4 ? { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' } : undefined}>
         {tiles.map((t) => {
           const body = (
             <>
@@ -112,8 +112,8 @@ export function StatTiles({ tiles }) {
 
 // Big W / L / V badge used on result cards.
 export function ResultBadge({ result, size }) {
-  const g = result === 'win' ? 'W' : result === 'loss' ? 'L' : 'V';
-  const names = { W: 'Win', L: 'Loss', V: 'Void' };
+  const g = result === 'win' ? 'W' : result === 'loss' ? 'L' : result === 'draw' ? 'D' : 'V';
+  const names = { W: 'Win', L: 'Loss', D: 'Draw', V: 'Void' };
   return <span className={`cs-badge cs-chip-${g}`} style={size ? { width: size, height: size } : undefined} aria-label={names[g]}>{g}</span>;
 }
 

@@ -1118,6 +1118,7 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 .cs-right { display: flex; justify-content: flex-end; }
 .cs-tone-win { color: var(--win-ink); }
 .cs-tone-loss { color: var(--loss-ink); }
+.cs-tone-draw { color: #92400e; }
 
 .cs-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .cs-card-head h2 { margin: 0; }
@@ -1135,6 +1136,7 @@ h3 { font-size: 1.05rem; font-weight: 700; }
 .cs-chip-W { background: var(--win); }
 .cs-chip-L { background: var(--loss); }
 .cs-chip-V { background: #9ca3af; }
+.cs-chip-D { background: #d97706; }
 
 /* Bars */
 .cs-bar { display: flex; gap: 2px; height: 14px; border-radius: 7px; overflow: hidden; background: var(--track); }
@@ -1167,6 +1169,7 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .cs-tile-open { border-color: var(--cta); background: #fbf5e3; }
 .cs-tile-win { background: var(--win-bg); }
 .cs-tile-loss { background: var(--loss-bg); }
+.cs-tile-draw { background: #fef3c7; }
 .cs-tile-value { font-size: 1.5rem; font-weight: 700; line-height: 1; }
 .cs-tile-label { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
 .cs-info { margin-top: 10px; background: #fbf5e3; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; line-height: 1.4; }

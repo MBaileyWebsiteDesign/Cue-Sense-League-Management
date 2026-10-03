@@ -687,6 +687,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
   // no target to "reach", so that match instead becomes finishable the
   // moment it's in progress - a level score finishes as a draw (no winner).
   const isFreePlay = fixture.raceTo == null;
+  const tableSaved = !!(fixture.table || fixture.venue);
   const raceTargetReached = !isFreePlay && fixture.status === 'in_progress' && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo);
   const freePlayInProgress = isFreePlay && fixture.status === 'in_progress';
   const freePlayLevel = freePlayInProgress && fixture.homeFrameScore === fixture.awayFrameScore;
@@ -871,6 +872,10 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
           </p>
         </section>
 
+        {/* Match tools stay above the scoring buttons until a table & venue
+            has been saved, then drop below the Frames card. */}
+        {!tableSaved && tools}
+
         {!locked && (
           <div className="cs-score-grid">
             {[
@@ -997,7 +1002,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         )}
       </section>
 
-      {tools}
+      {tableSaved && tools}
 
       {canReportNoShow && <ProblemWithMatch onClaim={async () => { await api.claimNoShow(fixture.id); onChange(); }} />}
     </div>

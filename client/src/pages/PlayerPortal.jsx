@@ -273,9 +273,10 @@ function StatsSnapshot({ playerId, profile }) {
         <div className="cs-snapshot-body">
           <WinRing pct={winPct} size={76} />
           <div className="cs-grow" style={{ gap: 10 }}>
-            <div className="cs-tiles cs-tiles-compact">
+            <div className="cs-tiles cs-tiles-compact" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
               <div className="cs-tile"><span className="cs-tile-value">{career.played}</span><span className="cs-tile-label">Played</span></div>
               <div className="cs-tile cs-tile-win"><span className="cs-tile-value cs-tone-win">{career.won}</span><span className="cs-tile-label">Won</span></div>
+              <div className="cs-tile cs-tile-draw"><span className="cs-tile-value cs-tone-draw">{career.drawn || 0}</span><span className="cs-tile-label">Drawn</span></div>
               <div className="cs-tile cs-tile-loss"><span className="cs-tile-value cs-tone-loss">{career.lost}</span><span className="cs-tile-label">Lost</span></div>
             </div>
             {profile.formGuide && profile.formGuide.length > 0 && <FormStrip form={profile.formGuide} note={null} />}

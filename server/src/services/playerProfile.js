@@ -6,7 +6,7 @@ export function buildPlayerProfile(db, playerId) {
   const player = db.players.find((p) => p.id === playerId);
   if (!player) return null;
 
-  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0, noShows: 0 };
+  const career = { played: 0, won: 0, drawn: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0, noShows: 0 };
   const headToHeadMap = new Map();
   const results = [];
   // Table record: how this player fares on each physical table they've
@@ -27,7 +27,10 @@ export function buildPlayerProfile(db, playerId) {
     if (!rec.venue && venue) rec.venue = venue.trim();
   }
 
-  // `outcome` is 'win', 'loss', or 'void' - void is a fixture/leg an admin
+  // `outcome` is 'win', 'loss', 'draw' or 'void'. A draw is a singles/doubles
+  // match that was played and finished level (Free Play can be finished at any
+  // score) - it counts as played and gives neither side a win or a loss.
+  // Void is a fixture/leg an admin
   // force-completed 0-0 with no winner by closing its division/league early
   // (see closeOutstandingFixtures in server/src/index.js) rather than one
   // that was actually played out. It counts toward `played` like any other
@@ -38,6 +41,7 @@ export function buildPlayerProfile(db, playerId) {
     career.framesAgainst += againstScore;
     if (outcome === 'win') career.won += 1;
     else if (outcome === 'loss') career.lost += 1;
+    else if (outcome === 'draw') career.drawn += 1;
 
     // Looked up once and reused below - this used to call db.players.find()
     // a second time for the same id just a few lines later.
@@ -50,12 +54,14 @@ export function buildPlayerProfile(db, playerId) {
         played: 0,
         won: 0,
         lost: 0,
+        drawn: 0,
       });
     }
     const h2h = headToHeadMap.get(opponentId);
     h2h.played += 1;
     if (outcome === 'win') h2h.won += 1;
     else if (outcome === 'loss') h2h.lost += 1;
+    else if (outcome === 'draw') h2h.drawn += 1;
 
     results.push({
       fixtureId,
@@ -82,7 +88,7 @@ export function buildPlayerProfile(db, playerId) {
       opponentId: isHome ? fixture.awayPlayerId : fixture.homePlayerId,
       forScore: isHome ? fixture.homeFrameScore : fixture.awayFrameScore,
       againstScore: isHome ? fixture.awayFrameScore : fixture.homeFrameScore,
-      outcome: fixture.winnerPlayerId === null ? 'void' : (fixture.winnerPlayerId === playerId ? 'win' : 'loss'),
+      outcome: fixture.winnerPlayerId === null ? (fixture.closedEarly ? 'void' : 'draw') : (fixture.winnerPlayerId === playerId ? 'win' : 'loss'),
       leagueName: league?.name,
       divisionName: division?.name,
       fixtureId: fixture.id,
@@ -179,7 +185,7 @@ export function buildPlayerProfile(db, playerId) {
 
   // Form guide: last 5 completed results, most recent first, as a simple
   // 'W'/'L' sequence - results is already sorted most-recent-first above.
-  const formGuide = results.slice(0, 5).map((r) => (r.result === 'win' ? 'W' : r.result === 'loss' ? 'L' : 'V'));
+  const formGuide = results.slice(0, 5).map((r) => (r.result === 'win' ? 'W' : r.result === 'loss' ? 'L' : r.result === 'draw' ? 'D' : 'V'));
 
   // Every league/division this player currently shows up in - directly
   // (singles), via a team roster, or via a doubles/triples pairing. Powers

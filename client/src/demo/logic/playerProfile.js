@@ -6,7 +6,7 @@ export function buildPlayerProfile(db, playerId) {
   const player = db.players.find((p) => p.id === playerId);
   if (!player) return null;
 
-  const career = { played: 0, won: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0 };
+  const career = { played: 0, won: 0, drawn: 0, lost: 0, framesFor: 0, framesAgainst: 0, bnd: 0, rnd: 0, breakWins: 0, nonBreakWins: 0 };
   const headToHeadMap = new Map();
   const results = [];
 
@@ -19,6 +19,7 @@ export function buildPlayerProfile(db, playerId) {
     career.framesAgainst += againstScore;
     if (outcome === 'win') career.won += 1;
     else if (outcome === 'loss') career.lost += 1;
+    else if (outcome === 'draw') career.drawn += 1;
 
     // Looked up once and reused below - this used to call db.players.find()
     // a second time for the same id just a few lines later.
@@ -31,12 +32,14 @@ export function buildPlayerProfile(db, playerId) {
         played: 0,
         won: 0,
         lost: 0,
+        drawn: 0,
       });
     }
     const h2h = headToHeadMap.get(opponentId);
     h2h.played += 1;
     if (outcome === 'win') h2h.won += 1;
     else if (outcome === 'loss') h2h.lost += 1;
+    else if (outcome === 'draw') h2h.drawn += 1;
 
     results.push({
       fixtureId,
@@ -63,7 +66,7 @@ export function buildPlayerProfile(db, playerId) {
       opponentId: isHome ? fixture.awayPlayerId : fixture.homePlayerId,
       forScore: isHome ? fixture.homeFrameScore : fixture.awayFrameScore,
       againstScore: isHome ? fixture.awayFrameScore : fixture.homeFrameScore,
-      outcome: fixture.winnerPlayerId === null ? 'void' : (fixture.winnerPlayerId === playerId ? 'win' : 'loss'),
+      outcome: fixture.winnerPlayerId === null ? (fixture.closedEarly ? 'void' : 'draw') : (fixture.winnerPlayerId === playerId ? 'win' : 'loss'),
       leagueName: league?.name,
       divisionName: division?.name,
       fixtureId: fixture.id,
@@ -129,7 +132,7 @@ export function buildPlayerProfile(db, playerId) {
   const headToHead = [...headToHeadMap.values()].sort((a, b) => b.played - a.played);
 
   // Form guide: last 5 completed results, most recent first ('W'/'L').
-  const formGuide = results.slice(0, 5).map((r) => (r.result === 'win' ? 'W' : r.result === 'loss' ? 'L' : 'V'));
+  const formGuide = results.slice(0, 5).map((r) => (r.result === 'win' ? 'W' : r.result === 'loss' ? 'L' : r.result === 'draw' ? 'D' : 'V'));
 
   // Mirrors server/src/services/playerProfile.js's `divisions` addition -
   // every league/division this player currently shows up in (directly, via a
