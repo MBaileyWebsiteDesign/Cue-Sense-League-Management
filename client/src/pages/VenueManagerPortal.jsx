@@ -107,7 +107,7 @@ function DueTile({ label, count, active, onClick, caption, tint }) {
 // One player as a card: name/email (links to their profile when they have
 // one), status, renewal date (tinted as it gets close) and - when renewals
 // are allowed here - the three quick-renew buttons.
-function PlayerCard({ p, busy, onRenew, showStatus = true }) {
+function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus = true }) {
   const urgency = renewalUrgency(p.membershipRenewalDate);
   return (
     <li className="vm-player">
@@ -124,7 +124,39 @@ function PlayerCard({ p, busy, onRenew, showStatus = true }) {
         {p.membershipRenewalDate ? `Expires ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
       </span>
       {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
+      {onRemove && <RemovePlayerButton player={p} busy={removing} onRemove={onRemove} />}
     </li>
+  );
+}
+
+// "Remove from venue" button at the foot of a Registered players row. Two taps,
+// like the table-booking cancel buttons: the first arms it (and it disarms
+// itself after a few seconds), the second confirms. Removing only drops the
+// player's membership at this venue - they register again to come back.
+function RemovePlayerButton({ player, busy, onRemove }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return undefined;
+    const timer = setTimeout(() => setArmed(false), 5000);
+    return () => clearTimeout(timer);
+  }, [armed]);
+  const name = `${player.firstName} ${player.lastName}`;
+  return (
+    <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      <button
+        type="button"
+        className={`vm-bk-cancel${armed ? ' vm-bk-cancel-armed' : ''}`}
+        disabled={busy}
+        aria-label={armed ? `Confirm removing ${name} from this venue` : `Remove ${name} from this venue`}
+        onClick={() => {
+          if (!armed) { setArmed(true); return; }
+          setArmed(false);
+          onRemove(player);
+        }}
+      >
+        {busy ? 'Removing…' : armed ? 'Tap to confirm' : 'Remove from venue'}
+      </button>
+    </span>
   );
 }
 
@@ -276,7 +308,7 @@ function RenewButtons({ player, busy, onRenew }) {
 // endpoint, which already returns everyone when `q` is blank), and Clear
 // brings the full list back. The header count always shows the venue's total
 // registered players, not the number of matches.
-function RegisteredPlayersList({ venueId }) {
+function RegisteredPlayersList({ venueId, onRemoved }) {
   const [players, setPlayers] = useState(null);
   const [total, setTotal] = useState(null);
   const [query, setQuery] = useState('');
@@ -285,6 +317,9 @@ function RegisteredPlayersList({ venueId }) {
   const [error, setError] = useState('');
   const [renewingId, setRenewingId] = useState(null);
   const [renewError, setRenewError] = useState('');
+  const [removingId, setRemovingId] = useState(null);
+  const [removeError, setRemoveError] = useState('');
+  const [removedNote, setRemovedNote] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -338,6 +373,23 @@ function RegisteredPlayersList({ venueId }) {
     }
   };
 
+  const onRemove = async (player) => {
+    setRemovingId(player.id);
+    setRemoveError('');
+    setRemovedNote('');
+    try {
+      await api.removeVenuePlayer(venueId, player.id);
+      setPlayers((prev) => prev && prev.filter((p) => p.id !== player.id));
+      setTotal((n) => (n === null ? n : Math.max(0, n - 1)));
+      setRemovedNote(`${player.firstName} ${player.lastName} was removed from this venue. They'll need to register again to get back in.`);
+      if (onRemoved) onRemoved();
+    } catch (err) {
+      setRemoveError(err.message);
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
   return (
     <section className="card sx-card vm-panel">
       <div className="vm-bk-band">
@@ -368,6 +420,8 @@ function RegisteredPlayersList({ venueId }) {
       </form>
       {error && <p className="error">{error}</p>}
       {renewError && <p className="error">{renewError}</p>}
+      {removeError && <p className="error">{removeError}</p>}
+      {removedNote && <p className="muted">{removedNote}</p>}
       {activeQuery && players && (
         <p className="muted">
           {players.length} of {total} player{total === 1 ? '' : 's'} match “{activeQuery}”.
@@ -385,7 +439,7 @@ function RegisteredPlayersList({ venueId }) {
         ) : (
           <ul className="vm-players">
             {players.map((p) => (
-              <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} />
+              <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} onRemove={onRemove} removing={removingId === p.id} />
             ))}
           </ul>
         )
@@ -1724,6 +1778,9 @@ export default function VenueManagerPortal() {
   // Bumped when a join request is approved so the status counts and the
   // registered-players list reload with the new member.
   const [memberRefresh, setMemberRefresh] = useState(0);
+  // Bumped when a player is removed so the Status counts reload (the Registered
+  // players list updates itself, so it isn't remounted and keeps its search).
+  const [statusRefresh, setStatusRefresh] = useState(0);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal' }]);
   const selectedVenue = (venues || []).find((v) => v.id === selectedVenueId);
@@ -1744,7 +1801,7 @@ export default function VenueManagerPortal() {
       .then(setStatus)
       .catch((e) => setError(e.message))
       .finally(() => setStatusLoading(false));
-  }, [selectedVenueId, memberRefresh]);
+  }, [selectedVenueId, memberRefresh, statusRefresh]);
 
   return (
     <div className="sx-page">
@@ -1790,7 +1847,7 @@ export default function VenueManagerPortal() {
           {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
           {selectedVenue && <JoinRequestsCard key={selectedVenue.id} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
           <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
-          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} venueId={selectedVenueId} />}
+          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} venueId={selectedVenueId} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
         </>
       )}
     </div>

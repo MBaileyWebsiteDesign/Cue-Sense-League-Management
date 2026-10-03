@@ -2633,6 +2633,56 @@ app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute
   });
 }));
 
+// Remove a player from this venue's Registered players (Venue Manager
+// Portal, Registered players card). Only drops the player's membership entry
+// for THIS venue - their account, leagues, fixtures and other venues are
+// untouched. To come back they register again the normal way: instantly on
+// an 'open' venue, or by sending a join request on an 'approval' venue (see
+// POST /api/users/me/venues and /api/users/me/venue-requests). The player
+// gets an email telling them (Matt, 2026-10-03).
+app.delete('/api/venue-manager/players/:id', requireVenueManager, asyncRoute((req, res) => {
+  const venueId = req.query.venueId;
+  if (!venueId) throw new ApiError(400, 'venueId is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === venueId);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  if (!membershipAt(player, venue.id)) throw new ApiError(404, 'Player is not registered to this venue');
+
+  removeMembership(player, venue.id);
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.venueMembership',
+    targetType: 'user',
+    targetId: player.id,
+    details: `Removed ${userDisplayName(player)} from "${venue.name}" (Venue Manager Portal)`,
+  });
+  writeDb(db);
+  res.json({ ok: true, id: player.id });
+
+  if (canEmail(player)) {
+    const link = `${baseUrlFor(req)}/account`;
+    const first = player.firstName || 'there';
+    const needsApproval = venue.joinPolicy === 'approval';
+    const how = needsApproval
+      ? `If you'd like to use ${venue.name} again, you'll need to register again from your Player Portal by sending a request, which the venue will then approve.`
+      : `If you'd like to use ${venue.name} again, you can register again from your Player Portal.`;
+    sendMail({
+      to: player.email,
+      toName: userDisplayName(player),
+      subject: `You've been removed from ${venue.name}`,
+      text: `Hi ${first},\n\nYou've been removed from ${venue.name}'s registered players. ${how}\n${link}`,
+      html: emailHtml(
+        'Removed from venue',
+        `<p>Hi ${escapeHtml(first)},</p><p>You've been removed from <strong>${escapeHtml(venue.name)}</strong>'s registered players. ${escapeHtml(how)}</p><p><a href="${escapeHtml(link)}">Open your Player Portal</a></p>`
+      ),
+    });
+  }
+}));
+
 // ---------- NFC cards and bar check-in (2026-09-25) ----------
 // Players "sign in" at the bar in two ways (Matt, 2026-09-25):
 //  1. Bar phone reads the player's card: a Venue Manager opens "Tap to check

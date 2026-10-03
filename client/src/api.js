@@ -221,6 +221,9 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId, months }),
     }),
+  // Removes a player from this venue's Registered players (their membership entry here only).
+  removeVenuePlayer: (venueId, playerId) =>
+    request(`/venue-manager/players/${encodeURIComponent(playerId)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
   // NFC cards and bar check-in (Venue Manager Portal "Tap to check in").
   // uid is the card's serial number as read by Web NFC or typed/scanned.
   venueCheckin: (venueId, uid) =>
