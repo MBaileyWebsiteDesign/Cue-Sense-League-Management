@@ -666,6 +666,9 @@ function FinalResultCard({ fixture, homeEntrant, awayEntrant, EntrantName }) {
       {side(homeEntrant, fixture.homePlayerId, fixture.homeFrameScore)}
       {side(awayEntrant, fixture.awayPlayerId, fixture.awayFrameScore)}
       {fixture.closedEarly && <p className="muted cs-small" style={{ margin: '8px 0 0' }}>Closed early - not played out.</p>}
+      {!fixture.closedEarly && !winnerId && fixture.frames.length > 0 && (
+        <p className="muted cs-small" style={{ margin: '8px 0 0' }}>Match finished level - drawn.</p>
+      )}
       {!fixture.closedEarly && fixture.frames.length === 0 && (
         <p className="muted cs-small" style={{ margin: '8px 0 0' }}>Marked complete with no frames recorded.</p>
       )}
@@ -682,12 +685,11 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
   const locked = complete || fixture.status === 'pending_confirmation' || fixture.status === 'disputed' || !fixture.canControl;
   // fixture.raceTo is null for Free Play (no frame count target) - there's
   // no target to "reach", so that match instead becomes finishable the
-  // moment it's in progress and the scores aren't level (see
-  // freePlayReadyToFinish below).
+  // moment it's in progress - a level score finishes as a draw (no winner).
   const isFreePlay = fixture.raceTo == null;
   const raceTargetReached = !isFreePlay && fixture.status === 'in_progress' && (fixture.homeFrameScore >= fixture.raceTo || fixture.awayFrameScore >= fixture.raceTo);
   const freePlayInProgress = isFreePlay && fixture.status === 'in_progress';
-  const freePlayReadyToFinish = freePlayInProgress && fixture.homeFrameScore !== fixture.awayFrameScore;
+  const freePlayLevel = freePlayInProgress && fixture.homeFrameScore === fixture.awayFrameScore;
   const homeEntrant = isDoubles ? fixture.homePairing : fixture.homePlayer;
   const awayEntrant = isDoubles ? fixture.awayPairing : fixture.awayPlayer;
   const amHomeEntrant = isDoubles
@@ -865,11 +867,9 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
             <span className="cs-board-vs" style={{ gridColumn: 2, gridRow: 1 }}>vs</span>
           </div>
           <p className="cs-board-note">
-            {isFreePlay ? "Free Play – no frame target. Finish whenever someone's ahead." : `Race to ${fixture.raceTo}`}
+            {isFreePlay ? "Free Play – no frame target. Finish whenever you're ready." : `Race to ${fixture.raceTo}`}
           </p>
         </section>
-
-        {tools}
 
         {!locked && (
           <div className="cs-score-grid">
@@ -912,21 +912,14 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         </p>
       )}
 
-      {freePlayReadyToFinish && fixture.canControl && (
+      {freePlayInProgress && fixture.canControl && (
         <p className="banner" style={{ background: '#dbeafe', color: '#1e40af' }}>
-          {fixture.homeFrameScore > fixture.awayFrameScore ? homeEntrant.name : awayEntrant.name} is ahead
-          ({fixture.homeFrameScore}-{fixture.awayFrameScore}). Free Play has no frame count target - finish the
-          match whenever you're ready, no need to wait for the other side to confirm.{' '}
+          {freePlayLevel
+            ? `Scores are level (${fixture.homeFrameScore}-${fixture.awayFrameScore}). Free Play has no frame count target - you can play another frame, or finish the match as a draw.`
+            : `${fixture.homeFrameScore > fixture.awayFrameScore ? homeEntrant.name : awayEntrant.name} is ahead (${fixture.homeFrameScore}-${fixture.awayFrameScore}). Free Play has no frame count target - finish the match whenever you're ready, no need to wait for the other side to confirm.`}{' '}
           <button className="btn btn-primary" onClick={onSubmitResult} style={{ marginLeft: 8 }}>
             Finish Match
           </button>
-        </p>
-      )}
-
-      {freePlayInProgress && !freePlayReadyToFinish && (
-        <p className="muted">
-          Scores are level ({fixture.homeFrameScore}-{fixture.awayFrameScore}) - play another frame before
-          finishing this Free Play match.
         </p>
       )}
 
@@ -1003,6 +996,8 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
           </ol>
         )}
       </section>
+
+      {tools}
 
       {canReportNoShow && <ProblemWithMatch onClaim={async () => { await api.claimNoShow(fixture.id); onChange(); }} />}
     </div>
@@ -1112,6 +1107,9 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
     }
   };
 
+  const tableInfoSaved = !!(fixture.table || fixture.venue)
+    && (fixture.table || '') === tableNumber.trim()
+    && (fixture.venue || '') === venue.trim();
   const saveTableInfo = async () => {
     setSavingTableInfo(true);
     try {
@@ -1174,8 +1172,13 @@ function LiveMatchControls({ fixture, isTeams, isDoubles, onChange, setError }) 
           <div className="muted" style={{ fontSize: '0.75rem' }}>Venue (optional)</div>
           <input type="text" value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="e.g. The Cue Club" />
         </div>
-        <button className="btn" disabled={savingTableInfo} onClick={saveTableInfo}>
-          {savingTableInfo ? 'Saving…' : 'Save table & venue'}
+        <button
+          className="btn"
+          disabled={savingTableInfo || tableInfoSaved}
+          onClick={saveTableInfo}
+          style={tableInfoSaved ? { opacity: 1, color: '#15803d', borderColor: '#15803d' } : undefined}
+        >
+          {savingTableInfo ? 'Saving…' : tableInfoSaved ? 'Saved ✓' : 'Save table & venue'}
         </button>
       </div>
       {(fixture.table || fixture.venue) && (
@@ -1308,6 +1311,11 @@ function MatchToolsCard({ fixture, isDoubles, onChange, setError }) {
     setError('');
     try { await fn(); onChange(); } catch (err) { setError(err.message); }
   };
+  // "Saved" whenever what's typed matches what's stored on the fixture, so it
+  // flips back to "Save table & venue" as soon as either box is edited.
+  const tableInfoSaved = !!(fixture.table || fixture.venue)
+    && (fixture.table || '') === tableNumber.trim()
+    && (fixture.venue || '') === venue.trim();
   const saveTableInfo = async () => {
     setSavingTableInfo(true);
     try { await run(() => api.setFixtureTableInfo(fixture.id, tableNumber.trim(), venue.trim())); } finally { setSavingTableInfo(false); }
@@ -1355,8 +1363,14 @@ function MatchToolsCard({ fixture, isDoubles, onChange, setError }) {
             <input type="text" aria-label="Table number" value={tableNumber} onChange={(e) => setTableNumber(e.target.value)} placeholder="Table" />
             <input type="text" aria-label="Venue" value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Venue, e.g. The Cue Club" />
           </div>
-          <button type="button" className="btn cs-btn-outline" disabled={savingTableInfo} onClick={saveTableInfo}>
-            {savingTableInfo ? 'Saving…' : 'Save table & venue'}
+          <button
+            type="button"
+            className="btn cs-btn-outline"
+            disabled={savingTableInfo || tableInfoSaved}
+            onClick={saveTableInfo}
+            style={tableInfoSaved ? { opacity: 1, color: '#15803d', borderColor: '#15803d' } : undefined}
+          >
+            {savingTableInfo ? 'Saving…' : tableInfoSaved ? 'Saved ✓' : 'Save table & venue'}
           </button>
           {(fixture.table || fixture.venue) && (
             <span className="muted cs-small">

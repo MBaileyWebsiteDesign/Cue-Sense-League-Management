@@ -3569,22 +3569,23 @@ export const demoApi = {
     if (fixture.status !== 'in_progress') throw new ApiError(400, 'Only an in-progress match can be submitted for confirmation');
 
     // Free Play has no race target - either player can finish the match
-    // themselves the moment the scores aren't level, and it completes right
-    // away rather than waiting on the other side to also confirm.
+    // themselves at any point, and it completes right away rather than
+    // waiting on the other side to also confirm. Level scores finish as a
+    // draw (winnerPlayerId stays null).
     if (division.scheduling === FREE_PLAY) {
-      if (fixture.homeFrameScore === fixture.awayFrameScore) {
-        throw new ApiError(400, 'Scores are level - record another frame before finishing this Free Play match');
-      }
-      fixture.winnerPlayerId = fixture.homeFrameScore > fixture.awayFrameScore ? fixture.homePlayerId : fixture.awayPlayerId;
+      const drawn = fixture.homeFrameScore === fixture.awayFrameScore;
+      fixture.winnerPlayerId = drawn ? null : (fixture.homeFrameScore > fixture.awayFrameScore ? fixture.homePlayerId : fixture.awayPlayerId);
       fixture.status = 'completed';
       fixture.homeConfirmed = true;
       fixture.awayConfirmed = true;
       fixture.resultSubmittedAt = new Date().toISOString();
       fixture.resultSubmittedBy = currentUser()?.id || null;
-      propagateWinner(division, fixture, fixture.winnerPlayerId);
-      const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
-      propagateLoser(division, fixture, loserPlayerId);
-      checkGrandFinalReset(division, fixture);
+      if (!drawn) {
+        propagateWinner(division, fixture, fixture.winnerPlayerId);
+        const loserPlayerId = fixture.winnerPlayerId === fixture.homePlayerId ? fixture.awayPlayerId : fixture.homePlayerId;
+        propagateLoser(division, fixture, loserPlayerId);
+        checkGrandFinalReset(division, fixture);
+      }
       return fixture;
     }
 
