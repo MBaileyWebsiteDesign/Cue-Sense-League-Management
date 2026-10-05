@@ -392,6 +392,7 @@ export default function AdminUsers() {
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState(null);
   const [roleFilter, setRoleFilter] = useState('all');
+  const [venueFilter, setVenueFilter] = useState('all');
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Users' }]);
@@ -405,9 +406,14 @@ export default function AdminUsers() {
   }, []);
 
   const venueNameById = Object.fromEntries(venues.map((v) => [v.id, v.name]));
-  // A player can be a member of several venues - shown comma-separated.
-  const venueNames = (usr) => (Array.isArray(usr.venueMemberships) ? usr.venueMemberships : [])
-    .map((m) => venueNameById[m.venueId]).filter(Boolean).join(', ');
+  // A player can be a member of several venues. With a venue chosen in the
+  // venue filter only that venue's membership is shown; otherwise all of them.
+  const membershipsOf = (usr) => (Array.isArray(usr.venueMemberships) ? usr.venueMemberships : [])
+    .filter((m) => venueNameById[m.venueId] && (venueFilter === 'all' || m.venueId === venueFilter));
+  const venueNames = (usr) => membershipsOf(usr).map((m) => venueNameById[m.venueId]).join(', ');
+  // Stored as YYYY-MM-DD; shown UK-style dd-mm-yyyy (display only).
+  const fmtDate = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso || '') ? iso.slice(0, 10).split('-').reverse().join('-') : '\u2014');
+  const inVenue = (usr) => venueFilter === 'all' || (Array.isArray(usr.venueMemberships) && usr.venueMemberships.some((m) => m.venueId === venueFilter));
 
   const onSearch = (e) => {
     e.preventDefault();
@@ -416,13 +422,13 @@ export default function AdminUsers() {
 
   // Role/status filter is applied on top of the server search, client-side,
   // to whatever the current search returned.
-  const shown = (users || []).filter((u) => {
+  const shown = (users || []).filter(inVenue).filter((u) => {
     if (roleFilter === 'all') return true;
     if (roleFilter === 'suspended') return u.status === 'suspended';
     if (roleFilter === 'walkin') return isWalkIn(u);
     return !!u[roleFilter];
   });
-  const countFor = (key) => (users || []).filter((u) => (
+  const countFor = (key) => (users || []).filter(inVenue).filter((u) => (
     key === 'all' ? true : key === 'suspended' ? u.status === 'suspended' : key === 'walkin' ? isWalkIn(u) : !!u[key]
   )).length;
 
@@ -485,6 +491,19 @@ export default function AdminUsers() {
         />
         <button className="btn btn-primary" type="submit">Search</button>
       </form>
+
+      <div className="au-venue-filter" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
+        <label htmlFor="au-venue-filter" className="muted">Venue</label>
+        <select
+          id="au-venue-filter"
+          value={venueFilter}
+          onChange={(e) => setVenueFilter(e.target.value)}
+          style={{ width: 'auto', maxWidth: '100%' }}
+        >
+          <option value="all">All venues</option>
+          {venues.map((v) => (<option key={v.id} value={v.id}>{v.name}</option>))}
+        </select>
+      </div>
 
       <div className="au-filters" role="group" aria-label="Filter by role">
         {ROLE_FILTERS.map((f) => (
@@ -575,6 +594,11 @@ export default function AdminUsers() {
                           {[realTeam(u), venueNames(u)].filter(Boolean).join(' · ')}
                         </span>
                       )}
+                      {membershipsOf(u).some((m) => m.startDate || m.renewalDate) && (
+                        <span className="au-meta">
+                          {membershipsOf(u).map((m) => `${venueNameById[m.venueId]}: ${fmtDate(m.startDate)} to ${fmtDate(m.renewalDate)}`).join(' \u00b7 ')}
+                        </span>
+                      )}
                       <RoleChips u={u} />
                     </span>
                     <svg className="au-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
@@ -599,7 +623,7 @@ export default function AdminUsers() {
                       aria-label="Select all users shown"
                     />
                   </th>
-                  <th>Name</th><th>Email</th><th>Team</th><th>Venue</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
+                  <th>Name</th><th>Email</th><th>Team</th><th>Venue</th><th>Start</th><th>End</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -619,7 +643,15 @@ export default function AdminUsers() {
                     </td>
                     <td style={{ textAlign: 'left' }}>{isWalkIn(u) ? <span className="au-walkin">Walk-in · no login</span> : u.email}</td>
                     <td style={{ textAlign: 'left' }}>{realTeam(u)}</td>
-                    <td style={{ textAlign: 'left' }}>{venueNames(u) || '—'}</td>
+                    <td style={{ textAlign: 'left' }}>
+                      {membershipsOf(u).length === 0 ? '—' : membershipsOf(u).map((m) => <div key={m.venueId}>{venueNameById[m.venueId]}</div>)}
+                    </td>
+                    <td style={{ textAlign: 'left' }}>
+                      {membershipsOf(u).length === 0 ? '—' : membershipsOf(u).map((m) => <div key={m.venueId}>{fmtDate(m.startDate)}</div>)}
+                    </td>
+                    <td style={{ textAlign: 'left' }}>
+                      {membershipsOf(u).length === 0 ? '—' : membershipsOf(u).map((m) => <div key={m.venueId}>{fmtDate(m.renewalDate)}</div>)}
+                    </td>
                     <td>{u.classification || '—'}</td>
                     <td>{u.isAdmin ? '✓' : ''}</td>
                     <td>{u.isCaptain ? '✓' : ''}</td>
@@ -631,7 +663,7 @@ export default function AdminUsers() {
                   </tr>
                 ))}
                 {shown.length === 0 && (
-                  <tr><td colSpan={11} className="muted">No users match that search.</td></tr>
+                  <tr><td colSpan={13} className="muted">No users match that search.</td></tr>
                 )}
               </tbody>
             </table>
