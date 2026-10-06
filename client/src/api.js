@@ -228,6 +228,12 @@ const networkApi = {
       method: 'POST',
       body: JSON.stringify({ venueId, months }),
     }),
+  // Member page "Edit dates": sets a player's membership start and end (ISO yyyy-mm-dd) by hand.
+  setVenuePlayerDates: (venueId, playerId, startDate, endDate) =>
+    request(`/venue-manager/players/${encodeURIComponent(playerId)}/membership-dates`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId, startDate, endDate }),
+    }),
   // Removes a player from this venue's Registered players (their membership entry here only).
   removeVenuePlayer: (venueId, playerId) =>
     request(`/venue-manager/players/${encodeURIComponent(playerId)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
