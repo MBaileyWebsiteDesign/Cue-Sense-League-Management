@@ -81,9 +81,6 @@ function DueTile({ label, count, active, onClick, caption, tint }) {
     <>
       <span className="vm-tile-top">
         <span className="vm-tile-label">{label}</span>
-        {clickable && (
-          <svg className={`vm-tile-chev${active ? ' vm-tile-chev-open' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-        )}
       </span>
       <span className="vm-tile-num">{count}</span>
       <span className="vm-tile-caption">{caption}</span>
@@ -94,7 +91,7 @@ function DueTile({ label, count, active, onClick, caption, tint }) {
       type="button"
       className={`vm-tile${active ? ' vm-tile-active' : ''}`}
       style={{ backgroundColor: tint }}
-      aria-expanded={active}
+      aria-pressed={active}
       onClick={onClick}
     >
       {inner}
@@ -160,58 +157,12 @@ function RemovePlayerButton({ player, busy, onRemove }) {
   );
 }
 
-// The list of players behind whichever "Due in N months" tile is currently
-// selected - same table pattern as the Registered players list below, minus
-// the Status column (Registered-players-only players are already filtered
-// to non-suspended by the API, so it'd always read the same thing).
-// `months` is 2, 4 or 6 for a renewal window, or 'all' for the Registered
-// players tile - that one lists everyone at the venue except suspended
-// accounts, matching how the tile's count is worked out on the server.
-function DuePlayersPanel({ venueId, months, onClose }) {
-  const [players, setPlayers] = useState(null);
-  const [error, setError] = useState('');
-  const isAll = months === 'all';
-
-  useEffect(() => {
-    let cancelled = false;
-    setPlayers(null);
-    setError('');
-    const load = isAll
-      ? api.searchVenuePlayers(venueId, '').then((list) => list.filter((p) => p.status !== 'suspended'))
-      : api.getVenueManagerDuePlayers(venueId, months);
-    load
-      .then((p) => { if (!cancelled) setPlayers(p); })
-      .catch((e) => { if (!cancelled) setError(e.message); });
-    return () => { cancelled = true; };
-  }, [venueId, months, isAll]);
-
-  return (
-    <div className="vm-due-panel">
-      <div className="sx-card-head">
-        <h3 style={{ margin: 0 }}>{isAll ? 'Registered players' : `Due in ${months} months`}</h3>
-        <button className="btn dv-small-btn" type="button" onClick={onClose}>Close</button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      {!players && !error ? (
-        <p>Loading…</p>
-      ) : players && (
-        players.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            {isAll ? 'No players are registered to this venue yet.' : 'No players are due for renewal in this window.'}
-          </p>
-        ) : (
-          <ul className="vm-players">
-            {players.map((p) => <PlayerCard key={p.id} p={p} showStatus={isAll} />)}
-          </ul>
-        )
-      )}
-    </div>
-  );
-}
-
-function StatusBox({ status, loading, venueId }) {
-  const [openBucket, setOpenBucket] = useState(null);
-  const toggleBucket = (months) => setOpenBucket((prev) => (prev === months ? null : months));
+// Status card (top of the page). Tapping a tile no longer opens a list inside
+// this card - it filters the Registered players card below instead (Matt,
+// 2026-10-06), via `selected` / `onSelect` held by the page: 'all' or null =
+// everyone, 2 / 4 / 6 = players due for renewal in that window.
+function StatusBox({ status, loading, selected, onSelect }) {
+  const pick = (value) => onSelect(selected === value ? null : value);
 
   return (
     <section className="card sx-card vm-panel">
@@ -229,42 +180,39 @@ function StatusBox({ status, loading, venueId }) {
           <DueTile
             label="Registered players"
             count={status.registeredPlayers}
-            active={openBucket === 'all'}
-            onClick={() => toggleBucket('all')}
+            active={selected === 'all'}
+            onClick={() => pick('all')}
             caption="at this venue"
             tint={registeredPlayersTint(status.registeredPlayers)}
           />
           <DueTile
             label="Due in 2 months"
             count={status.dueIn2Months}
-            active={openBucket === 2}
-            onClick={() => toggleBucket(2)}
+            active={selected === 2}
+            onClick={() => pick(2)}
             caption="renewals"
             tint={TINT_RED}
           />
           <DueTile
             label="Due in 4 months"
             count={status.dueIn4Months}
-            active={openBucket === 4}
-            onClick={() => toggleBucket(4)}
+            active={selected === 4}
+            onClick={() => pick(4)}
             caption="renewals"
             tint={TINT_YELLOW}
           />
           <DueTile
             label="Due in 6 months"
             count={status.dueIn6Months}
-            active={openBucket === 6}
-            onClick={() => toggleBucket(6)}
+            active={selected === 6}
+            onClick={() => pick(6)}
             caption="renewals"
             tint={TINT_GREEN}
           />
         </div>
       )}
-      {openBucket && (
-        <DuePlayersPanel venueId={venueId} months={openBucket} onClose={() => setOpenBucket(null)} />
-      )}
       <p className="muted vm-small" style={{ margin: 0 }}>
-        Each player is counted in one window only. Tap a tile to see the players.
+        Each player is counted in one window only. Tap a tile to filter the Registered players list.
       </p>
       </div>
     </section>
@@ -308,7 +256,8 @@ function RenewButtons({ player, busy, onRenew }) {
 // endpoint, which already returns everyone when `q` is blank), and Clear
 // brings the full list back. The header count always shows the venue's total
 // registered players, not the number of matches.
-function RegisteredPlayersList({ venueId, onRemoved }) {
+function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved }) {
+  const dueMonths = typeof bucket === 'number' ? bucket : null; // 2 | 4 | 6 filters the list to that renewal window
   const [players, setPlayers] = useState(null);
   const [total, setTotal] = useState(null);
   const [query, setQuery] = useState('');
@@ -328,21 +277,26 @@ function RegisteredPlayersList({ venueId, onRemoved }) {
     setQuery('');
     setActiveQuery('');
     setError('');
-    api.searchVenuePlayers(venueId, '')
-      .then((p) => { if (!cancelled) { setPlayers(p); setTotal(p.length); } })
+    const load = dueMonths ? api.getVenueManagerDuePlayers(venueId, dueMonths) : api.searchVenuePlayers(venueId, '');
+    load
+      .then((p) => { if (!cancelled) { setPlayers(p); if (!dueMonths) setTotal(p.length); } })
       .catch((e) => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
-  }, [venueId]);
+  }, [venueId, dueMonths]);
 
   const runSearch = async (q) => {
     const trimmed = q.trim();
     setSearching(true);
     setError('');
     try {
-      const found = await api.searchVenuePlayers(venueId, trimmed);
+      // A search looks through everyone; clearing it goes back to whatever the
+      // Status tile filter is showing (or everyone).
+      const found = trimmed || !dueMonths
+        ? await api.searchVenuePlayers(venueId, trimmed)
+        : await api.getVenueManagerDuePlayers(venueId, dueMonths);
       setPlayers(found);
       setActiveQuery(trimmed);
-      if (!trimmed) setTotal(found.length);
+      if (!trimmed && !dueMonths) setTotal(found.length);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -391,7 +345,7 @@ function RegisteredPlayersList({ venueId, onRemoved }) {
   };
 
   return (
-    <section className="card sx-card vm-panel">
+    <section className="card sx-card vm-panel" id="vm-registered-players">
       <div className="vm-bk-band">
         <span className="vm-bk-band-title">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.6 3.5 6" /></svg>
@@ -422,6 +376,12 @@ function RegisteredPlayersList({ venueId, onRemoved }) {
       {renewError && <p className="error">{renewError}</p>}
       {removeError && <p className="error">{removeError}</p>}
       {removedNote && <p className="muted">{removedNote}</p>}
+      {dueMonths && !activeQuery && players && (
+        <p className="muted vm-filter-note">
+          Showing players due in {dueMonths} months ({players.length}).{' '}
+          <button type="button" className="btn dv-small-btn" onClick={onShowAll}>Show everyone</button>
+        </p>
+      )}
       {activeQuery && players && (
         <p className="muted">
           {players.length} of {total} player{total === 1 ? '' : 's'} match “{activeQuery}”.
@@ -434,7 +394,9 @@ function RegisteredPlayersList({ venueId, onRemoved }) {
           <p className="muted">
             {activeQuery
               ? 'No players at this venue match that search.'
-              : 'No players are registered to this venue yet.'}
+              : dueMonths
+                ? 'No players are due for renewal in this window.'
+                : 'No players are registered to this venue yet.'}
           </p>
         ) : (
           <ul className="vm-players">
@@ -1551,6 +1513,19 @@ export default function VenueManagerPortal() {
   // Bumped when a player is removed so the Status counts reload (the Registered
   // players list updates itself, so it isn't remounted and keeps its search).
   const [statusRefresh, setStatusRefresh] = useState(0);
+  // Which Status tile is selected: null / 'all' = everyone, 2 / 4 / 6 = due in
+  // that many months. Drives the Registered players list.
+  const [bucket, setBucket] = useState(null);
+  const pickBucket = (value) => {
+    setBucket(value);
+    if (value !== null) {
+      // The list is further down the page - bring it into view.
+      setTimeout(() => {
+        const el = document.getElementById('vm-registered-players');
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 60);
+    }
+  };
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal' }]);
   const selectedVenue = (venues || []).find((v) => v.id === selectedVenueId);
@@ -1605,7 +1580,7 @@ export default function VenueManagerPortal() {
             <div className="vm-switch">
               <label className="ll-field">
                 Venue
-                <select className="mm-input" value={selectedVenueId} onChange={(e) => setSelectedVenueId(e.target.value)}>
+                <select className="mm-input" value={selectedVenueId} onChange={(e) => { setSelectedVenueId(e.target.value); setBucket(null); }}>
                   {venues.map((v) => (
                     <option key={v.id} value={v.id}>{v.name}</option>
                   ))}
@@ -1613,11 +1588,11 @@ export default function VenueManagerPortal() {
               </label>
             </div>
           )}
+          <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
           {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
           {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
           {selectedVenue && <JoinRequestsCard key={selectedVenue.id} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
-          <StatusBox status={status} loading={statusLoading} venueId={selectedVenueId} />
-          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} venueId={selectedVenueId} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
+          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
         </>
       )}
     </div>
