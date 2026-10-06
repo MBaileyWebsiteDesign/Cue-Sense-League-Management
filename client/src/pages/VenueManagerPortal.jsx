@@ -470,6 +470,11 @@ const PAYMENT_LABEL = {
 // server): active member = green, expired = yellow, no membership = red and
 // tappable (becomes green "Paid" once marked). A member entry with no end date
 // counts as active.
+// Wix sometimes sends a payment status of UNDEFINED (it used to show up as a
+// yellow "UNDEFINED" chip) - treat it like "Not paid" so it gets the same
+// membership check instead of a meaningless label.
+const needsPayCheck = (b) => b.paymentStatus === 'NOT_PAID' || b.paymentStatus === 'UNDEFINED';
+
 function notPaidChip(b) {
   const m = b.membershipStatus;
   if (m === 'active' || m === 'no-dates') return { text: 'Active Membership', cls: 'vm-bk-paid', clickable: false };
@@ -1203,11 +1208,13 @@ function BookingsCard({ venueId }) {
                     );
                   }
                   const b = row.b;
-                  const st = BOOKING_STATUS[b.status] || { label: b.status || 'Unknown', cls: '' };
+                  const st = BOOKING_STATUS[b.status] || { label: b.status ? 'Status unknown' : 'Unknown', cls: 'vm-bk-st-unknown' };
                   const cancelled = b.status === 'CANCELED' || b.status === 'DECLINED';
                   const tone = cancelled ? 'cancelled' : b.status === 'CONFIRMED' ? 'confirmed' : 'pending';
+                  const payChip = !cancelled && !b.walkIn && !b.blocked && needsPayCheck(b) ? notPaidChip(b) : null;
+                  const unpaid = !!payChip && payChip.cls === 'vm-bk-pay-red';
                   return (
-                    <li key={b.id} className={`vm-bk vm-bk-${tone}`}>
+                    <li key={b.id} className={`vm-bk vm-bk-${tone}${unpaid ? ' vm-bk-unpaid' : ''}`}>
                       <span className="vm-bk-time">
                         <strong>{ukTime(b.start)}</strong>
                         {b.end && <span>to {ukTime(b.end)}</span>}
@@ -1220,8 +1227,8 @@ function BookingsCard({ venueId }) {
                         {b.status !== 'CONFIRMED' && <span className={`status ${st.cls}`}>{st.label}</span>}
                         {b.blocked && <span className="vm-bk-walkin">Blocked</span>}
                         {b.walkIn && <span className="vm-bk-walkin">Walk-in</span>}
-                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus === 'NOT_PAID' && (() => {
-                          const chip = notPaidChip(b);
+                        {payChip && (() => {
+                          const chip = payChip;
                           return chip.clickable ? (
                             <button
                               type="button"
@@ -1236,7 +1243,7 @@ function BookingsCard({ venueId }) {
                             <span className={`vm-bk-pay ${chip.cls}`}>{chip.text}</span>
                           );
                         })()}
-                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && b.paymentStatus !== 'NOT_PAID' && (
+                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && !needsPayCheck(b) && (
                           <span className={`vm-bk-pay${b.paymentStatus === 'PAID' ? ' vm-bk-paid' : ''}`}>
                             {PAYMENT_LABEL[b.paymentStatus] || b.paymentStatus}
                           </span>
