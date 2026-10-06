@@ -38,6 +38,10 @@ export default function VenueMember() {
   const [busy, setBusy] = useState(0); // months being added
   const [armed, setArmed] = useState(0); // months waiting for the confirm tap
   const [notice, setNotice] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [startVal, setStartVal] = useState('');
+  const [endVal, setEndVal] = useState('');
+  const [saving, setSaving] = useState(false);
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal', to: '/venue-manager' }, { label: 'Membership' }]);
 
   const load = () => api.getVenueMember(venueId, userId).then(setData).catch((e) => setError(e.message));
@@ -56,6 +60,26 @@ export default function VenueMember() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setBusy(0));
+  };
+
+  // Edit dates: opens two date boxes pre-filled with the current start and end.
+  const openEdit = () => {
+    const cur = (data && data.player && data.player.membership) || {};
+    setStartVal(cur.startDate || ''); setEndVal(cur.renewalDate || '');
+    setError(''); setNotice(''); setArmed(0); setEditing(true);
+  };
+  const saveDates = () => {
+    if (!startVal || !endVal) { setError('Enter both a start date and an end date.'); return; }
+    if (endVal < startVal) { setError('The end date cannot be before the start date.'); return; }
+    setSaving(true); setError(''); setNotice('');
+    api.setVenuePlayerDates(venueId, userId, startVal, endVal)
+      .then((u) => {
+        setEditing(false);
+        setNotice(`Dates saved. Membership now ${formatDateUK(u.membershipStartDate)} to ${formatDateUK(u.membershipRenewalDate)}.`);
+        return load();
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setSaving(false));
   };
 
   const [joining, setJoining] = useState(false);
@@ -127,6 +151,23 @@ export default function VenueMember() {
                   </button>
                 ))}
               </div>
+              {p.membershipStatus !== 'not-member' || editing ? (
+                editing ? (
+                  <div className="vmm-edit">
+                    <div className="vmm-edit-fields">
+                      <label>Start<input type="date" value={startVal} onChange={(e) => setStartVal(e.target.value)} disabled={saving} /></label>
+                      <label>End<input type="date" value={endVal} onChange={(e) => setEndVal(e.target.value)} disabled={saving} /></label>
+                    </div>
+                    <div className="vmm-edit-actions">
+                      <button type="button" className="btn btn-primary" disabled={saving} onClick={saveDates}>{saving ? 'Saving…' : 'Save dates'}</button>
+                      <button type="button" className="btn" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+                    </div>
+                    <p className="muted vm-small">Sets the dates exactly as entered - it doesn't add to the current end date or charge the player.</p>
+                  </div>
+                ) : (
+                  <button type="button" className="btn vmm-edit-toggle" disabled={!!busy} onClick={openEdit}>Edit dates</button>
+                )
+              ) : null}
               <p className="muted vm-small">
                 {willExtend
                   ? `Adds to the current end date (${formatDateUK(m.renewalDate)}).`

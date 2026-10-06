@@ -2735,6 +2735,55 @@ app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute
   });
 }));
 
+// Member page > "Edit dates" (Matt, 2026-10-06): a Venue Manager can set a
+// player's membership start and end dates by hand, for when Add 1 month /
+// Add 1 year isn't the right answer (a back-dated start, a paid-for period
+// that isn't a round month, a mistake to fix). Both dates are required, must
+// be real calendar dates, and the end can't be before the start. Same guard
+// as the renew route for a player with no membership here: they must have
+// checked in at this venue. Audit-logged with the before and after dates.
+app.post('/api/venue-manager/players/:id/membership-dates', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, startDate, endDate } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  const isRealDate = (s) => typeof s === 'string' && ISO_DATE_RE.test(s) && new Date(`${s}T12:00:00Z`).toISOString().slice(0, 10) === s;
+  if (!isRealDate(startDate) || !isRealDate(endDate)) throw new ApiError(400, 'Enter both a start date and an end date.');
+  if (endDate < startDate) throw new ApiError(400, 'The end date cannot be before the start date.');
+
+  const player = db.users.find((u) => u.id === req.params.id);
+  if (!player) throw new ApiError(404, 'Player not found');
+  let mem = membershipAt(player, venue.id);
+  const wasMember = !!mem;
+  if (!mem) {
+    if (!hasVisitedVenue(db, player.id, venue.id)) throw new ApiError(403, 'Player is not registered to this venue');
+    mem = ensureMembership(player, venue.id);
+  }
+
+  const prev = { start: mem.startDate || null, end: mem.renewalDate || null };
+  mem.startDate = startDate;
+  mem.renewalDate = endDate;
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'user.membershipDates',
+    targetType: 'user',
+    targetId: player.id,
+    details: `${wasMember ? 'Edited' : 'Set'} ${player.firstName} ${player.lastName}'s membership dates at ${venue.name} by hand: ${prev.start || 'none'}..${prev.end || 'none'} -> ${mem.startDate}..${mem.renewalDate}`,
+  });
+  writeDb(db);
+
+  res.json({
+    id: player.id,
+    playerId: player.playerId || null,
+    firstName: player.firstName,
+    lastName: player.lastName,
+    email: player.email,
+    status: player.status,
+    membershipStartDate: mem.startDate,
+    membershipRenewalDate: mem.renewalDate,
+    membershipStatus: membershipStatusAt(player, venue.id),
+  });
+}));
+
 // Remove a player from this venue's Registered players (Venue Manager
 // Portal, Registered players card). Only drops the player's membership entry
 // for THIS venue - their account, leagues, fixtures and other venues are

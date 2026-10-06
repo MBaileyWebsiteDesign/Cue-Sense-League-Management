@@ -2655,3 +2655,10 @@ button.vm-tile { cursor: pointer; }
 .admin-theme .au-add-toggle { color: var(--at-ink); }
 .admin-theme .sx-day .ap-section-title { color: var(--at-ink); }
 .admin-theme .au-selbar { border-color: var(--at-edge); border-top: 3px solid var(--at-accent); }
+
+.vmm-edit { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+.vmm-edit-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vmm-edit label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: #6b7280; }
+.vmm-edit input[type="date"] { width: 100%; min-height: 44px; font-size: 1rem; box-sizing: border-box; }
+.vmm-edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vmm-edit-actions .btn, .vmm-edit-toggle { min-height: 48px; font-weight: 700; }
