@@ -39,6 +39,7 @@ import {
 import { recordAudit } from './services/auditLog.js';
 import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
+import { registerVenueEmailTestRoute } from './venueEmails.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -322,6 +323,9 @@ app.post('/api/admin/mail/test', requireAdmin, asyncRoute((req, res) => {
     res.json({ ...result, sentTo: to, ...mailSettings(), recent: getMailLog() });
   });
 }));
+
+// Top Spin membership-expiry email: admin-only TEST send (see venueEmails.js).
+registerVenueEmailTestRoute(app, { requireAdmin, asyncRoute, sendMail, getMailLog, mailSettings });
 
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
