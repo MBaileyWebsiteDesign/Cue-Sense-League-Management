@@ -1828,6 +1828,11 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
   // yesterday's bookings until the 09:00 sync.
   const fromIso = startOfTodayLondonIso();
   const walkins = loadWalkins();
+  const paidMarks = loadBookingPaid();
+  const membersByEmail = new Map();
+  for (const u of db.users) {
+    if (u.email && membershipAt(u, venue.id)) membersByEmail.set(String(u.email).trim().toLowerCase(), u);
+  }
   const realBookings = (snap.bookings || [])
     .filter((b) => b.start && new Date(b.start) >= new Date(fromIso))
     // Cancelled/declined bookings pile up here indefinitely otherwise - the
@@ -1835,7 +1840,20 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
     // (see cancelWalkin in VenueManagerPortal.jsx), so there's no reason to
     // keep showing them in this list afterwards.
     .filter((b) => b.status !== 'CANCELED' && b.status !== 'DECLINED')
-    .map((b) => (walkins[b.id] ? { ...b, walkIn: true } : b));
+    .map((b) => (walkins[b.id] ? { ...b, walkIn: true } : b))
+    // Unpaid bookings also say whether the customer is a member of this venue
+    // (matched by email) and whether staff have marked them paid here - the
+    // card turns that into "Active Membership" / "Membership Expired" /
+    // "Needs to pay" (tap = Paid). Nothing is changed in Wix.
+    .map((b) => {
+      if (b.paymentStatus !== 'NOT_PAID') return b;
+      const member = b.email ? membersByEmail.get(String(b.email).trim().toLowerCase()) : null;
+      return {
+        ...b,
+        membershipStatus: member ? membershipStatusAt(member, venue.id) : 'not-member',
+        markedPaid: !!paidMarks[b.id],
+      };
+    });
   const blockedEvents = await getBlockedTableEvents(siteId);
   const bookings = [...realBookings, ...blockedEvents.filter((e) => new Date(e.start) >= new Date(fromIso))]
     .sort((a, b) => new Date(a.start) - new Date(b.start));
@@ -2098,6 +2116,58 @@ function saveWalkins() {
     console.warn('Could not save walk-ins:', err.message);
   }
 }
+
+// "Paid" marks on unpaid table bookings (Matt, 2026-10-06). Tapping the red
+// "Needs to pay" chip on the Venue Manager Table bookings card saves the
+// booking id here (DATA_DIR/wix-paid.json) so the card shows a green "Paid".
+// It is this app's own record - the booking in Wix is NOT changed (Wix
+// orders marked paid there can't be set back to unpaid, so that is left to the
+// Wix dashboard).
+const WIX_PAID_FILE = path.join(DATA_DIR, 'wix-paid.json');
+let bookingPaidStore = null; // bookingId -> { venueId, siteId, paidAt, by }
+function loadBookingPaid() {
+  if (bookingPaidStore) return bookingPaidStore;
+  bookingPaidStore = {};
+  try {
+    if (existsSync(WIX_PAID_FILE)) bookingPaidStore = JSON.parse(readFileSync(WIX_PAID_FILE, 'utf8')) || {};
+  } catch (err) {
+    console.warn('Could not read saved paid marks:', err.message);
+    bookingPaidStore = {};
+  }
+  return bookingPaidStore;
+}
+function saveBookingPaid() {
+  const store = loadBookingPaid();
+  const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000; // forget marks older than 90 days
+  for (const [id, w] of Object.entries(store)) {
+    if (new Date(w.paidAt).getTime() < cutoff) delete store[id];
+  }
+  try {
+    writeFileSync(WIX_PAID_FILE, JSON.stringify(store));
+  } catch (err) {
+    console.warn('Could not save paid marks:', err.message);
+  }
+}
+
+app.post('/api/venue-manager/bookings/:id/paid', requireVenueManager, asyncRoute((req, res) => {
+  const { venueId, paid } = req.body || {};
+  const db = readDb();
+  const venue = managedVenueOr404(req, db, venueId);
+  const siteId = wixSiteIdForVenue(venue);
+  if (!siteId) throw new ApiError(400, 'This venue has no Wix site linked');
+  const bookingId = req.params.id;
+  const snap = loadWixSnapshots()[siteId] || { bookings: [] };
+  const booking = (snap.bookings || []).find((b) => b.id === bookingId);
+  if (!booking) throw new ApiError(404, 'Booking not found - refresh the list and try again');
+  const store = loadBookingPaid();
+  if (paid === false) {
+    delete store[bookingId];
+  } else {
+    store[bookingId] = { venueId: venue.id, siteId, paidAt: new Date().toISOString(), by: (req.adminSession && req.adminSession.label) || null };
+  }
+  saveBookingPaid();
+  res.json({ ok: true, markedPaid: paid !== false });
+}));
 
 // "YYYY-MM-DDTHH:MM:00" in UK time, as Wix's slot dates expect.
 function londonLocalString(date) {

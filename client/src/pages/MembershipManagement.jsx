@@ -214,6 +214,71 @@ function VenueManagersPanel({ venue, users, onChange, setError }) {
   );
 }
 
+// Bar check-in tag (moved here from the Venue Manager "Checked in" card,
+// 2026-10-06). The link goes on an NFC sticker at the bar; a logged-in player
+// taps it with their own phone (iPhone or Android) and is checked in. See
+// client/src/pages/CheckIn.jsx. Same API calls as before.
+const NFC_SUPPORTED = typeof window !== 'undefined' && 'NDEFReader' in window;
+
+function BarTagPanel({ venueId }) {
+  const [tag, setTag] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+  const [armRotate, setArmRotate] = useState(false);
+
+  const load = (rotate = false) => {
+    setBusy(true); setError(''); setMsg('');
+    api.getCheckinTag(venueId, rotate)
+      .then((t) => { setTag(t); if (rotate) setMsg('New link made. Write it to the bar tag - the old tag no longer works.'); })
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(false));
+  };
+  const copy = () => {
+    if (navigator.clipboard) navigator.clipboard.writeText(tag.url).then(() => setMsg('Link copied.'), () => setError('Could not copy - select the link and copy it.'));
+  };
+  const write = async () => {
+    setError(''); setMsg('Hold the NFC sticker on the back of this phone…');
+    try {
+      await new window.NDEFReader().write({ records: [{ recordType: 'url', data: tag.url }] });
+      setMsg('Tag written. Test it by tapping it with a phone that is logged in.');
+    } catch (err) {
+      setMsg('');
+      setError(`Could not write the tag${err && err.message ? `: ${err.message}` : ''}. Blank NTAG stickers work best; locked tags can't be written.`);
+    }
+  };
+
+  return (
+    <details className="ci-tag" onToggle={(e) => { if (e.currentTarget.open && !tag && !busy) load(); }}>
+      <summary>Bar check-in tag (players tap with their own phone)</summary>
+      <p className="muted vm-small">
+        Put an NFC sticker on the bar with this link on it. A player taps it with their phone (iPhone or Android),
+        the link opens, and they're checked in with their own account. Players can't renew from there - they'll be asked to see the bar staff.
+      </p>
+      {error && <p className="error vm-small">{error}</p>}
+      {msg && <p className="vm-wi-notice" role="status">{msg}</p>}
+      {!tag ? <p className="vm-small">{busy ? 'Loading…' : ''}</p> : (
+        <>
+          <p className="ci-link"><code>{tag.url}</code></p>
+          <div className="ci-actions">
+            {NFC_SUPPORTED && <button type="button" className="btn btn-primary" onClick={write} disabled={busy}>Write to NFC tag</button>}
+            <button type="button" className="btn" onClick={copy} disabled={busy}>Copy link</button>
+            <button
+              type="button"
+              className={`btn ${armRotate ? 'btn-danger' : ''}`}
+              disabled={busy}
+              onClick={() => { if (armRotate) { setArmRotate(false); load(true); } else setArmRotate(true); }}
+            >
+              {armRotate ? 'Tap again - old tag will stop working' : 'Make a new link'}
+            </button>
+          </div>
+          {!NFC_SUPPORTED && <p className="muted vm-small">To write the sticker from here, open this page in Chrome on an Android phone. Or copy the link into any NFC writing app.</p>}
+        </>
+      )}
+    </details>
+  );
+}
+
 function VenueCard({ venue, users, onChange, setError }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -243,6 +308,8 @@ function VenueCard({ venue, users, onChange, setError }) {
       </div>
 
       <VenueManagersPanel venue={venue} users={users} onChange={onChange} setError={setError} />
+
+      <BarTagPanel venueId={venue.id} />
 
       <div className="mm-settings">
         <button type="button" className="ah-walkin-toggle mm-settings-toggle" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>
