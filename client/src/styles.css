@@ -2365,6 +2365,21 @@ button.vm-tile { cursor: pointer; }
 .status.vm-bk-st-unknown { background: #e5e7eb; color: #374151; }
 .vm-bk-cancel { border-color: transparent; background: transparent; color: #4b5563; font-weight: 600; text-decoration: underline; padding: 8px 10px; }
 .vm-bk-cancel-armed { border-color: #dc2626; background: #dc2626; color: #fff; text-decoration: none; padding: 8px 16px; }
+
+/* Registered players rows: coloured edge by renewal date, initials block, solid
+   expiry chip and full-width renew buttons - the same look as the table
+   bookings rows (Matt, 2026-10-06). */
+.vm-player { grid-template-columns: auto minmax(0, 1fr); border-left: 5px solid #9ca3af; border-radius: 12px; padding: 8px 10px; gap: 8px 10px; background: #fff; }
+.vm-player-ini { width: 44px; height: 44px; border-radius: 10px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; }
+.vm-player-red { border-left-color: #dc2626; background: #fff5f5; }
+.vm-player-amber { border-left-color: #d97706; }
+.vm-player-green { border-left-color: #16a34a; }
+.vm-renews { align-self: auto; font-size: 0.875rem; border-radius: 8px; padding: 0 10px; min-height: 32px; display: inline-flex; align-items: center; background: #e5e7eb; color: #374151; }
+.vm-renews-red { background: #dc2626; color: #fff; }
+.vm-renews-amber { background: #fbbf24; color: #451a03; }
+.vm-renews-green { background: #16a34a; color: #fff; }
+.vm-player .vm-renew-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.vm-player .vm-renew-row .btn { min-height: 44px; font-size: 0.9rem; padding: 4px 8px; }
 @media (max-width: 640px) {
   .vm-bk-actions { flex-direction: column; gap: 8px; }
   .vm-bk { grid-template-columns: auto minmax(0, 1fr); }
