@@ -12,6 +12,8 @@ export default function AdminEmail() {
   const [error, setError] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [expiryTesting, setExpiryTesting] = useState(false);
+  const [expiryResult, setExpiryResult] = useState(null);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Email' }]);
 
@@ -32,6 +34,21 @@ export default function AdminEmail() {
       setError(e.message);
     } finally {
       setTesting(false);
+    }
+  };
+
+  const sendExpiryTest = async () => {
+    setExpiryTesting(true);
+    setError('');
+    setExpiryResult(null);
+    try {
+      const r = await api.sendTestMembershipExpiryEmail();
+      setExpiryResult(r);
+      setStatus(r);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setExpiryTesting(false);
     }
   };
 
@@ -78,6 +95,25 @@ export default function AdminEmail() {
               </p>
             )}
           </>
+        )}
+      </section>
+
+      <section className="card sx-card">
+        <div className="sx-card-head">
+          <h2>Top Spin: membership expiring</h2>
+        </div>
+        <p className="muted" style={{ margin: 0 }}>
+          Test only. Sends the 5-day expiry warning with sample data to matt.bailey1985@gmail.com. No players are emailed.
+        </p>
+        <button type="button" className="btn btn-primary cs-btn-block" onClick={sendExpiryTest} disabled={expiryTesting}>
+          {expiryTesting ? 'Sending…' : 'Send test expiry email'}
+        </button>
+        {expiryResult && (
+          <p className={expiryResult.sent ? 'banner banner-success' : 'error'} style={{ margin: 0 }}>
+            {expiryResult.sent
+              ? `Accepted by MailerSend for ${expiryResult.sentTo}. Check that inbox (and spam).`
+              : `Not sent: ${expiryResult.error || 'unknown error'}`}
+          </p>
         )}
       </section>
 
