@@ -2192,16 +2192,17 @@ button.vm-tile { cursor: pointer; }
 .vm-tile-chev { color: #4b5563; transition: transform 0.15s; }
 .vm-tile-chev-open { transform: rotate(180deg); }
 .vm-due-panel { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 0; border-top: 1px solid #f1efe8; }
-.vm-players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.vm-player { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.vm-player-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.vm-players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* Compact player card (2026-10-06): name/email left, small renew buttons right, foot line with expiry + status + Remove. */
+.vm-player { border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; }
+.vm-player-foot { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .vm-player-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .vm-player-main .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vm-renews { align-self: flex-start; font-size: 0.8rem; font-weight: 700; border-radius: 999px; padding: 2px 10px; background: #f1efe8; color: #4b5563; }
+.vm-renews { align-self: flex-start; font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; background: #f1efe8; color: #4b5563; }
 .vm-renews-amber { background: #fef3c7; color: #92400e; }
 .vm-renews-red { background: #fee2e2; color: #991b1b; }
-.vm-renew-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.vm-renew-row .btn { min-height: 40px; padding: 6px 8px; font-size: 0.9rem; }
+.vm-renew-row { display: flex; gap: 4px; }
+.vm-renew-row .btn { min-height: 28px; padding: 2px 8px; font-size: 0.75rem; white-space: nowrap; }
 .vm-switch { margin: 0; }
 @media (min-width: 900px) {
   .vm-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -2240,6 +2241,11 @@ button.vm-tile { cursor: pointer; }
 .vm-bk-chips { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 10px; }
 .vm-bk-pay { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #fef3c7; color: #92400e; white-space: nowrap; }
 .vm-bk-paid { background: #d1fae5; color: #065f46; }
+.vm-bk-pay-amber { background: #fef3c7; color: #92400e; }
+.vm-bk-pay-red { background: #fee2e2; color: #991b1b; }
+/* The "Needs to pay" / "Paid" chip is a real button (tap to mark paid / undo). */
+.vm-bk-pay-btn { border: 0; cursor: pointer; font-family: inherit; min-height: 28px; padding: 3px 10px; }
+.vm-bk-pay-btn:disabled { opacity: 0.6; cursor: default; }
 .vm-bk-cancelled { border-left-color: #dc2626; background: #f9fafb; }
 .vm-bk-cancelled .vm-bk-time { background: #9ca3af; }
 .vm-bk-cancelled .vm-bk-main, .vm-bk-cancelled .vm-bk-time { opacity: 0.7; }

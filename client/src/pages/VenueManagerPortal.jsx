@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
@@ -104,27 +104,27 @@ function DueTile({ label, count, active, onClick, caption, tint }) {
   );
 }
 
-// One player as a card: name/email (links to their profile when they have
-// one), status, renewal date (tinted as it gets close) and - when renewals
-// are allowed here - the three quick-renew buttons.
+// One player as a compact card (2026-10-06): name/email (links to their profile
+// when they have one) with the small quick-renew buttons beside it, and a
+// foot line with the renewal date (tinted as it gets close), status and Remove.
 function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus = true }) {
   const urgency = renewalUrgency(p.membershipRenewalDate);
   return (
     <li className="vm-player">
-      <span className="vm-player-top">
-        <span className="vm-player-main">
-          <strong><PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink></strong>
-          <span className="muted vm-small">{p.email}</span>
+      <span className="vm-player-main">
+        <strong><PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink></strong>
+        <span className="muted vm-small">{p.email}</span>
+      </span>
+      {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
+      <span className="vm-player-foot">
+        <span className={`vm-renews${urgency ? ` vm-renews-${urgency}` : ''}`}>
+          {p.membershipRenewalDate ? `Expires ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
         </span>
         {showStatus && p.status && (
           <span className={`status ${p.status === 'suspended' ? 'status-disputed' : 'status-completed'}`}>{p.status}</span>
         )}
+        {onRemove && <RemovePlayerButton player={p} busy={removing} onRemove={onRemove} />}
       </span>
-      <span className={`vm-renews${urgency ? ` vm-renews-${urgency}` : ''}`}>
-        {p.membershipRenewalDate ? `Expires ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
-      </span>
-      {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
-      {onRemove && <RemovePlayerButton player={p} busy={removing} onRemove={onRemove} />}
     </li>
   );
 }
@@ -142,7 +142,7 @@ function RemovePlayerButton({ player, busy, onRemove }) {
   }, [armed]);
   const name = `${player.firstName} ${player.lastName}`;
   return (
-    <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+    <span style={{ display: 'flex', justifyContent: 'flex-end', marginLeft: 'auto' }}>
       <button
         type="button"
         className={`vm-bk-cancel${armed ? ' vm-bk-cancel-armed' : ''}`}
@@ -502,6 +502,20 @@ const PAYMENT_LABEL = {
   REFUNDED: 'Refunded',
   EXEMPT: 'No charge',
 };
+
+// What the chip on an unpaid ("Not paid") table booking says, from the
+// booking customer's membership at this venue (matched by email on the
+// server): active member = green, expired = yellow, no membership = red and
+// tappable (becomes green "Paid" once marked). A member entry with no end date
+// counts as active.
+function notPaidChip(b) {
+  const m = b.membershipStatus;
+  if (m === 'active' || m === 'no-dates') return { text: 'Active Membership', cls: 'vm-bk-paid', clickable: false };
+  if (m === 'expired') return { text: 'Membership Expired', cls: 'vm-bk-pay-amber', clickable: false };
+  return b.markedPaid
+    ? { text: 'Paid', cls: 'vm-bk-paid', clickable: true }
+    : { text: 'Needs to pay', cls: 'vm-bk-pay-red', clickable: true };
+}
 
 // Fallback if the server doesn't send opening hours (minutes after midnight,
 // 0 = Sunday): Mon-Sat 11:00-24:00, Sun 11:00-22:00.
@@ -952,6 +966,7 @@ function BookingsCard({ venueId }) {
   const [notice, setNotice] = useState('');
   const [armedCancel, setArmedCancel] = useState(null); // booking id waiting for a second tap
   const [cancelling, setCancelling] = useState(null);
+  const [payBusy, setPayBusy] = useState(null); // booking id whose Paid mark is being saved
 
   // Two taps to cancel a walk-in: the first arms the button for 5 seconds.
   useEffect(() => {
@@ -1004,6 +1019,18 @@ function BookingsCard({ venueId }) {
     if (failed.length) setError(`Couldn't remove the block on: ${failed.join(', ')}.`);
     try { setData(await api.getVenueBookings(venueId)); } catch (e) { /* list refreshes on the next live update */ }
     setCancelling(null);
+  };
+
+  // Tap on a red "Needs to pay" chip marks the booking paid (green "Paid");
+  // tapping the green chip puts it back. Saved by this app only - it does not
+  // change the booking in Wix.
+  const markPaid = (b, paid) => {
+    setPayBusy(b.id);
+    setError('');
+    api.setVenueBookingPaid(venueId, b.id, paid)
+      .then(() => setData((d) => (d ? { ...d, bookings: d.bookings.map((x) => (x.id === b.id ? { ...x, markedPaid: paid } : x)) } : d)))
+      .catch((e) => setError(e.message))
+      .finally(() => setPayBusy(null));
   };
 
   // refresh=true asks the server to pull from Wix now rather than waiting
@@ -1231,7 +1258,23 @@ function BookingsCard({ venueId }) {
                         {b.status !== 'CONFIRMED' && <span className={`status ${st.cls}`}>{st.label}</span>}
                         {b.blocked && <span className="vm-bk-walkin">Blocked</span>}
                         {b.walkIn && <span className="vm-bk-walkin">Walk-in</span>}
-                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && (
+                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus === 'NOT_PAID' && (() => {
+                          const chip = notPaidChip(b);
+                          return chip.clickable ? (
+                            <button
+                              type="button"
+                              className={`vm-bk-pay vm-bk-pay-btn ${chip.cls}`}
+                              disabled={payBusy === b.id}
+                              onClick={() => markPaid(b, !b.markedPaid)}
+                              aria-label={b.markedPaid ? `Marked as paid - tap to undo for ${b.customerName || 'this booking'}` : `Needs to pay - tap to mark ${b.customerName || 'this booking'} as paid`}
+                            >
+                              {payBusy === b.id ? '…' : chip.text}
+                            </button>
+                          ) : (
+                            <span className={`vm-bk-pay ${chip.cls}`}>{chip.text}</span>
+                          );
+                        })()}
+                        {!cancelled && !b.walkIn && !b.blocked && b.paymentStatus && b.paymentStatus !== 'NOT_PAID' && (
                           <span className={`vm-bk-pay${b.paymentStatus === 'PAID' ? ' vm-bk-paid' : ''}`}>
                             {PAYMENT_LABEL[b.paymentStatus] || b.paymentStatus}
                           </span>
@@ -1280,18 +1323,14 @@ function BookingsCard({ venueId }) {
   );
 }
 
-// ---------- Tap to check in (NFC cards and the bar tag) ----------
-// Players sign in at the bar by tapping their NFC card on this phone (Web
-// NFC - Chrome on Android only), or a card number can be typed/scanned into
-// the box (a USB desk reader that types the number works the same way).
-// Each check-in is logged and shows the player's membership status here,
-// with the quick-renew buttons and a walk-in booking prefilled with their
-// details. The "Bar check-in tag" section makes the link for an NFC sticker
-// on the bar that players tap with their own phone (iPhone or Android) - see
-// client/src/pages/CheckIn.jsx.
-const NFC_SUPPORTED = typeof window !== 'undefined' && 'NDEFReader' in window;
-const CARD_REPEAT_MS = 3000;
-
+// ---------- Checked in (today's check-ins) ----------
+// Shows only today's check-ins at this venue (Matt, 2026-10-06 - the card
+// reader, typed card numbers, card linking and the bar-tag panel were taken
+// off this card; the bar check-in tag now lives on Admin Portal -> Membership,
+// on each venue's card). Players still check in by tapping the bar tag with
+// their own phone (see client/src/pages/CheckIn.jsx). "Clear list" hides
+// everything so far (kept on record, "Show cleared" brings them back) and each
+// row has a remove button that deletes that visit; both need a second tap.
 const CHECKIN_STATUS = {
   active: { cls: 'ci-chip-green', text: (r) => `Member · expires ${formatDateUK(r)}` },
   expired: { cls: 'ci-chip-red', text: (r) => `Membership ended ${formatDateUK(r)}` },
@@ -1307,203 +1346,9 @@ function CheckinStatusChip({ status, renewalDate, small = false }) {
   return <span className={`ci-chip ${s.cls}${small ? ' ci-chip-small' : ''}`}>{small ? CHECKIN_SHORT[key] : s.text(renewalDate)}</span>;
 }
 
-function ukToday() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
-}
-
-// Web NFC reader: start() must come from a tap on a button (the browser
-// asks for NFC permission the first time). Calls onUid with the card's
-// serial number; the same card held on the phone fires repeatedly, so a
-// repeat of the same card within CARD_REPEAT_MS is ignored.
-function useNfcReader(onUid) {
-  const [state, setState] = useState('off'); // off | starting | on
-  const [error, setError] = useState('');
-  const cb = useRef(onUid);
-  cb.current = onUid;
-  const ctrl = useRef(null);
-  const last = useRef({ uid: '', at: 0 });
-
-  const stop = () => {
-    if (ctrl.current) ctrl.current.abort();
-    ctrl.current = null;
-    setState('off');
-  };
-  useEffect(() => () => { if (ctrl.current) ctrl.current.abort(); }, []);
-
-  const start = async () => {
-    if (!NFC_SUPPORTED) return;
-    setError('');
-    setState('starting');
-    try {
-      const reader = new window.NDEFReader();
-      const ac = new AbortController();
-      ctrl.current = ac;
-      await reader.scan({ signal: ac.signal });
-      reader.onreading = (e) => {
-        const uid = e.serialNumber || '';
-        if (!uid) { setError('That card has no readable number. Try a different card.'); return; }
-        const now = Date.now();
-        if (last.current.uid === uid && now - last.current.at < CARD_REPEAT_MS) return;
-        last.current = { uid, at: now };
-        setError('');
-        cb.current(uid);
-      };
-      reader.onreadingerror = () => {
-        setError("Couldn't read that card. Hold it still on the back of the phone. Cards need to be NFC NTAG (e.g. NTAG213/215) type.");
-      };
-      setState('on');
-    } catch (err) {
-      ctrl.current = null;
-      setState('off');
-      setError(err && err.name === 'NotAllowedError'
-        ? 'NFC permission was refused. Allow NFC for this site in Chrome settings, then try again.'
-        : `Could not start the card reader${err && err.message ? `: ${err.message}` : ''}. Check NFC is switched on in the phone's settings.`);
-    }
-  };
-  return { state, error, start, stop };
-}
-
-// Pick a player of this venue (for linking a card).
-function VenuePlayerPicker({ venueId, onPick, disabled }) {
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState('');
-  const search = (e) => {
-    e.preventDefault();
-    setError('');
-    api.searchVenuePlayers(venueId, q).then(setResults).catch((err) => setError(err.message));
-  };
-  return (
-    <div className="ci-picker">
-      <form className="au-search" onSubmit={search} role="search">
-        <input type="search" className="ah-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Player's first name, last name or both" aria-label="Find a player" disabled={disabled} />
-        <button className="btn btn-primary" type="submit" disabled={disabled}>Find</button>
-      </form>
-      {error && <p className="error vm-small">{error}</p>}
-      {results && (results.length === 0 ? (
-        <p className="muted vm-small">No players at this venue match that search.</p>
-      ) : (
-        <ul className="ci-pick-list">
-          {results.map((p) => (
-            <li key={p.id}>
-              <span>
-                <strong>{p.firstName} {p.lastName}</strong>
-                <span className="muted vm-small"> {p.email}{p.cards && p.cards.length ? ` · ${p.cards.length} card${p.cards.length === 1 ? '' : 's'}` : ''}</span>
-              </span>
-              <button type="button" className="btn" onClick={() => onPick(p)} disabled={disabled}>Choose</button>
-            </li>
-          ))}
-        </ul>
-      ))}
-    </div>
-  );
-}
-
-function CardList({ cards, onUnlink, busy }) {
-  const [armed, setArmed] = useState('');
-  if (!cards || cards.length === 0) return <p className="muted vm-small">No cards linked yet.</p>;
-  return (
-    <ul className="ci-cards">
-      {cards.map((c) => (
-        <li key={c.uid}>
-          <span className="ci-uid">{c.uid}{c.label ? ` · ${c.label}` : ''}</span>
-          {onUnlink && (
-            <button
-              type="button"
-              className={`btn ${armed === c.uid ? 'btn-danger' : ''}`}
-              disabled={busy}
-              onClick={() => { if (armed === c.uid) { setArmed(''); onUnlink(c.uid); } else setArmed(c.uid); }}
-            >
-              {armed === c.uid ? 'Tap again to unlink' : 'Unlink'}
-            </button>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function BarTagPanel({ venueId }) {
-  const [tag, setTag] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [error, setError] = useState('');
-  const [armRotate, setArmRotate] = useState(false);
-
-  const load = (rotate = false) => {
-    setBusy(true); setError(''); setMsg('');
-    api.getCheckinTag(venueId, rotate)
-      .then((t) => { setTag(t); if (rotate) setMsg('New link made. Write it to the bar tag - the old tag no longer works.'); })
-      .catch((e) => setError(e.message))
-      .finally(() => setBusy(false));
-  };
-  const copy = () => {
-    if (navigator.clipboard) navigator.clipboard.writeText(tag.url).then(() => setMsg('Link copied.'), () => setError('Could not copy - select the link and copy it.'));
-  };
-  const write = async () => {
-    setError(''); setMsg('Hold the NFC sticker on the back of this phone…');
-    try {
-      await new window.NDEFReader().write({ records: [{ recordType: 'url', data: tag.url }] });
-      setMsg('Tag written. Test it by tapping it with a phone that is logged in.');
-    } catch (err) {
-      setMsg('');
-      setError(`Could not write the tag${err && err.message ? `: ${err.message}` : ''}. Blank NTAG stickers work best; locked tags can't be written.`);
-    }
-  };
-
-  return (
-    <details className="ci-tag" onToggle={(e) => { if (e.currentTarget.open && !tag && !busy) load(); }}>
-      <summary>Bar check-in tag (players tap with their own phone)</summary>
-      <p className="muted vm-small">
-        Put an NFC sticker on the bar with this link on it. A player taps it with their phone (iPhone or Android),
-        the link opens, and they're checked in with their own account. Players can't renew from there - they'll be asked to see the bar staff.
-      </p>
-      {error && <p className="error vm-small">{error}</p>}
-      {msg && <p className="vm-wi-notice" role="status">{msg}</p>}
-      {!tag ? <p className="vm-small">{busy ? 'Loading…' : ''}</p> : (
-        <>
-          <p className="ci-link"><code>{tag.url}</code></p>
-          <div className="ci-actions">
-            {NFC_SUPPORTED && <button type="button" className="btn btn-primary" onClick={write} disabled={busy}>Write to NFC tag</button>}
-            <button type="button" className="btn" onClick={copy} disabled={busy}>Copy link</button>
-            <button
-              type="button"
-              className={`btn ${armRotate ? 'btn-danger' : ''}`}
-              disabled={busy}
-              onClick={() => { if (armRotate) { setArmRotate(false); load(true); } else setArmRotate(true); }}
-            >
-              {armRotate ? 'Tap again - old tag will stop working' : 'Make a new link'}
-            </button>
-          </div>
-          {!NFC_SUPPORTED && <p className="muted vm-small">To write the sticker from here, open this page in Chrome on an Android phone. Or copy the link into any NFC writing app.</p>}
-        </>
-      )}
-    </details>
-  );
-}
-
 function CheckinCard({ venueId }) {
-  const [result, setResult] = useState(null); // { kind: 'player', data, repeat, at } | { kind: 'unknown', uid }
-  const [linkFor, setLinkFor] = useState(null); // player a card is being linked to
-  const [linking, setLinking] = useState(false); // link panel open
-  const [manual, setManual] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [today, setToday] = useState(null);
-  const [walkinFor, setWalkinFor] = useState(null);
-  const [renewing, setRenewing] = useState(false);
-  // Minimised by default (Matt, 2026-10-01) - the header (with today's check-in
-  // count) stays visible and toggles it. A card tap or typed card number opens
-  // it again so the result is never hidden.
-  const [open, setOpen] = useState(false);
-  const linkRef = useRef(null);
-  linkRef.current = linkFor;
-
-  // Today's check-ins (Matt, 2026-09-26): "Clear list" hides everything so
-  // far (kept on record, "Show cleared" brings them back into view) and
-  // each row has a remove button that deletes that visit. Both need a
-  // second tap to confirm.
+  const [error, setError] = useState('');
   const [showCleared, setShowCleared] = useState(false);
   const [armedClear, setArmedClear] = useState(false);
   const [armedDelete, setArmedDelete] = useState(null); // visit id waiting for a second tap
@@ -1535,255 +1380,73 @@ function CheckinCard({ venueId }) {
       .finally(() => setTodayBusy(false));
   };
   useEffect(() => {
-    setResult(null); setLinkFor(null); setLinking(false); setToday(null); setWalkinFor(null);
+    setToday(null);
     setShowCleared(false); setArmedClear(false); setArmedDelete(null);
     loadToday();
     const t = setInterval(loadToday, 30000);
     return () => clearInterval(t);
   }, [venueId]);
 
-  const handleUid = (uid) => {
-    setOpen(true);
-    setError(''); setNotice(''); setWalkinFor(null);
-    setBusy(true);
-    const target = linkRef.current;
-    const req = target
-      ? api.linkVenueCard(venueId, target.id, uid).then((data) => {
-        setNotice(`Card linked to ${data.firstName} ${data.lastName}. Tap it again to check them in.`);
-        setLinkFor(null); setLinking(false);
-        setResult({ kind: 'linked', data });
-      })
-      : api.venueCheckin(venueId, uid).then((r) => {
-        if (!r.found) setResult({ kind: 'unknown', uid: r.uid });
-        else { setResult({ kind: 'player', data: r.player, repeat: r.repeat, at: r.visit.at }); loadToday(); }
-      });
-    req.catch((err) => setError(err.message)).finally(() => setBusy(false));
-  };
-  const reader = useNfcReader(handleUid);
+  const all = today || [];
+  const visible = all.filter((v) => !v.hidden);
+  const hiddenCount = all.length - visible.length;
+  const rows = showCleared ? all : visible;
 
-  const submitManual = (e) => {
-    e.preventDefault();
-    const v = manual.trim();
-    if (!v) return;
-    setManual('');
-    handleUid(v);
-  };
-
-  const renew = (player, months) => {
-    setRenewing(true); setError('');
-    api.renewVenuePlayer(venueId, player.id, months)
-      .then((u) => {
-        const r = u.membershipRenewalDate;
-        setResult((prev) => prev && prev.data && prev.data.id === u.id
-          ? { ...prev, data: { ...prev.data, membershipRenewalDate: r, membershipStatus: u.membershipStatus || (r && r >= ukToday() ? 'active' : prev.data.membershipStatus) } }
-          : prev);
-        setNotice(`Renewed - now runs to ${formatDateUK(r)}.`);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setRenewing(false));
-  };
-
-  const unlink = (player, uid) => {
-    setBusy(true); setError('');
-    api.unlinkVenueCard(venueId, player.id, uid)
-      .then((data) => {
-        setNotice(`Card ${uid} unlinked.`);
-        setResult((prev) => (prev && prev.data && prev.data.id === data.id ? { ...prev, data } : prev));
-        setLinkFor((prev) => (prev && prev.id === data.id ? { ...prev, cards: data.cards } : prev));
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setBusy(false));
-  };
-
-  const readerLabel = reader.state === 'on'
-    ? (linkFor ? `Tap the new card for ${linkFor.firstName} now` : 'Ready - tap a card on the back of this phone')
-    : reader.state === 'starting' ? 'Starting…' : 'Card reader is off';
-
-  const p = result && result.data;
   return (
     <section className="card sx-card vm-panel ci-card">
-      <div
-        className="vm-bk-band"
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        style={{ cursor: 'pointer' }}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); } }}
-      >
+      <div className="vm-bk-band">
         <span className="vm-bk-band-title">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M7 10.5a3 3 0 0 1 0 3M10 9a5.5 5.5 0 0 1 0 6" /></svg>
-          <h2>Tap to check in</h2>
+          <h2>Checked in</h2>
           {today && <span className="vm-bk-count" aria-label={`${today.length} check-ins today`}>{today.length}</span>}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6, transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }}><path d="M6 9l6 6 6-6" /></svg>
         </span>
       </div>
-      {open && (
       <div className="vm-panel-body">
-        {NFC_SUPPORTED ? (
-          <div className={`ci-reader ci-reader-${reader.state}`}>
-            <span className="ci-reader-dot" aria-hidden="true" />
-            <span className="ci-reader-text" role="status">{readerLabel}</span>
-            {reader.state === 'on'
-              ? <button type="button" className="btn" onClick={reader.stop}>Stop</button>
-              : <button type="button" className="btn btn-primary" onClick={reader.start} disabled={reader.state === 'starting'}>Start card reader</button>}
-          </div>
-        ) : (
-          <p className="muted vm-small">This browser can't read NFC cards. Card tapping works in Chrome on an Android phone. You can still type or scan a card number below.</p>
-        )}
-        {reader.error && <p className="error vm-small">{reader.error}</p>}
-
-        <form className="au-search ci-manual" onSubmit={submitManual}>
-          <input className="ah-search" value={manual} onChange={(e) => setManual(e.target.value)} placeholder={linkFor ? 'New card number' : 'Card number'} aria-label="Card number" autoComplete="off" disabled={busy} />
-          <button className="btn" type="submit" disabled={busy || !manual.trim()}>{linkFor ? 'Link' : 'Check in'}</button>
-        </form>
-
-        {busy && <p className="vm-small">Working…</p>}
         {error && <p className="error">{error}</p>}
-        {notice && <p className="vm-wi-notice" role="status">{notice}</p>}
-
-        {result && result.kind === 'unknown' && !linkFor && (
-          <div className="ci-result ci-result-unknown">
-            <p><strong>This card isn't linked to anyone yet.</strong> <span className="ci-uid">{result.uid}</span></p>
-            <p className="muted vm-small">Find the player to link it to:</p>
-            <VenuePlayerPicker venueId={venueId} disabled={busy} onPick={(pl) => handleLinkPick(pl, result.uid)} />
-          </div>
-        )}
-
-        {p && (result.kind === 'player' || result.kind === 'linked') && (
-          <div className={`ci-result ci-result-${p.membershipStatus}`}>
-            <div className="ci-result-head">
-              <strong className="ci-name"><PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink></strong>
-              <CheckinStatusChip status={p.membershipStatus} renewalDate={p.membershipRenewalDate} />
-              {p.status === 'suspended' && <span className="status status-disputed">suspended</span>}
-            </div>
-            <p className="muted vm-small">
-              {result.kind === 'player' ? `${result.repeat ? 'Already checked in' : 'Checked in'} at ${ukTime(result.at)} · ` : ''}
-              Visits here: {p.visitCount}
-            </p>
-            {result.kind === 'player' || p.membershipStatus !== 'not-member' ? (
-              <RenewButtons player={p} busy={renewing} onRenew={renew} />
-            ) : null}
-            <div className="ci-actions">
-              <button type="button" className="btn btn-primary" onClick={() => setWalkinFor(walkinFor ? null : p)}>
-                {walkinFor ? 'Close walk-in' : 'Book walk-in'}
-              </button>
-              <button type="button" className="btn" onClick={() => { setResult(null); setWalkinFor(null); setNotice(''); }}>Clear</button>
-            </div>
-            {walkinFor && (
-              <WalkinForm
-                key={walkinFor.id}
-                venueId={venueId}
-                initialPlayer={{ firstName: walkinFor.firstName, lastName: walkinFor.lastName, email: walkinFor.email }}
-                onDone={(msg) => { setWalkinFor(null); setNotice(msg); }}
-                onClose={() => setWalkinFor(null)}
-              />
-            )}
-            {result.kind === 'player' && p.membershipStatus !== 'not-member' && (
-              <details className="ci-cards-box">
-                <summary>Cards ({p.cards.length})</summary>
-                <CardList cards={p.cards} busy={busy} onUnlink={(uid) => unlink(p, uid)} />
-              </details>
-            )}
-          </div>
-        )}
-
-        <div className="ci-link-box">
-          {!linking ? (
-            <button type="button" className="btn" onClick={() => { setLinking(true); setLinkFor(null); setNotice(''); }}>Link a card to a player</button>
-          ) : (
-            <div className="ci-linking">
-              <div className="ci-linking-head">
-                <strong>{linkFor ? `Linking a card to ${linkFor.firstName} ${linkFor.lastName}` : 'Link a card to a player'}</strong>
-                <button type="button" className="btn" onClick={() => { setLinking(false); setLinkFor(null); }}>Cancel</button>
-              </div>
-              {!linkFor ? (
-                <VenuePlayerPicker venueId={venueId} disabled={busy} onPick={(pl) => { setLinkFor(pl); setNotice(''); }} />
-              ) : (
-                <>
-                  <p className="vm-small">
-                    {NFC_SUPPORTED
-                      ? (reader.state === 'on' ? 'Tap the new card on the back of this phone now,' : 'Start the card reader above and tap the new card,')
-                      : 'Type or scan the new card number above,'} or type its number in the box above.
-                  </p>
-                  <p className="muted vm-small">Cards already linked to {linkFor.firstName}:</p>
-                  <CardList cards={linkFor.cards || []} busy={busy} onUnlink={(uid) => unlink(linkFor, uid)} />
-                </>
-              )}
-            </div>
+        <div className="ci-today-bar">
+          <h3 className="ci-today-head">Today's check-ins</h3>
+          {visible.length > 0 && (
+            <button
+              type="button"
+              className={`btn ci-clear${armedClear ? ' btn-danger' : ''}`}
+              onClick={clearToday}
+              disabled={todayBusy}
+            >
+              {armedClear ? 'Tap to confirm' : 'Clear list'}
+            </button>
           )}
         </div>
-
-        {(() => {
-          const all = today || [];
-          const visible = all.filter((v) => !v.hidden);
-          const hiddenCount = all.length - visible.length;
-          const rows = showCleared ? all : visible;
-          return (
-            <>
-              <div className="ci-today-bar">
-                <h3 className="ci-today-head">Today's check-ins</h3>
-                {visible.length > 0 && (
-                  <button
-                    type="button"
-                    className={`btn ci-clear${armedClear ? ' btn-danger' : ''}`}
-                    onClick={clearToday}
-                    disabled={todayBusy}
-                  >
-                    {armedClear ? 'Tap to confirm' : 'Clear list'}
-                  </button>
-                )}
-              </div>
-              {!today ? <p className="muted vm-small">Loading…</p> : rows.length === 0 ? (
-                <p className="muted vm-small">{hiddenCount > 0 ? 'List cleared. New check-ins will show here.' : 'Nobody has checked in yet today.'}</p>
-              ) : (
-                <ul className="ci-today">
-                  {rows.map((v) => (
-                    <li key={v.id} className={v.hidden ? 'ci-hidden' : undefined}>
-                      <span className="ci-time">{ukTime(v.at)}</span>
-                      <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
-                      <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
-                      <CheckinStatusChip status={v.membershipStatus} small />
-                      <button
-                        type="button"
-                        className={`ci-del${armedDelete === v.id ? ' ci-del-armed' : ''}`}
-                        onClick={() => deleteVisit(v)}
-                        disabled={todayBusy}
-                        aria-label={armedDelete === v.id ? `Confirm deleting ${v.name}'s check-in at ${ukTime(v.at)}` : `Delete ${v.name}'s check-in at ${ukTime(v.at)}`}
-                      >
-                        {armedDelete === v.id ? 'Delete?' : '✕'}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {hiddenCount > 0 && (
-                <button type="button" className="ci-show-cleared" onClick={() => setShowCleared((s) => !s)}>
-                  {showCleared ? 'Hide cleared check-ins' : `Show ${hiddenCount} cleared check-in${hiddenCount === 1 ? '' : 's'}`}
+        {!today ? <p className="muted vm-small">Loading…</p> : rows.length === 0 ? (
+          <p className="muted vm-small">{hiddenCount > 0 ? 'List cleared. New check-ins will show here.' : 'Nobody has checked in yet today.'}</p>
+        ) : (
+          <ul className="ci-today">
+            {rows.map((v) => (
+              <li key={v.id} className={v.hidden ? 'ci-hidden' : undefined}>
+                <span className="ci-time">{ukTime(v.at)}</span>
+                <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
+                <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
+                <CheckinStatusChip status={v.membershipStatus} small />
+                <button
+                  type="button"
+                  className={`ci-del${armedDelete === v.id ? ' ci-del-armed' : ''}`}
+                  onClick={() => deleteVisit(v)}
+                  disabled={todayBusy}
+                  aria-label={armedDelete === v.id ? `Confirm deleting ${v.name}'s check-in at ${ukTime(v.at)}` : `Delete ${v.name}'s check-in at ${ukTime(v.at)}`}
+                >
+                  {armedDelete === v.id ? 'Delete?' : '✕'}
                 </button>
-              )}
-            </>
-          );
-        })()}
-
-        <BarTagPanel venueId={venueId} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {hiddenCount > 0 && (
+          <button type="button" className="ci-show-cleared" onClick={() => setShowCleared((x) => !x)}>
+            {showCleared ? 'Hide cleared check-ins' : `Show ${hiddenCount} cleared check-in${hiddenCount === 1 ? '' : 's'}`}
+          </button>
+        )}
       </div>
-      )}
     </section>
   );
-
-  function handleLinkPick(pl, uid) {
-    setBusy(true); setError('');
-    api.linkVenueCard(venueId, pl.id, uid)
-      .then((data) => {
-        setNotice(`Card linked to ${data.firstName} ${data.lastName}.`);
-        return api.venueCheckin(venueId, uid).then((r) => {
-          if (r.found) { setResult({ kind: 'player', data: r.player, repeat: r.repeat, at: r.visit.at }); loadToday(); }
-        });
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setBusy(false));
-  }
 }
 
 // Join policy + pending join requests for one venue. 'open' = players add

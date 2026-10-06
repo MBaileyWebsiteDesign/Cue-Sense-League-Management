@@ -148,6 +148,9 @@ const networkApi = {
   // refresh=true asks for an immediate sync (Refresh button; max once a minute).
   getVenueBookings: (venueId, refresh = false) =>
     request(`/venue-manager/bookings?venueId=${encodeURIComponent(venueId)}${refresh ? '&refresh=1' : ''}`),
+  // Mark a "Not paid" table booking as paid (or undo it). Saved in this app only, not in Wix.
+  setVenueBookingPaid: (venueId, bookingId, paid) =>
+    request(`/venue-manager/bookings/${encodeURIComponent(bookingId)}/paid`, { method: 'POST', body: JSON.stringify({ venueId, paid }) }),
   // Live updates for the Table bookings card: a Server-Sent Events stream
   // read with fetch (so the login token can go in the Authorization header,
   // which EventSource can't send). Calls onOpen once connected and onUpdate
