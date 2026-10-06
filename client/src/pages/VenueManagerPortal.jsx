@@ -104,24 +104,36 @@ function DueTile({ label, count, active, onClick, caption, tint }) {
 // One player as a compact card (2026-10-06): name/email (links to their profile
 // when they have one) with the small quick-renew buttons beside it, and a
 // foot line with the renewal date (tinted as it gets close), status and Remove.
+function renewalExpired(isoDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate || '');
+  if (!match) return false;
+  const today = new Date();
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+}
+
 function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus = true }) {
   const urgency = renewalUrgency(p.membershipRenewalDate);
+  // Coloured edge + chip by how close the renewal is (same bands as the Status
+  // tiles: red = due within 2 months or already past, amber = within 4, green = later).
+  const tone = !p.membershipRenewalDate ? 'none' : urgency === 'red' ? 'red' : urgency === 'amber' ? 'amber' : 'green';
+  const initials = `${(p.firstName || '').charAt(0)}${(p.lastName || '').charAt(0)}`.toUpperCase() || '?';
   return (
-    <li className="vm-player">
+    <li className={`vm-player vm-player-${tone}`}>
+      <span className="vm-player-ini" aria-hidden="true">{initials}</span>
       <span className="vm-player-main">
         <strong><PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink></strong>
         <span className="muted vm-small">{p.email}</span>
       </span>
-      {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
       <span className="vm-player-foot">
-        <span className={`vm-renews${urgency ? ` vm-renews-${urgency}` : ''}`}>
-          {p.membershipRenewalDate ? `Expires ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
+        <span className={`vm-renews vm-renews-${tone}`}>
+          {p.membershipRenewalDate ? `${renewalExpired(p.membershipRenewalDate) ? 'Expired' : 'Expires'} ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
         </span>
         {showStatus && p.status && (
           <span className={`status ${p.status === 'suspended' ? 'status-disputed' : 'status-completed'}`}>{p.status}</span>
         )}
         {onRemove && <RemovePlayerButton player={p} busy={removing} onRemove={onRemove} />}
       </span>
+      {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
     </li>
   );
 }
