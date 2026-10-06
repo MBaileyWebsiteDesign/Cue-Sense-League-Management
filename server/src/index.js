@@ -1846,7 +1846,7 @@ app.get('/api/venue-manager/bookings', requireVenueManager, (req, res, next) => 
     // card turns that into "Active Membership" / "Membership Expired" /
     // "Needs to pay" (tap = Paid). Nothing is changed in Wix.
     .map((b) => {
-      if (b.paymentStatus !== 'NOT_PAID') return b;
+      if (b.paymentStatus !== 'NOT_PAID' && b.paymentStatus !== 'UNDEFINED') return b;
       const member = b.email ? membersByEmail.get(String(b.email).trim().toLowerCase()) : null;
       return {
         ...b,

@@ -2353,6 +2353,18 @@ button.vm-tile { cursor: pointer; }
 .vm-bk-main .vm-bk-block-by { color: #374151; font-size: 0.875rem; }
 .vm-bk-block-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .vm-bk-main .vm-bk-block-tag { font-size: 0.75rem; font-weight: 600; border-radius: 6px; padding: 2px 8px; background: #fff; border: 1px solid #d1d5db; color: #374151; }
+
+/* Table bookings: stronger payment chips, tinted unpaid rows and a quieter
+   Cancel (Matt, 2026-10-06). Later rules override the chip/cancel rules above. */
+.vm-bk-pay { font-size: 0.875rem; font-weight: 700; border-radius: 8px; padding: 0 12px; min-height: 36px; display: inline-flex; align-items: center; }
+.vm-bk-pay-btn { min-height: 44px; padding: 0 14px; }
+.vm-bk-paid { background: #16a34a; color: #fff; }
+.vm-bk-pay-amber { background: #fbbf24; color: #451a03; }
+.vm-bk-pay-red { background: #dc2626; color: #fff; }
+.vm-bk-unpaid { border-left-color: #dc2626; background: #fff5f5; }
+.status.vm-bk-st-unknown { background: #e5e7eb; color: #374151; }
+.vm-bk-cancel { border-color: transparent; background: transparent; color: #4b5563; font-weight: 600; text-decoration: underline; padding: 8px 10px; }
+.vm-bk-cancel-armed { border-color: #dc2626; background: #dc2626; color: #fff; text-decoration: none; padding: 8px 16px; }
 @media (max-width: 640px) {
   .vm-bk-actions { flex-direction: column; gap: 8px; }
   .vm-bk { grid-template-columns: auto minmax(0, 1fr); }
