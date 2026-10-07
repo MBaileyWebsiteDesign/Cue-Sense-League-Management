@@ -351,6 +351,107 @@ function BulkImportPanel({ onImported }) {
   );
 }
 
+// Applies a venue membership (start + end date) to many existing accounts at
+// once from a CSV with the columns: email,startDate,endDate (dates as
+// yyyy-mm-dd, startDate/endDate may be blank). Each row is matched to an
+// existing account by email and saved with the same per-user call the
+// "Venues & memberships" box on a user's own page uses, so nothing new is
+// enforced server-side. Rows with an unknown email are listed, not created.
+function BulkMembershipsPanel({ users, venues, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [venueId, setVenueId] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [rows, setRows] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const onFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setError('');
+    setResult(null);
+    setFileName(file.name);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (h) => h.trim(),
+      complete: (res) => setRows(res.data),
+      error: (err) => setError(`Couldn't read that file: ${err.message}`),
+    });
+  };
+
+  const run = async () => {
+    if (!venueId || !rows) return;
+    setRunning(true);
+    setError('');
+    const byEmail = new Map((users || []).map((u) => [String(u.email || '').trim().toLowerCase(), u]));
+    const out = { saved: 0, notFound: [], failed: [] };
+    for (const r of rows) {
+      const email = String(r.email || '').trim().toLowerCase();
+      const user = byEmail.get(email);
+      if (!user) {
+        out.notFound.push(email || '(blank email)');
+        continue;
+      }
+      try {
+        await api.adminSetVenueMembership(user.id, {
+          venueId,
+          startDate: (r.startDate || '').trim() || null,
+          renewalDate: (r.endDate || '').trim() || null,
+        });
+        out.saved += 1;
+      } catch (err) {
+        out.failed.push(`${email}: ${err.message}`);
+      }
+    }
+    setResult(out);
+    setRunning(false);
+    onDone();
+  };
+
+  return (
+    <section className="card au-add">
+      <button type="button" className="au-add-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span>Bulk venue memberships (CSV)</span>
+        <span aria-hidden="true">{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <div>
+          <p className="muted">
+            Add many existing accounts to one venue, with their own start and end dates. CSV columns:
+            {' '}<code>email,startDate,endDate</code> (dates as yyyy-mm-dd; either may be blank).
+            Accounts are matched by email; unknown emails are listed and skipped.
+          </p>
+          {error && <p className="error">{error}</p>}
+          <label>
+            Venue
+            <select value={venueId} onChange={(e) => setVenueId(e.target.value)}>
+              <option value="">Choose a venue</option>
+              {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          </label>
+          <label>
+            CSV file
+            <input type="file" accept=".csv" onChange={onFile} />
+          </label>
+          {fileName && rows && <p className="muted">{fileName}: {rows.length} row(s) found.</p>}
+          <button className="btn btn-primary" type="button" onClick={run} disabled={running || !venueId || !rows || rows.length === 0}>
+            {running ? 'Saving…' : `Apply to ${rows ? rows.length : 0} account(s)`}
+          </button>
+          {result && (
+            <div>
+              <p>Saved {result.saved} membership(s).</p>
+              {result.notFound.length > 0 && <p className="error">No account for: {result.notFound.join(', ')}</p>}
+              {result.failed.length > 0 && <p className="error">Failed: {result.failed.join('; ')}</p>}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 const ROLE_FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'isAdmin', label: 'Admins' },
@@ -529,6 +630,7 @@ export default function AdminUsers() {
       </section>
 
       <BulkImportPanel onImported={() => load(query)} />
+      <BulkMembershipsPanel users={users} venues={venues} onDone={() => load(query)} />
 
       {error && <p className="error">{error}</p>}
 
