@@ -39,7 +39,7 @@ import {
 import { recordAudit } from './services/auditLog.js';
 import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
-import { registerVenueEmailTestRoute } from './venueEmails.js';
+import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt } from './venueEmails.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -326,6 +326,8 @@ app.post('/api/admin/mail/test', requireAdmin, asyncRoute((req, res) => {
 
 // Top Spin membership-expiry email: admin-only TEST send (see venueEmails.js).
 registerVenueEmailTestRoute(app, { requireAdmin, asyncRoute, sendMail, getMailLog, mailSettings });
+// Automatic 5-day membership-expiry emails (production only, per-venue switch).
+startMembershipExpiryEmailJob({ readDb, writeDb, sendMail, membershipAt, canEmail, recordAudit });
 
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
@@ -1282,6 +1284,30 @@ app.post('/api/venue-manager/venues/:id/join-policy', requireVenueManager, async
   res.json({ joinPolicy: venue.joinPolicy });
 }));
 
+// Per-venue switch for the automatic membership-expiry emails (Matt, 2026-10-07).
+// Off by default; when on, players at this venue are emailed once when their
+// membership end date is 1-5 days away (see venueEmails.js). Venue Manager Portal tickbox.
+app.post('/api/venue-manager/venues/:id/expiry-emails', requireVenueManager, asyncRoute((req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') throw new ApiError(400, 'enabled must be true or false');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  if ((venue.expiryEmailsEnabled === true) !== enabled) {
+    venue.expiryEmailsEnabled = enabled;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.expiry_emails',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `${enabled ? 'Turned on' : 'Turned off'} automatic membership-expiry emails for "${venue.name}"`,
+    });
+    writeDb(db);
+  }
+  res.json({ expiryEmailsEnabled: venue.expiryEmailsEnabled === true });
+}));
+
 // Pending join requests for one venue, for its managers (or any admin).
 app.get('/api/venue-manager/join-requests', requireVenueManager, asyncRoute((req, res) => {
   const { venueId } = req.query;
@@ -1460,6 +1486,7 @@ app.get('/api/venue-manager/status/players', requireVenueManager, asyncRoute((re
     lastName: u.lastName,
     email: u.email,
     membershipRenewalDate: renewalOf(u),
+    expiryEmailSentAt: expiryEmailSentAt(membershipAt(u, venue.id)),
   })));
 }));
 
@@ -1493,6 +1520,7 @@ app.get('/api/venue-manager/players', requireVenueManager, asyncRoute((req, res)
     email: u.email,
     status: u.status,
     membershipRenewalDate: membershipAt(u, venue.id).renewalDate,
+    expiryEmailSentAt: expiryEmailSentAt(membershipAt(u, venue.id)),
     // Linked NFC cards (see "NFC cards and bar check-in" below).
     cards: (Array.isArray(u.nfcCards) ? u.nfcCards : []).map((c) => ({ uid: c.uid, label: c.label || '' })),
   })));
@@ -2731,6 +2759,7 @@ app.post('/api/venue-manager/players/:id/renew', requireVenueManager, asyncRoute
     membershipStartDate: mem.startDate,
     membershipRenewalDate: mem.renewalDate,
     membershipStatus: membershipStatusAt(player, venue.id),
+    expiryEmailSentAt: expiryEmailSentAt(mem),
     extended: extending,
   });
 }));
@@ -2781,6 +2810,7 @@ app.post('/api/venue-manager/players/:id/membership-dates', requireVenueManager,
     membershipStartDate: mem.startDate,
     membershipRenewalDate: mem.renewalDate,
     membershipStatus: membershipStatusAt(player, venue.id),
+    expiryEmailSentAt: expiryEmailSentAt(mem),
   });
 }));
 

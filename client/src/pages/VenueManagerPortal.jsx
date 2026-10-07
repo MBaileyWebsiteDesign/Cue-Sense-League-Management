@@ -131,6 +131,11 @@ function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus =
         {showStatus && p.status && (
           <span className={`status ${p.status === 'suspended' ? 'status-disputed' : 'status-completed'}`}>{p.status}</span>
         )}
+        {p.expiryEmailSentAt && (
+          <span className="status status-completed" title="The 5-day membership-expiry email has been sent to this player">
+            Email sent {formatDateUK(String(p.expiryEmailSentAt).slice(0, 10))}
+          </span>
+        )}
         {onRemove && <RemovePlayerButton player={p} busy={removing} onRemove={onRemove} />}
       </span>
       {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
@@ -1439,6 +1444,8 @@ function JoinRequestsCard({ venue, onApproved }) {
   const [requests, setRequests] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [expiryOn, setExpiryOn] = useState(venue.expiryEmailsEnabled === true);
+  const [savingExpiry, setSavingExpiry] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -1456,6 +1463,20 @@ function JoinRequestsCard({ venue, onApproved }) {
       setError(e.message);
     } finally {
       setSavingPolicy(false);
+    }
+  };
+
+  const changeExpiry = async (next) => {
+    setSavingExpiry(true);
+    setError('');
+    setNotice('');
+    try {
+      const r = await api.setVenueExpiryEmails(venueId, next);
+      setExpiryOn(r.expiryEmailsEnabled === true);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingExpiry(false);
     }
   };
 
@@ -1491,6 +1512,10 @@ function JoinRequestsCard({ venue, onApproved }) {
             <option value="open">Anyone can join instantly</option>
             <option value="approval">Players must be approved</option>
           </select>
+        </label>
+        <label className="ll-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <input type="checkbox" checked={expiryOn} disabled={savingExpiry} onChange={(e) => changeExpiry(e.target.checked)} />
+          <span>Email players when their membership is 5 days from ending</span>
         </label>
         {error && <p className="error">{error}</p>}
         {notice && <p className="banner banner-success">{notice}</p>}
