@@ -124,6 +124,8 @@ const networkApi = {
   // Venue Manager side: open/approval policy and the pending requests.
   setVenueJoinPolicy: (venueId, joinPolicy) =>
     request(`/venue-manager/venues/${encodeURIComponent(venueId)}/join-policy`, { method: 'POST', body: JSON.stringify({ joinPolicy }) }),
+  setVenueExpiryEmails: (venueId, enabled) =>
+    request(`/venue-manager/venues/${encodeURIComponent(venueId)}/expiry-emails`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   getVenueJoinRequests: (venueId) => request(`/venue-manager/join-requests?venueId=${encodeURIComponent(venueId)}`),
   decideVenueJoinRequest: (id, decision) =>
     request(`/venue-manager/join-requests/${encodeURIComponent(id)}/${decision === 'approve' ? 'approve' : 'decline'}`, { method: 'POST' }),
