@@ -136,6 +136,11 @@ function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus =
             Email sent {formatDateUK(String(p.expiryEmailSentAt).slice(0, 10))}
           </span>
         )}
+        {p.expiredEmailSentAt && (
+          <span className="status status-completed" title="The 'membership has expired' email has been sent to this player">
+            Expired email sent {formatDateUK(String(p.expiredEmailSentAt).slice(0, 10))}
+          </span>
+        )}
         {onRemove && <RemovePlayerButton player={p} busy={removing} onRemove={onRemove} />}
       </span>
       {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
@@ -1446,6 +1451,8 @@ function JoinRequestsCard({ venue, onApproved }) {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [expiryOn, setExpiryOn] = useState(venue.expiryEmailsEnabled === true);
   const [savingExpiry, setSavingExpiry] = useState(false);
+  const [expiredOn, setExpiredOn] = useState(venue.expiredEmailsEnabled === true);
+  const [savingExpired, setSavingExpired] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -1477,6 +1484,20 @@ function JoinRequestsCard({ venue, onApproved }) {
       setError(e.message);
     } finally {
       setSavingExpiry(false);
+    }
+  };
+
+  const changeExpired = async (next) => {
+    setSavingExpired(true);
+    setError('');
+    setNotice('');
+    try {
+      const r = await api.setVenueExpiredEmails(venueId, next);
+      setExpiredOn(r.expiredEmailsEnabled === true);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingExpired(false);
     }
   };
 
@@ -1522,6 +1543,16 @@ function JoinRequestsCard({ venue, onApproved }) {
             style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }}
           />
           <span>Email players when their membership is 5 days from ending</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, margin: '4px 0', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={expiredOn}
+            disabled={savingExpired}
+            onChange={(e) => changeExpired(e.target.checked)}
+            style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }}
+          />
+          <span>Email players when their membership has expired</span>
         </label>
         {error && <p className="error">{error}</p>}
         {notice && <p className="banner banner-success">{notice}</p>}

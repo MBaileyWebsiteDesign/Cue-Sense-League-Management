@@ -1,5 +1,8 @@
 // Venue membership emails (Matt, 2026-10-06 / 2026-10-07).
 //
+// Email 2 (below): "your membership has expired" - see KINDS for when it sends.
+// Neither email goes to placeholder @cuesense.co.uk accounts.
+//
 // Email 1: "your membership expires in N days" - sent automatically, once per
 // membership end date, when a player's end date is 1-5 days away. Sent through
 // the same MailerSend sendMail() as the password reset emails.
@@ -65,6 +68,10 @@ export function expiryEmailSentAt(m) {
   if (!m || !m.renewalDate) return null;
   return m.expiryEmailSentFor && m.expiryEmailSentFor === m.renewalDate ? (m.expiryEmailSentAt || null) : null;
 }
+export function expiredEmailSentAt(m) {
+  if (!m || !m.renewalDate) return null;
+  return m.expiredEmailSentFor && m.expiredEmailSentFor === m.renewalDate ? (m.expiredEmailSentAt || null) : null;
+}
 
 // Builds { subject, text, html } for the expiry warning.
 // expiryDate is already-formatted display text (e.g. "Sunday 11 October 2026").
@@ -72,13 +79,13 @@ export function membershipExpiryEmail({ firstName, expiryDate, daysLeft = 5, ven
   const b = venueBranding(venueName);
   const name = escapeHtml(firstName || 'there');
   const when = escapeHtml(expiryDate);
-  const dayWord = daysLeft === 1 ? 'day' : 'days';
-  const subject = `Your ${b.shortName} membership expires in ${daysLeft} ${dayWord}`;
+  const phrase = daysLeft === 0 ? 'today' : `in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`;
+  const subject = `Your ${b.shortName} membership expires ${phrase}`;
 
   const text = [
     `Hi ${firstName || 'there'},`,
     '',
-    `Just a quick heads-up from all of us at ${b.longName}: your membership is due to expire in ${daysLeft} ${dayWord}, on ${expiryDate}.`,
+    `Just a quick heads-up from all of us at ${b.longName}: your membership is due to expire ${phrase}, on ${expiryDate}.`,
     '',
     'Once it expires, you have two options on your next visit:',
     '',
@@ -113,11 +120,11 @@ export function membershipExpiryEmail({ firstName, expiryDate, daysLeft = 5, ven
       ${header}
     </td></tr>
     <tr><td style="background:#1d4ed8;padding:14px 24px;text-align:center;">
-      <span style="font-size:18px;font-weight:bold;color:#ffffff;letter-spacing:0.3px;">Your membership expires in ${daysLeft} ${dayWord}</span>
+      <span style="font-size:18px;font-weight:bold;color:#ffffff;letter-spacing:0.3px;">Your membership expires ${phrase}</span>
     </td></tr>
     <tr><td style="padding:28px 28px 8px 28px;font-size:16px;line-height:1.55;">
       <p style="margin:0 0 14px 0;">Hi ${name},</p>
-      <p style="margin:0 0 14px 0;">Just a quick heads-up from all of us at ${escapeHtml(b.longName)}: your membership is due to expire in <strong>${daysLeft} ${dayWord}</strong>, on <strong>${when}</strong>.</p>
+      <p style="margin:0 0 14px 0;">Just a quick heads-up from all of us at ${escapeHtml(b.longName)}: your membership is due to expire <strong>${phrase}</strong>, on <strong>${when}</strong>.</p>
       <p style="margin:0 0 6px 0;">Once it expires, you have two options on your next visit:</p>
     </td></tr>
     <tr><td style="padding:8px 28px 4px 28px;">
@@ -159,7 +166,7 @@ export function membershipExpiredEmail({ firstName, venueName = 'Top Spin' }) {
     '',
     `Your membership at ${b.longName} has expired.`,
     '',
-    'We would love to see you rejoin for unlimited pool.',
+    'We would love to see you rejoin for unlimited pool. Just pay at the bar when you next come in.',
     '',
     'See you soon,',
     `The ${b.shortName} Team`,
@@ -196,7 +203,7 @@ export function membershipExpiredEmail({ firstName, venueName = 'Top Spin' }) {
     <tr><td style="padding:8px 28px 4px 28px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr><td style="background:#eff6ff;border-left:5px solid #1d4ed8;border-radius:6px;padding:14px 16px;font-size:16px;line-height:1.5;">
-          <strong style="color:#1d4ed8;">Rejoin for unlimited pool</strong><br>We would love to see you rejoin for unlimited pool.
+          <strong style="color:#1d4ed8;">Rejoin for unlimited pool</strong><br>We would love to see you rejoin for unlimited pool. Just pay at the bar when you next come in.
         </td></tr>
       </table>
     </td></tr>
@@ -245,6 +252,12 @@ export function registerVenueEmailTestRoute(app, deps) {
   }));
 }
 
+// Placeholder / test accounts on our own domain are never emailed by the automatic jobs.
+const PLACEHOLDER_EMAIL_RE = /@cuesense\.co\.uk$/i;
+export function isPlaceholderEmail(email) {
+  return PLACEHOLDER_EMAIL_RE.test(String(email || '').trim());
+}
+
 function sendingAllowedHere() {
   const app = process.env.FLY_APP_NAME;
   return !!app && !/staging/i.test(app);
@@ -252,53 +265,81 @@ function sendingAllowedHere() {
 
 let running = false;
 
-// One pass. Safe to call repeatedly: a player is emailed once per end date.
+// The two automatic emails. Each has its own per-venue switch and its own
+// "already sent" marker on the membership entry (keyed to the end date).
+//  expiry  - from 5 days before the end date up to and including the end date
+//            itself ("expires today"), 09:00-20:00 UK only.
+//  expired - from the morning after the end date (09:00 UK), or at any time if
+//            it is already 2+ days late (e.g. the app was asleep): the first
+//            time the app is awake, however late. No upper limit on lateness.
+const KINDS = [
+  {
+    key: 'expiry',
+    venueFlag: 'expiryEmailsEnabled',
+    sentFor: 'expiryEmailSentFor', sentAt: 'expiryEmailSentAt', failures: 'expiryEmailFailures', failedAt: 'expiryEmailFailedAt',
+    audit: 'venue.expiryEmailSent',
+    isDue: (daysLeft, hour) => daysLeft >= 0 && daysLeft <= MAX_DAYS_BEFORE && hour >= SEND_FROM_HOUR_UK && hour < SEND_BEFORE_HOUR_UK,
+    build: (user, venue, item) => membershipExpiryEmail({
+      firstName: user.firstName,
+      expiryDate: formatUkLongDate(new Date(`${item.renewalDate}T12:00:00Z`)),
+      daysLeft: item.daysLeft,
+      venueName: venue.name,
+    }),
+  },
+  {
+    key: 'expired',
+    venueFlag: 'expiredEmailsEnabled',
+    sentFor: 'expiredEmailSentFor', sentAt: 'expiredEmailSentAt', failures: 'expiredEmailFailures', failedAt: 'expiredEmailFailedAt',
+    audit: 'venue.expiredEmailSent',
+    isDue: (daysLeft, hour) => daysLeft <= -2 || (daysLeft === -1 && hour >= SEND_FROM_HOUR_UK),
+    build: (user, venue) => membershipExpiredEmail({ firstName: user.firstName, venueName: venue.name }),
+  },
+];
+
+// One pass. Safe to call repeatedly: a player is emailed once per end date, per email.
 // deps: { readDb, writeDb, sendMail, membershipAt, canEmail, recordAudit }
 export async function runMembershipExpiryEmailsOnce(deps, now = new Date()) {
   const { readDb, writeDb, sendMail, membershipAt, canEmail, recordAudit } = deps;
   const summary = { skipped: null, sent: 0, failed: 0 };
   if (!sendingAllowedHere()) { summary.skipped = 'not-production'; return summary; }
-  const hour = ukHour(now);
-  if (hour < SEND_FROM_HOUR_UK || hour >= SEND_BEFORE_HOUR_UK) { summary.skipped = 'outside-hours'; return summary; }
   if (running) { summary.skipped = 'already-running'; return summary; }
   running = true;
   try {
     const todayIso = todayUkIso(now);
+    const hour = ukHour(now);
     const nowIso = now.toISOString();
     // 1. Work out who is due from one read.
     const db0 = readDb();
     const due = [];
-    for (const venue of db0.venues || []) {
-      if (venue.expiryEmailsEnabled !== true) continue;
-      for (const u of db0.users || []) {
-        const m = membershipAt(u, venue.id);
-        if (!m || !m.renewalDate || !/^\d{4}-\d{2}-\d{2}$/.test(m.renewalDate)) continue;
-        if (!canEmail(u)) continue;
-        const daysLeft = daysBetweenIso(todayIso, m.renewalDate);
-        if (daysLeft < 1 || daysLeft > MAX_DAYS_BEFORE) continue;
-        if (m.expiryEmailSentFor === m.renewalDate) continue;
-        if ((m.expiryEmailFailures || 0) >= MAX_FAILURES) continue;
-        if (m.expiryEmailFailedAt && now - new Date(m.expiryEmailFailedAt) < RETRY_AFTER_MS) continue;
-        due.push({ userId: u.id, venueId: venue.id, renewalDate: m.renewalDate, daysLeft });
+    for (const kind of KINDS) {
+      for (const venue of db0.venues || []) {
+        if (venue[kind.venueFlag] !== true) continue;
+        for (const u of db0.users || []) {
+          const m = membershipAt(u, venue.id);
+          if (!m || !m.renewalDate || !/^\d{4}-\d{2}-\d{2}$/.test(m.renewalDate)) continue;
+          if (!canEmail(u) || isPlaceholderEmail(u.email)) continue;
+          const daysLeft = daysBetweenIso(todayIso, m.renewalDate);
+          if (!kind.isDue(daysLeft, hour)) continue;
+          if (m[kind.sentFor] === m.renewalDate) continue;
+          if ((m[kind.failures] || 0) >= MAX_FAILURES) continue;
+          if (m[kind.failedAt] && now - new Date(m[kind.failedAt]) < RETRY_AFTER_MS) continue;
+          due.push({ kind, userId: u.id, venueId: venue.id, renewalDate: m.renewalDate, daysLeft });
+        }
       }
     }
     // 2. For each: claim it (sync write, so it can never be sent twice), send, then record the outcome.
     for (const item of due) {
+      const { kind } = item;
       const db = readDb();
       const venue = (db.venues || []).find((v) => v.id === item.venueId);
       const user = (db.users || []).find((u) => u.id === item.userId);
       const m = user && membershipAt(user, item.venueId);
-      if (!venue || !user || !m || m.renewalDate !== item.renewalDate || m.expiryEmailSentFor === item.renewalDate || venue.expiryEmailsEnabled !== true) continue;
-      m.expiryEmailSentFor = item.renewalDate;
-      m.expiryEmailSentAt = nowIso;
+      if (!venue || !user || !m || m.renewalDate !== item.renewalDate || m[kind.sentFor] === item.renewalDate || venue[kind.venueFlag] !== true || isPlaceholderEmail(user.email)) continue;
+      m[kind.sentFor] = item.renewalDate;
+      m[kind.sentAt] = nowIso;
       writeDb(db);
 
-      const msg = membershipExpiryEmail({
-        firstName: user.firstName,
-        expiryDate: formatUkLongDate(new Date(`${item.renewalDate}T12:00:00Z`)),
-        daysLeft: item.daysLeft,
-        venueName: venue.name,
-      });
+      const msg = kind.build(user, venue, item);
       let result;
       try {
         result = await sendMail({
@@ -317,11 +358,11 @@ export async function runMembershipExpiryEmailsOnce(deps, now = new Date()) {
       const m2 = user2 && membershipAt(user2, item.venueId);
       if (result && result.sent) {
         summary.sent += 1;
-        if (m2 && m2.expiryEmailSentFor === item.renewalDate) { m2.expiryEmailFailures = 0; delete m2.expiryEmailFailedAt; }
+        if (m2 && m2[kind.sentFor] === item.renewalDate) { m2[kind.failures] = 0; delete m2[kind.failedAt]; }
         try {
           recordAudit(db2, {
             actor: 'system',
-            action: 'venue.expiryEmailSent',
+            action: kind.audit,
             targetType: 'user',
             targetId: item.userId,
             details: `Sent "${msg.subject}" to ${user.firstName || ''} ${user.lastName || ''} (${venue.name} membership ends ${item.renewalDate})`,
@@ -330,17 +371,17 @@ export async function runMembershipExpiryEmailsOnce(deps, now = new Date()) {
         writeDb(db2);
       } else {
         summary.failed += 1;
-        if (m2 && m2.expiryEmailSentFor === item.renewalDate && m2.expiryEmailSentAt === nowIso) {
-          delete m2.expiryEmailSentFor;
-          delete m2.expiryEmailSentAt;
-          m2.expiryEmailFailures = (m2.expiryEmailFailures || 0) + 1;
-          m2.expiryEmailFailedAt = nowIso;
+        if (m2 && m2[kind.sentFor] === item.renewalDate && m2[kind.sentAt] === nowIso) {
+          delete m2[kind.sentFor];
+          delete m2[kind.sentAt];
+          m2[kind.failures] = (m2[kind.failures] || 0) + 1;
+          m2[kind.failedAt] = nowIso;
           writeDb(db2);
         }
-        console.warn('Membership expiry email failed:', result && result.error);
+        console.warn('Membership email failed:', result && result.error);
       }
     }
-    if (summary.sent || summary.failed) console.log(`Membership expiry emails: ${summary.sent} sent, ${summary.failed} failed`);
+    if (summary.sent || summary.failed) console.log(`Membership emails: ${summary.sent} sent, ${summary.failed} failed`);
     return summary;
   } finally {
     running = false;
@@ -350,7 +391,7 @@ export async function runMembershipExpiryEmailsOnce(deps, now = new Date()) {
 export function startMembershipExpiryEmailJob(deps) {
   if (!sendingAllowedHere()) return;
   const tick = () => {
-    runMembershipExpiryEmailsOnce(deps).catch((err) => console.warn('Membership expiry email job error:', err && err.message));
+    runMembershipExpiryEmailsOnce(deps).catch((err) => console.warn('Membership email job error:', err && err.message));
   };
   setTimeout(tick, FIRST_CHECK_DELAY_MS).unref();
   setInterval(tick, CHECK_EVERY_MS).unref();
