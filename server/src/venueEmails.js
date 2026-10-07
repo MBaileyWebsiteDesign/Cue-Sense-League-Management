@@ -147,6 +147,74 @@ export function membershipExpiryEmail({ firstName, expiryDate, daysLeft = 5, ven
   return { subject, text, html };
 }
 
+
+// Email 2: "your membership has expired" - same look as the 5-day alert.
+export function membershipExpiredEmail({ firstName, venueName = 'Top Spin' }) {
+  const b = venueBranding(venueName);
+  const name = escapeHtml(firstName || 'there');
+  const subject = `Your ${b.shortName} membership has expired`;
+
+  const text = [
+    `Hi ${firstName || 'there'},`,
+    '',
+    `Your membership at ${b.longName} has expired.`,
+    '',
+    'We would love to see you rejoin for unlimited pool.',
+    '',
+    'See you soon,',
+    `The ${b.shortName} Team`,
+    '',
+    'Please do not reply to this email.',
+  ].join('\n');
+
+  const header = b.logoUrl
+    ? `<img src="${b.logoUrl}" width="160" alt="${escapeHtml(b.logoAlt)}" style="display:block;border:0;outline:none;height:auto;max-width:160px;">`
+    : `<span style="font-size:22px;font-weight:bold;color:#ffffff;">${escapeHtml(b.longName)}</span>`;
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background:#eef1f6;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#eef1f6;">Your membership has expired. We would love to see you rejoin for unlimited pool.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f6;">
+<tr><td align="center" style="padding:24px 12px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+    <tr><td align="center" style="background:#000000;padding:22px 16px;">
+      ${header}
+    </td></tr>
+    <tr><td style="background:#1d4ed8;padding:14px 24px;text-align:center;">
+      <span style="font-size:18px;font-weight:bold;color:#ffffff;letter-spacing:0.3px;">Your membership has expired</span>
+    </td></tr>
+    <tr><td style="padding:28px 28px 8px 28px;font-size:16px;line-height:1.55;">
+      <p style="margin:0 0 14px 0;">Hi ${name},</p>
+      <p style="margin:0 0 6px 0;">Your membership at ${escapeHtml(b.longName)} has expired.</p>
+    </td></tr>
+    <tr><td style="padding:8px 28px 4px 28px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr><td style="background:#eff6ff;border-left:5px solid #1d4ed8;border-radius:6px;padding:14px 16px;font-size:16px;line-height:1.5;">
+          <strong style="color:#1d4ed8;">Rejoin for unlimited pool</strong><br>We would love to see you rejoin for unlimited pool.
+        </td></tr>
+      </table>
+    </td></tr>
+    <tr><td style="padding:20px 28px 28px 28px;font-size:16px;line-height:1.55;">
+      <p style="margin:0;">See you soon,<br><strong>The ${escapeHtml(b.shortName)} Team</strong></p>
+    </td></tr>
+    <tr><td style="background:#f3f4f6;padding:14px 28px;text-align:center;font-size:12px;color:#6b7280;">
+      ${escapeHtml(b.longName)}<br>Please do not reply to this email.
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>`;
+
+  return { subject, text, html };
+}
+
 // Admin-only TEST send. Always goes to TEST_RECIPIENT with sample data - the
 // caller cannot choose the recipient or the content.
 export function registerVenueEmailTestRoute(app, deps) {
@@ -154,6 +222,18 @@ export function registerVenueEmailTestRoute(app, deps) {
   app.post('/api/admin/mail/test-membership-expiry', requireAdmin, asyncRoute((req, res) => {
     const expiry = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
     const msg = membershipExpiryEmail({ firstName: 'Sam', expiryDate: formatUkLongDate(expiry), daysLeft: 5, venueName: 'Top Spin' });
+    sendMail({
+      to: TEST_RECIPIENT,
+      subject: `[TEST] ${msg.subject}`,
+      text: msg.text,
+      html: msg.html,
+    }).then((result) => {
+      res.json({ ...result, sentTo: TEST_RECIPIENT, ...mailSettings(), recent: getMailLog() });
+    });
+  }));
+
+  app.post('/api/admin/mail/test-membership-expired', requireAdmin, asyncRoute((req, res) => {
+    const msg = membershipExpiredEmail({ firstName: 'Sam', venueName: 'Top Spin' });
     sendMail({
       to: TEST_RECIPIENT,
       subject: `[TEST] ${msg.subject}`,

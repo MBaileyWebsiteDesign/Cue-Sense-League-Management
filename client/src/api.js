@@ -617,6 +617,7 @@ const networkApi = {
   getMailStatus: () => request('/admin/mail/status'),
   sendTestEmail: () => request('/admin/mail/test', { method: 'POST' }),
   sendTestMembershipExpiryEmail: () => request('/admin/mail/test-membership-expiry', { method: 'POST' }),
+  sendTestMembershipExpiredEmail: () => request('/admin/mail/test-membership-expired', { method: 'POST' }),
   getMessageEmailPreference: () => request('/messages/email-preference'),
   setMessageEmailPreference: (emailMessageAlerts) =>
     request('/messages/email-preference', { method: 'POST', body: JSON.stringify({ emailMessageAlerts }) }),

@@ -14,6 +14,8 @@ export default function AdminEmail() {
   const [testResult, setTestResult] = useState(null);
   const [expiryTesting, setExpiryTesting] = useState(false);
   const [expiryResult, setExpiryResult] = useState(null);
+  const [expiredTesting, setExpiredTesting] = useState(false);
+  const [expiredResult, setExpiredResult] = useState(null);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Email' }]);
 
@@ -49,6 +51,21 @@ export default function AdminEmail() {
       setError(e.message);
     } finally {
       setExpiryTesting(false);
+    }
+  };
+
+  const sendExpiredTest = async () => {
+    setExpiredTesting(true);
+    setError('');
+    setExpiredResult(null);
+    try {
+      const r = await api.sendTestMembershipExpiredEmail();
+      setExpiredResult(r);
+      setStatus(r);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setExpiredTesting(false);
     }
   };
 
@@ -113,6 +130,19 @@ export default function AdminEmail() {
             {expiryResult.sent
               ? `Accepted by MailerSend for ${expiryResult.sentTo}. Check that inbox (and spam).`
               : `Not sent: ${expiryResult.error || 'unknown error'}`}
+          </p>
+        )}
+        <p className="muted" style={{ margin: 0 }}>
+          Test only. Sends the "membership has expired" email with sample data to matt.bailey1985@gmail.com.
+        </p>
+        <button type="button" className="btn btn-primary cs-btn-block" onClick={sendExpiredTest} disabled={expiredTesting}>
+          {expiredTesting ? 'Sending…' : 'Send test expired email'}
+        </button>
+        {expiredResult && (
+          <p className={expiredResult.sent ? 'banner banner-success' : 'error'} style={{ margin: 0 }}>
+            {expiredResult.sent
+              ? `Accepted by MailerSend for ${expiredResult.sentTo}. Check that inbox (and spam).`
+              : `Not sent: ${expiredResult.error || 'unknown error'}`}
           </p>
         )}
       </section>
