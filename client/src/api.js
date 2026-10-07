@@ -126,6 +126,8 @@ const networkApi = {
     request(`/venue-manager/venues/${encodeURIComponent(venueId)}/join-policy`, { method: 'POST', body: JSON.stringify({ joinPolicy }) }),
   setVenueExpiryEmails: (venueId, enabled) =>
     request(`/venue-manager/venues/${encodeURIComponent(venueId)}/expiry-emails`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  setVenueExpiredEmails: (venueId, enabled) =>
+    request(`/venue-manager/venues/${encodeURIComponent(venueId)}/expired-emails`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   getVenueJoinRequests: (venueId) => request(`/venue-manager/join-requests?venueId=${encodeURIComponent(venueId)}`),
   decideVenueJoinRequest: (id, decision) =>
     request(`/venue-manager/join-requests/${encodeURIComponent(id)}/${decision === 'approve' ? 'approve' : 'decline'}`, { method: 'POST' }),
