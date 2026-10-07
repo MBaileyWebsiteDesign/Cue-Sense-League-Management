@@ -1513,8 +1513,14 @@ function JoinRequestsCard({ venue, onApproved }) {
             <option value="approval">Players must be approved</option>
           </select>
         </label>
-        <label className="ll-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <input type="checkbox" checked={expiryOn} disabled={savingExpiry} onChange={(e) => changeExpiry(e.target.checked)} />
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, margin: '14px 0 4px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={expiryOn}
+            disabled={savingExpiry}
+            onChange={(e) => changeExpiry(e.target.checked)}
+            style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }}
+          />
           <span>Email players when their membership is 5 days from ending</span>
         </label>
         {error && <p className="error">{error}</p>}
