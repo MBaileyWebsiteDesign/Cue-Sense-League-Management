@@ -956,6 +956,7 @@ function MyVenuesForm({ player, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [confirmLeave, setConfirmLeave] = useState('');
 
   const loadVenues = () => {
     if (typeof api.listVenuesPublic !== 'function') { setVenues([]); return; }
@@ -973,6 +974,10 @@ function MyVenuesForm({ player, onSaved }) {
   const addVenue = (venues || []).find((v) => v.id === addId);
   const needsApproval = !!addVenue && addVenue.joinPolicy === 'approval';
   const today = todayUk();
+  // Venues left while the membership was still running: details kept until
+  // the end date, restored if the venue is added again before then.
+  const leftKept = (Array.isArray(player.leftVenueMemberships) ? player.leftVenueMemberships : [])
+    .filter((m) => m.renewalDate && m.renewalDate >= today && !memberships.some((x) => x.venueId === m.venueId));
 
   const runRequest = (fn, msg) => {
     setBusy(true);
@@ -1011,22 +1016,42 @@ function MyVenuesForm({ player, onSaved }) {
                       ? `${active ? 'Member' : 'Membership ended'}${m.startDate ? ` ${ukDate(m.startDate)}` : ''} – ${ukDate(m.renewalDate)}`
                       : 'No membership dates'}
                   </span>
+                  {active && confirmLeave === m.venueId && (
+                    <span className="muted">Your membership details are kept until {ukDate(m.renewalDate)}. Add the venue again before then to get them back.</span>
+                  )}
                 </span>
-                {active ? (
-                  <span className="cs-venue-lock" title="The venue has to remove an active membership">Active</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn cs-venue-remove"
-                    disabled={busy}
-                    onClick={() => run(() => api.leaveMyVenue(m.venueId), `${nameOf(m.venueId)} removed.`)}
-                  >
-                    Remove
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn cs-venue-remove"
+                  disabled={busy}
+                  onClick={() => {
+                    if (active && confirmLeave !== m.venueId) { setConfirmLeave(m.venueId); return; }
+                    setConfirmLeave('');
+                    run(
+                      () => api.leaveMyVenue(m.venueId),
+                      active
+                        ? `You've left ${nameOf(m.venueId)}. Your membership details are kept until ${ukDate(m.renewalDate)}.`
+                        : `${nameOf(m.venueId)} removed.`,
+                    );
+                  }}
+                >
+                  {active ? (confirmLeave === m.venueId ? 'Tap again to leave' : 'Leave') : 'Remove'}
+                </button>
               </li>
             );
           })}
+        </ul>
+      )}
+      {leftKept.length > 0 && (
+        <ul className="cs-venue-list">
+          {leftKept.map((m) => (
+            <li key={`left-${m.venueId}`} className="cs-venue-row">
+              <span className="cs-venue-main">
+                <strong>{nameOf(m.venueId)}</strong>
+                <span className="muted">Left – membership kept until {ukDate(m.renewalDate)}. Add the venue again to restore it.</span>
+              </span>
+            </li>
+          ))}
         </ul>
       )}
       {pendingVenues.length > 0 && (
