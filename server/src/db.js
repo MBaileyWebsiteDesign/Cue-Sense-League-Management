@@ -321,6 +321,13 @@ export function readDb() {
         }]
         : [];
     }
+    // Memberships a player left while still running (2026-10-08) are kept
+    // until their end date is in the past, then dropped.
+    if (Array.isArray(user.leftVenueMemberships)) {
+      const todayUk = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+      user.leftVenueMemberships = user.leftVenueMemberships
+        .filter((m) => m && m.renewalDate && String(m.renewalDate) >= todayUk);
+    }
   }
 
   cache = { mtimeMs, state };

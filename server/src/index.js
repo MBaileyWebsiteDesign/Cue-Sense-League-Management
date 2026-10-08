@@ -377,8 +377,10 @@ app.get('/api/users/me', requireAuth, asyncRoute((req, res) => {
 // Player self-service venues (Account settings > My venues, Matt 2026-09-25).
 // Any logged-in account can list venue names, join a venue (a membership
 // entry with no dates - the venue sets dates when they pay) and leave one.
-// A venue whose membership is still active (end date today or later) can't
-// be left from here - the venue or an admin has to remove it.
+// A player can leave any venue. If the membership there is still running
+// (end date today or later), the entry moves to user.leftVenueMemberships
+// with its dates kept until the end date passes; adding the venue again
+// before then restores it (see ensureMembership / leaveMembership).
 app.get('/api/venues/list', requireAuth, asyncRoute((req, res) => {
   const db = readDb();
   res.json(db.venues
@@ -483,16 +485,13 @@ app.delete('/api/users/me/venues/:venueId', requireAuth, asyncRoute((req, res) =
   const m = membershipAt(user, req.params.venueId);
   if (m) {
     const venue = db.venues.find((v) => v.id === m.venueId);
-    if (membershipActive(m)) {
-      throw new ApiError(400, `Your membership at ${venue ? venue.name : 'this venue'} runs until ${m.renewalDate} - ask the venue if you want it removed.`);
-    }
-    removeMembership(user, m.venueId);
+    const kept = leaveMembership(user, m.venueId);
     recordAudit(db, {
       actor: `${user.firstName} ${user.lastName}`,
       action: 'user.venueMembership',
       targetType: 'user',
       targetId: user.id,
-      details: `${user.firstName} ${user.lastName} removed "${venue ? venue.name : m.venueId}" from their venues`,
+      details: `${user.firstName} ${user.lastName} left "${venue ? venue.name : m.venueId}"${kept ? ` (membership details kept until ${m.renewalDate})` : ''}`,
     });
     writeDb(db);
   }
@@ -630,13 +629,41 @@ function ensureMembership(user, venueId) {
   if (!Array.isArray(user.venueMemberships)) user.venueMemberships = [];
   let m = membershipAt(user, venueId);
   if (!m) {
-    m = { venueId, startDate: null, renewalDate: null, joinedAt: new Date().toISOString() };
+    // Rejoining a venue they left while the membership was still running
+    // brings the kept dates back.
+    m = takeLeftMembership(user, venueId)
+      || { venueId, startDate: null, renewalDate: null, joinedAt: new Date().toISOString() };
     user.venueMemberships.push(m);
   }
   return m;
 }
 function removeMembership(user, venueId) {
   user.venueMemberships = venueMembershipsOf(user).filter((m) => m.venueId !== venueId);
+}
+// Memberships a player left while still running (Matt 2026-10-08): kept in
+// user.leftVenueMemberships until the end date is in the past.
+function pruneLeftMemberships(user) {
+  const kept = (Array.isArray(user.leftVenueMemberships) ? user.leftVenueMemberships : []).filter(membershipActive);
+  if (kept.length || Array.isArray(user.leftVenueMemberships)) user.leftVenueMemberships = kept;
+  return kept;
+}
+function takeLeftMembership(user, venueId) {
+  const kept = pruneLeftMemberships(user);
+  const entry = kept.find((x) => x.venueId === venueId);
+  if (!entry) return null;
+  user.leftVenueMemberships = kept.filter((x) => x !== entry);
+  const { leftAt, ...m } = entry;
+  return m;
+}
+// Player leaves a venue. Returns true when the membership details were kept.
+function leaveMembership(user, venueId) {
+  const m = membershipAt(user, venueId);
+  removeMembership(user, venueId);
+  const kept = pruneLeftMemberships(user).filter((x) => x.venueId !== venueId);
+  const keep = !!m && membershipActive(m);
+  if (keep) kept.push({ ...m, leftAt: new Date().toISOString() });
+  user.leftVenueMemberships = kept;
+  return keep;
 }
 // True while a membership's end date is today or later (UK date).
 function membershipActive(m) {
