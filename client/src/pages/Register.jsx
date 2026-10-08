@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 
@@ -8,6 +8,7 @@ const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 export default function Register() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '',
     phone: '', teamName: '', classification: '',
@@ -51,9 +52,14 @@ export default function Register() {
           // ignored - see comment above
         }
       }
-      // New self-registrations are never admins, so this always lands on My
-      // Account - mirrors Login.jsx's default for a non-admin sign-in.
-      navigate('/account');
+      // If the player came here from a page that needed a login (e.g. they
+      // tapped the bar check-in sticker, went to Log In, then "Create one"),
+      // RequireLogin's state.from is passed along by Login.jsx's link - send
+      // them straight back so they're checked in with one tap (Matt,
+      // 2026-10-08). Otherwise new self-registrations (never admins) land on
+      // My Account, mirroring Login.jsx's default for a non-admin sign-in.
+      const from = location.state?.from?.pathname;
+      navigate(from || '/account', { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -66,7 +72,7 @@ export default function Register() {
       <h1>Create Your Account</h1>
       <p className="muted">
         Register to browse leagues, divisions, fixtures and player profiles. Already have
-        an account? <Link to="/login">Sign in</Link>.
+        an account? <Link to="/login" state={location.state}>Sign in</Link>.
       </p>
       <p className="muted" style={{ fontSize: '0.85rem' }}>* Required field</p>
       <form className="card form" onSubmit={onSubmit}>
