@@ -52,7 +52,7 @@ export default function Login() {
       <h1>Log In</h1>
       <p className="muted">
         Sign in to browse leagues, divisions, fixtures and player profiles. No account
-        yet? <Link to="/register">Create one</Link>.
+        yet? <Link to="/register" state={location.state}>Create one</Link>.
       </p>
       <form className="card form" onSubmit={onSubmit}>
         <label>
