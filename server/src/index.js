@@ -332,7 +332,7 @@ startMembershipExpiryEmailJob({ readDb, writeDb, sendMail, membershipAt, canEmai
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
     firstName, lastName, email, password,
-    phone = '', teamName = '', classification = null,
+    phone = '', teamName = '', classification = null, venueId = null,
   } = req.body;
 
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
@@ -349,6 +349,17 @@ app.post('/api/users/register', asyncRoute((req, res) => {
     throw new ApiError(409, 'An account with this email already exists');
   }
 
+  // Optional venue picked on the sign-up form (Matt, 2026-10-09). Open venues
+  // add a membership straight away (same as POST /api/users/me/venues); venues
+  // set to 'approval' get a pending join request instead (same as
+  // POST /api/users/me/venue-requests).
+  let signupVenue = null;
+  if (venueId) {
+    signupVenue = db.venues.find((v) => v.id === venueId);
+    if (!signupVenue) throw new ApiError(400, 'That venue could not be found - please pick another');
+  }
+  const venueNeedsApproval = !!signupVenue && signupVenue.joinPolicy === 'approval';
+
   const user = createUserAccount(db, {
     firstName: firstName.trim(),
     lastName: lastName.trim(),
@@ -363,11 +374,51 @@ app.post('/api/users/register', asyncRoute((req, res) => {
     classification: classification || null,
     isAdmin: false,
     isCaptain: false,
+    venueId: signupVenue && !venueNeedsApproval ? signupVenue.id : null,
   });
+  if (signupVenue) {
+    if (venueNeedsApproval) {
+      if (!Array.isArray(signupVenue.joinRequests)) signupVenue.joinRequests = [];
+      signupVenue.joinRequests.push({
+        id: uuid(),
+        userId: user.id,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        decidedAt: null,
+        decidedBy: null,
+      });
+    }
+    recordAudit(db, {
+      actor: userDisplayName(user),
+      action: venueNeedsApproval ? 'venue.join_request' : 'user.venueMembership',
+      targetType: venueNeedsApproval ? 'venue' : 'user',
+      targetId: venueNeedsApproval ? signupVenue.id : user.id,
+      details: venueNeedsApproval
+        ? `${userDisplayName(user)} asked to join "${signupVenue.name}" while creating their account`
+        : `${userDisplayName(user)} chose "${signupVenue.name}" as their venue while creating their account`,
+    });
+  }
   writeDb(db);
 
   const { token, expiresAt } = createSessionToken(user.id);
   res.status(201).json({ token, expiresAt, user: publicUser(user) });
+
+  // Tell the venue's managers about the request, as the in-app request does.
+  if (venueNeedsApproval) {
+    const link = `${baseUrlFor(req)}/venue-manager`;
+    const who = userDisplayName(user);
+    for (const managerId of signupVenue.managerUserIds || []) {
+      const mgr = db.users.find((u) => u.id === managerId);
+      if (!canEmail(mgr)) continue;
+      sendMail({
+        to: mgr.email,
+        toName: userDisplayName(mgr),
+        subject: `New request to join ${signupVenue.name}`,
+        text: `Hi ${mgr.firstName || 'there'},\n\n${who} has asked to join ${signupVenue.name}. Approve or decline it from the Venue Manager Portal:\n${link}`,
+        html: emailHtml('New join request', `<p>Hi ${escapeHtml(mgr.firstName || 'there')},</p><p><strong>${escapeHtml(who)}</strong> has asked to join <strong>${escapeHtml(signupVenue.name)}</strong>.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Review the request</a></p>`),
+      });
+    }
+  }
 }));
 
 app.get('/api/users/me', requireAuth, asyncRoute((req, res) => {
@@ -381,7 +432,7 @@ app.get('/api/users/me', requireAuth, asyncRoute((req, res) => {
 // (end date today or later), the entry moves to user.leftVenueMemberships
 // with its dates kept until the end date passes; adding the venue again
 // before then restores it (see ensureMembership / leaveMembership).
-app.get('/api/venues/list', requireAuth, asyncRoute((req, res) => {
+app.get('/api/venues/list', optionalAuth, asyncRoute((req, res) => {
   const db = readDb();
   res.json(db.venues
     .map((v) => ({
@@ -389,7 +440,8 @@ app.get('/api/venues/list', requireAuth, asyncRoute((req, res) => {
       name: v.name,
       joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
       // This player's own pending request for the venue, if any.
-      requestPending: !!pendingJoinRequest(v, req.auth.user.id),
+      // (false for logged-out visitors - the sign-up form uses this list too.)
+      requestPending: req.auth?.user ? !!pendingJoinRequest(v, req.auth.user.id) : false,
     }))
     .sort((a, b) => a.name.localeCompare(b.name)));
 }));
