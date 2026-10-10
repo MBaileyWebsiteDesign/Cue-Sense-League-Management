@@ -13,6 +13,8 @@ import './publicPages.css';
 //
 // Usage: embed this page's URL, e.g.
 //   https://your-deployment.example.com/public/divisions/<divisionId>/fixtures
+// Look refreshed 2026-10-10 (green header banner, accent rows) - scoped to
+// .public-themed in publicPages.css.
 const POLL_INTERVAL_MS = 15000;
 
 export default function PublicDivisionFixtures() {
@@ -50,14 +52,14 @@ export default function PublicDivisionFixtures() {
 
   if (!data) {
     return (
-      <div className="public-root">
+      <div className="public-root public-themed">
         {error ? <p className="public-empty-state">{error}</p> : <p className="public-empty-state">Loading…</p>}
       </div>
     );
   }
 
   return (
-    <div className="public-root">
+    <div className="public-root public-themed">
       <div className="public-header">
         <h1>{data.divisionName}{data.leagueName ? ` — ${data.leagueName}` : ''} — Fixtures</h1>
         <span className="public-updated">Updated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -67,7 +69,7 @@ export default function PublicDivisionFixtures() {
 
       <ul className="public-fixture-list">
         {data.fixtures.map((f) => (
-          <li key={f.fixtureId}>
+          <li key={f.fixtureId} className={`public-fx public-fx-${f.status}`}>
             <div className="public-fixture-entrants">
               {f.home.name}
               {f.status === 'completed' || f.status === 'in_progress' ? (

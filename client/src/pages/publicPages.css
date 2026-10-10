@@ -270,3 +270,64 @@
 .public-themed .public-footer { font-size: 0.95rem; margin-top: 12px; }
 .public-themed .public-footer a { color: var(--secondary-dark); font-weight: 700; text-decoration: none; }
 .public-themed .public-footer a:hover { text-decoration: underline; }
+
+/* Fixtures, Bracket and Interests embeds (2026-10-10): same .public-themed look
+   as the table pages above (the banner header, division cards and footer rules
+   already apply). Palette: existing green / gold only. */
+.public-themed .public-fixture-list { margin-bottom: 14px; }
+.public-themed .public-fixture-list li.public-fx {
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-left: 5px solid #d1d5db;
+  border-bottom: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.95rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.public-themed .public-fx-in_progress { border-left-color: var(--cta); background: #fffaf0; }
+.public-themed .public-fx-completed { border-left-color: var(--secondary-dark); }
+.public-themed .public-fixture-score {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: #e7f2ea;
+  color: var(--primary);
+}
+.public-themed .public-fx-in_progress .public-fixture-score { background: var(--cta); color: #1a1a1a; }
+.public-themed .public-division-meta { color: var(--muted); }
+.public-themed .public-status-pill { background: #e7f2ea; color: var(--primary); }
+.public-themed .public-status-pill.public-status-live { background: var(--cta); color: #1a1a1a; }
+.public-themed .public-status-pill.public-status-completed { background: var(--secondary-dark); color: #ffffff; }
+.public-themed .public-status-pill.public-status-awaiting { background: transparent; color: var(--muted); }
+.public-themed > .public-complete-pill { margin: 0 0 12px; }
+.public-themed .public-table { background: #ffffff; border-radius: 12px; }
+.public-themed .public-table td .public-complete-pill { background: var(--secondary-dark); color: #ffffff; }
+.public-themed .public-table td .muted {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff6f5;
+  border: 1px solid #f1c7c3;
+  color: #b3413a;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.public-themed .public-footer .btn-primary {
+  background: var(--cta);
+  border-color: var(--cta);
+  color: #1a1a1a;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 10px 24px;
+  font-size: 1rem;
+}
+.public-themed .public-footer .btn-primary:hover { background: #e6b53c; border-color: #e6b53c; }
+.public-themed .bracket-chart-scroll { background: #ffffff; border: 1px solid #bfe0c4; border-radius: 14px; }
+.public-themed .bracket-box { stroke: var(--primary); }
+.public-themed .bracket-box-final { stroke: var(--cta); stroke-width: 3; }
+.public-themed .bracket-connector { stroke: var(--secondary-dark); }
+.public-themed .bracket-round-label { fill: var(--primary); }
+.public-themed > .public-table { margin-left: 0; margin-right: 0; width: 100%; border: 1px solid #bfe0c4; overflow: hidden; }
+.public-themed > .public-table tbody tr:nth-child(1) td:first-child { color: var(--muted); }
