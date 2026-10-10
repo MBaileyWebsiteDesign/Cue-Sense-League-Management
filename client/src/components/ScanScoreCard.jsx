@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import './scanScoreCard.css';
 
@@ -94,6 +94,15 @@ export function deriveFrames(homeBoxes, awayBoxes, raceTo) {
 export default function ScanScoreCard({ fixture, homeName, awayName, onApplied }) {
   const cameraRef = useRef(null);
   const fileRef = useRef(null);
+  const topRef = useRef(null);
+
+  // Arriving from the Player Portal's "Scan score card" button (?scan=1):
+  // bring the panel into view rather than leaving it below the scoreboard.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('scan') && topRef.current) {
+      topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
   const [stage, setStage] = useState('idle'); // idle | scanning | review | saving
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
@@ -159,7 +168,7 @@ export default function ScanScoreCard({ fixture, homeName, awayName, onApplied }
 
   if (stage === 'idle' || stage === 'scanning') {
     return (
-      <section className="card sc-card">
+      <section className="card sc-card" ref={topRef}>
         <div className="cs-card-head"><h2>Scan score card</h2></div>
         <p className="muted sc-lead">
           Played on paper? Photograph the card and check the digital version before anything is recorded.

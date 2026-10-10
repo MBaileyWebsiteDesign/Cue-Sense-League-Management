@@ -856,6 +856,13 @@ app.get('/api/users/me/fixtures', requireAuth, asyncRoute((req, res) => {
       scheduledDate: f.scheduledDate || null,
       opponentName: opponentName || 'TBD',
       opponentUserId,
+      // True when the paper score card scan (see "Scan a paper score card")
+      // can be used on this match: singles/doubles with a frame target and
+      // nothing recorded or submitted yet. Drives the Player Portal button.
+      scanCardAvailable: !isTeams
+        && f.raceTo != null
+        && Array.isArray(f.frames) && f.frames.length === 0
+        && !['completed', 'pending_confirmation', 'disputed'].includes(f.status),
     };
   });
 
