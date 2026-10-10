@@ -198,3 +198,75 @@
   color: var(--muted, #6b7280);
   margin-top: 8px;
 }
+
+/* Table pages refresh (2026-10-10): League Table and Division Table only,
+   scoped with .public-themed. Same green/gold palette as the app, still on a
+   light page so it sits well inside someone else's website. The compact
+   phone standings (.cs-st-*, shared with the in-app pages) are only restyled
+   here, under .public-themed. */
+.public-themed .public-header {
+  align-items: center;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 4px 14px rgba(10, 38, 23, 0.22);
+}
+.public-themed .public-header h1 { color: #ffffff; font-size: 1.35rem; line-height: 1.2; }
+.public-themed .public-updated {
+  color: #1a1a1a;
+  background: var(--cta);
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.public-themed .public-division-block {
+  padding: 0 0 6px;
+  overflow: hidden;
+  border: 1px solid #bfe0c4;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.public-themed .public-division-header {
+  align-items: center;
+  margin: 0 0 8px;
+  padding: 10px 16px;
+  background: #e7f2ea;
+  border-bottom: 3px solid var(--secondary-dark);
+}
+.public-themed .public-division-header h2 { color: var(--primary); font-size: 1.1rem; }
+.public-themed .public-complete-pill { background: var(--cta); color: #1a1a1a; }
+.public-themed .public-table,
+.public-themed .cs-standings-mobile,
+.public-themed .public-standings-legend,
+.public-themed .public-empty-state { margin-left: 12px; margin-right: 12px; }
+.public-themed .public-table { width: calc(100% - 24px); }
+.public-themed .public-table thead th { color: var(--primary); border-bottom: 2px solid var(--primary); }
+.public-themed .public-table tbody tr:nth-child(even) { background: #f7faf7; }
+.public-themed .public-table tbody td:first-child { font-weight: 700; color: var(--muted); }
+.public-themed .public-table tbody tr:nth-child(1) td:first-child,
+.public-themed .cs-st-row:nth-child(2) .cs-st-pos { color: var(--cta-dark); }
+.public-themed .public-table td strong,
+.public-themed .cs-st-main .cs-st-pts {
+  display: inline-block;
+  min-width: 1.9em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #ffffff;
+  text-align: center;
+  font-weight: 700;
+}
+.public-themed .public-table tbody tr:nth-child(1) td strong,
+.public-themed .cs-st-row:nth-child(2) .cs-st-main .cs-st-pts { background: var(--cta); color: #1a1a1a; }
+.public-themed .cs-st-head { color: var(--primary); border-bottom: 2px solid var(--primary); }
+.public-themed .cs-st-head .cs-st-pts { background: none; color: var(--primary); padding: 0; min-width: 0; }
+.public-themed .cs-st-main:hover { background: #f3f8f4; }
+.public-themed .cs-st-row:nth-child(2) .cs-st-name { font-weight: 800; }
+.public-themed .cs-st-tile { background: #e7f2ea; }
+.public-themed .cs-st-tile strong { color: var(--primary); }
+.public-themed .cs-st-link { color: var(--secondary-dark); }
+.public-themed .public-footer { font-size: 0.95rem; margin-top: 12px; }
+.public-themed .public-footer a { color: var(--secondary-dark); font-weight: 700; text-decoration: none; }
+.public-themed .public-footer a:hover { text-decoration: underline; }
