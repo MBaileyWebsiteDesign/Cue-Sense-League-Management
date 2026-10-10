@@ -542,6 +542,36 @@ const networkApi = {
     request(`/fixtures/${fixtureId}/frames`, { method: 'POST', body: JSON.stringify({ winnerPlayerId, method, breaker, clientRequestId }) }),
   undoLastFrame: (fixtureId) => request(`/fixtures/${fixtureId}/frames/last`, { method: 'DELETE' }),
   submitResult: (fixtureId) => request(`/fixtures/${fixtureId}/submit-result`, { method: 'POST' }),
+  // Scan a paper score card (see server/src/index.js "Scan a paper score card").
+  // scanScoreCard sends the photo (multipart, so it bypasses the JSON-only
+  // request() helper like uploadGuide does) and returns the transcribed boxes
+  // without recording anything; applyScoreCard records the reviewed frames.
+  scanScoreCard: async (fixtureId, photo, homeName, awayName) => {
+    const token = getStoredToken();
+    const formData = new FormData();
+    formData.append('homeName', homeName || '');
+    formData.append('awayName', awayName || '');
+    formData.append('photo', photo, 'scorecard.jpg');
+    let res;
+    try {
+      res = await fetch(`${BASE}/fixtures/${fixtureId}/scan-score-card`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+    } catch (err) {
+      throw new Error('Network error - the photo did not reach the server');
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(body.error || `Request failed: ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return body;
+  },
+  applyScoreCard: (fixtureId, frames) =>
+    request(`/fixtures/${fixtureId}/apply-score-card`, { method: 'POST', body: JSON.stringify({ frames }) }),
   confirmResult: (fixtureId) => request(`/fixtures/${fixtureId}/confirm-result`, { method: 'POST' }),
   disputeResult: (fixtureId, reason) =>
     request(`/fixtures/${fixtureId}/dispute-result`, { method: 'POST', body: JSON.stringify({ reason }) }),

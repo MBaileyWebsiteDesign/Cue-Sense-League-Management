@@ -13,6 +13,7 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useIsAdminSession } from '../useAdminSession.js';
 import { useAuth } from '../AuthContext.jsx';
 import { formatFixtureDate } from '../components/StatsUI.jsx';
+import ScanScoreCard from '../components/ScanScoreCard.jsx';
 
 // Shared "submitted, awaiting confirmation / disputed" banner + action
 // buttons for a result that's reached the submit -> confirm handshake (see
@@ -875,6 +876,18 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
         {/* Match tools stay above the scoring buttons until a table & venue
             has been saved, then drop below the Frames card. */}
         {!tableSaved && tools}
+
+        {/* Paper score card trial (staging): only offered while the match has no
+            frames yet; the digital version is reviewed before anything is
+            recorded, then the normal Submit/confirm handshake applies. */}
+        {!locked && !isFreePlay && fixture.frames.length === 0 && typeof api.scanScoreCard === 'function' && (
+          <ScanScoreCard
+            fixture={fixture}
+            homeName={homeEntrant.name}
+            awayName={awayEntrant.name}
+            onApplied={onChange}
+          />
+        )}
 
         {!locked && (
           <div className="cs-score-grid">

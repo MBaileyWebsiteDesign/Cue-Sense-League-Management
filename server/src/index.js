@@ -8111,6 +8111,184 @@ app.delete('/api/fixtures/:id/frames/last', requireAuth, asyncRoute((req, res) =
   res.json(fixture);
 }));
 
+// ---------- Scan a paper score card (2026-10-10, staging trial) ----------
+// For matches scored on a paper card (two rows of boxes, one row per player,
+// first to the race target). Two steps, so nothing is recorded until the
+// person has looked at the digital version and confirmed it:
+//   1. POST .../scan-score-card (multipart, field "photo"): the photo is sent
+//      to a vision model, which transcribes the boxes as written. Nothing is
+//      saved and the photo itself is never stored.
+//   2. POST .../apply-score-card ({ frames: ['home'|'away', ...] }): the
+//      reviewed frame winners, in order, are recorded as ordinary frames. The
+//      fixture is then 'in_progress' and the normal Submit -> confirm/dispute
+//      handshake takes over, so a scanned card never skips it.
+// Singles/doubles only for now (team legs aren't covered), and only into a
+// match with no frames recorded yet.
+const SCORE_CARD_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const SCORE_CARD_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
+const scoreCardPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    if (!SCORE_CARD_PHOTO_TYPES.includes(file.mimetype)) {
+      cb(new ApiError(400, 'Please upload a JPEG, PNG or WebP photo'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+function receiveScoreCardPhoto(req, res, next) {
+  scoreCardPhotoUpload.single('photo')(req, res, (err) => {
+    if (!err) return next();
+    if (err instanceof ApiError) return next(err);
+    next(new ApiError(400, err.code === 'LIMIT_FILE_SIZE' ? 'That photo is too large (8MB max)' : 'Could not read the uploaded photo'));
+  });
+}
+
+function assertScoreCardAllowed(req, db, fixture) {
+  assertCanControlFixture(req, db, fixture);
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+    throw new ApiError(403, "This round hasn't been released to players yet");
+  }
+  if (division.entryType === 'teams') {
+    throw new ApiError(400, 'Score card scanning is only available for singles and doubles matches for now');
+  }
+  if (fixture.raceTo == null) {
+    throw new ApiError(400, 'Free Play has no frame target, so a score card cannot be scanned for it');
+  }
+  if (!fixture.homePlayerId || !fixture.awayPlayerId) {
+    throw new ApiError(400, 'Both players for this fixture are not yet known - waiting on an earlier round');
+  }
+  if (['completed', 'pending_confirmation', 'disputed'].includes(fixture.status)) {
+    throw new ApiError(400, 'This result has already been submitted, so a score card cannot be loaded into it');
+  }
+  if (fixture.frames.length > 0) {
+    throw new ApiError(400, 'Frames have already been recorded for this match - a score card can only be loaded into a match with no frames yet');
+  }
+}
+
+async function readScoreCardWithVision({ buffer, mediaType, homeName, awayName, raceTo }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new ApiError(503, 'Score card scanning is not switched on for this server yet (ANTHROPIC_API_KEY is not set).');
+  }
+  const maxBoxes = raceTo * 2 - 1;
+  const prompt = [
+    `This is a photo of a paper pool league score card for one match (first to ${raceTo} frames wins).`,
+    `The card has two rows, one per player. The player's name is written at the start of each row, followed by a grid of boxes (up to ${maxBoxes} per row) that hold the frame scores written by hand.`,
+    `The match is expected to be between "${homeName}" and "${awayName}" - use that only to help you read the names; transcribe the names as actually written.`,
+    'Transcribe exactly what is written in every box of each row, left to right, WITHOUT interpreting or correcting it: a digit as that digit, a tick or other mark as "x", an empty box as "", and anything you cannot read confidently as "?". Never invent values and never fill a blank box from the other row.',
+    'If the photo is not a score card of this layout, return empty boxes for both rows and say so in notes.',
+    'Reply with JSON only, no other text, in exactly this shape: {"rows":[{"name":"<name written on the first row>","boxes":["..."]},{"name":"<name written on the second row>","boxes":["..."]}],"notes":"<one short sentence on anything unclear, or empty>"}',
+  ].join('\n');
+
+  let response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: SCORE_CARD_MODEL,
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') } },
+            { type: 'text', text: prompt },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+  } catch (err) {
+    console.error(`Score card scan: request to the vision service failed (${err.name}: ${err.message})`);
+    throw new ApiError(504, 'The scan service did not respond in time - please try again');
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    console.error(`Score card scan: vision service returned ${response.status}: ${detail.slice(0, 300)}`);
+    throw new ApiError(502, 'The scan service could not read this photo - please try again, or enter the frames by hand');
+  }
+  const data = await response.json().catch(() => ({}));
+  const text = (Array.isArray(data.content) ? data.content : []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  let parsed = null;
+  try { parsed = JSON.parse(jsonMatch ? jsonMatch[0] : ''); } catch { parsed = null; }
+  if (!parsed || !Array.isArray(parsed.rows) || parsed.rows.length !== 2) {
+    throw new ApiError(502, 'The scan could not be read - please retake the photo (flat, well lit, whole card in frame)');
+  }
+  const rows = parsed.rows.map((r) => ({
+    name: typeof r?.name === 'string' ? r.name.slice(0, 80) : '',
+    boxes: (Array.isArray(r?.boxes) ? r.boxes : []).slice(0, maxBoxes).map((b) => (b == null ? '' : String(b).trim().slice(0, 4))),
+  }));
+  return { rows, notes: typeof parsed.notes === 'string' ? parsed.notes.slice(0, 300) : '' };
+}
+
+// Not wrapped in asyncRoute: that helper only catches synchronous throws,
+// and this handler awaits an external call, so errors go to next() here.
+app.post('/api/fixtures/:id/scan-score-card', requireAuth, receiveScoreCardPhoto, async (req, res, next) => {
+  try {
+    const db = readDb();
+    const fixture = db.fixtures.find((f) => f.id === req.params.id);
+    if (!fixture) throw new ApiError(404, 'Fixture not found');
+    assertScoreCardAllowed(req, db, fixture);
+    if (!req.file) throw new ApiError(400, 'No photo was uploaded');
+    const clean = (v) => String(v || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 80);
+    const result = await readScoreCardWithVision({
+      buffer: req.file.buffer,
+      mediaType: req.file.mimetype,
+      homeName: clean(req.body?.homeName) || 'Player 1',
+      awayName: clean(req.body?.awayName) || 'Player 2',
+      raceTo: fixture.raceTo,
+    });
+    res.json({ ...result, raceTo: fixture.raceTo, maxBoxes: fixture.raceTo * 2 - 1 });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/fixtures/:id/apply-score-card', requireAuth, asyncRoute((req, res) => {
+  const { frames } = req.body || {};
+  const db = readDb();
+  const fixture = db.fixtures.find((f) => f.id === req.params.id);
+  if (!fixture) throw new ApiError(404, 'Fixture not found');
+  assertScoreCardAllowed(req, db, fixture);
+  const raceTo = fixture.raceTo;
+  if (!Array.isArray(frames) || frames.length === 0 || frames.length > raceTo * 2 - 1) {
+    throw new ApiError(400, `frames must be a list of 1 to ${raceTo * 2 - 1} frame winners`);
+  }
+  let home = 0;
+  let away = 0;
+  frames.forEach((winner, i) => {
+    if (winner !== 'home' && winner !== 'away') throw new ApiError(400, "Each frame winner must be 'home' or 'away'");
+    if (home >= raceTo || away >= raceTo) {
+      throw new ApiError(400, `Frame ${i + 1} comes after a side already reached the race target (${raceTo})`);
+    }
+    if (winner === 'home') home += 1; else away += 1;
+  });
+  if (home < raceTo && away < raceTo) {
+    throw new ApiError(400, `Neither side reaches the race target (${raceTo}) on this card`);
+  }
+  frames.forEach((winner) => {
+    fixture.frames.push({
+      frameNumber: fixture.frames.length + 1,
+      winnerPlayerId: winner === 'home' ? fixture.homePlayerId : fixture.awayPlayerId,
+      table: fixture.table || undefined,
+      venue: fixture.venue || undefined,
+      fromScoreCard: true,
+    });
+  });
+  fixture.homeFrameScore = home;
+  fixture.awayFrameScore = away;
+  fixture.status = 'in_progress';
+  fixture.scoreCardAppliedBy = req.auth.user.id;
+  fixture.scoreCardAppliedAt = new Date().toISOString();
+  writeDb(db);
+  res.json(fixture);
+}));
+
 // ---------- Result confirmation (singles/doubles) ----------
 // Recording frames alone no longer finishes a match: once a side reaches the
 // race target, whoever's entering scores clicks "Submit for Confirmation"
