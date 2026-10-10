@@ -1331,19 +1331,86 @@ app.delete('/api/venues/:id/managers/:userId', requireAdmin, asyncRoute((req, re
 // effectively sees every venue, exactly like an Overall Admin isn't scoped
 // to specific leagues either.
 
+// ---------- Bar Staff Portal ----------
+// Bar Staff (2026-10-10) get their own copy of the Venue Manager Portal
+// (client/src/pages/BarStaffPortal.jsx) that talks to /api/bar-staff/*. Each
+// request is checked against BAR_STAFF_ROUTES below - the ONLY endpoints Bar
+// Staff can reach - and then handled by the matching /api/venue-manager/*
+// handler with req.barStaffMode set, which makes requireVenueManager accept the
+// isBarStaff flag and assertVenueAccess limit the user to the venue(s) in their
+// own venueMemberships (see userAuth.js). A Bar Staff account has no access to
+// /api/venue-manager/* directly. To take a feature away from Bar Staff, delete
+// its row here (and hide it in BarStaffPortal.jsx).
+const BAR_STAFF_ROUTES = [
+  ['GET', '/venues'],
+  ['POST', '/venues/:id/join-policy'],
+  ['POST', '/venues/:id/expiry-emails'],
+  ['POST', '/venues/:id/expired-emails'],
+  ['GET', '/join-requests'],
+  ['POST', '/join-requests/:id/approve'],
+  ['POST', '/join-requests/:id/decline'],
+  ['GET', '/status'],
+  ['GET', '/status/players'],
+  ['GET', '/players'],
+  ['GET', '/bookings/stream'],
+  ['GET', '/bookings'],
+  ['POST', '/bookings/:id/paid'],
+  ['GET', '/walkin-tables'],
+  ['POST', '/walkins'],
+  ['POST', '/bookings/:id/cancel'],
+  ['POST', '/walkins/:id/cancel'],
+  ['POST', '/blocks/:id/cancel'],
+  ['POST', '/walkins/book-all-tables'],
+  ['GET', '/table-availability'],
+  ['POST', '/players/:id/renew'],
+  ['POST', '/players/:id/membership-dates'],
+  ['DELETE', '/players/:id'],
+  ['POST', '/checkins'],
+  ['GET', '/checkins'],
+  ['POST', '/checkins/clear'],
+  ['DELETE', '/checkins/:id'],
+  ['GET', '/players/:id/membership'],
+  ['POST', '/players/:id/venue'],
+  ['POST', '/players/:id/cards'],
+  ['DELETE', '/players/:id/cards/:uid'],
+  ['POST', '/checkin-tag'],
+];
+const BAR_STAFF_ROUTE_MATCHERS = BAR_STAFF_ROUTES.map(([method, pattern]) => ({
+  method,
+  re: new RegExp('^' + pattern.replace(/:[A-Za-z]+/g, '[^/]+') + '$'),
+}));
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/bar-staff/')) return next();
+  const sub = req.path.slice('/api/bar-staff'.length);
+  if (!BAR_STAFF_ROUTE_MATCHERS.some((r) => r.method === req.method && r.re.test(sub))) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  req.barStaffMode = true;
+  req.url = '/api/venue-manager' + req.url.slice('/api/bar-staff'.length);
+  next();
+});
+
 app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) => {
   const db = readDb();
   const { user } = req.auth;
+  // Bar Staff see the venue(s) they are a member of (user.venueMemberships).
+  const memberVenueIds = new Set((Array.isArray(user.venueMemberships) ? user.venueMemberships : []).map((m) => m && m.venueId));
   const venues = user.isAdmin
     ? db.venues
-    : db.venues.filter((v) => Array.isArray(v.managerUserIds) && v.managerUserIds.includes(user.id));
+    : req.barStaffMode
+      ? db.venues.filter((v) => memberVenueIds.has(v.id))
+      : db.venues.filter((v) => Array.isArray(v.managerUserIds) && v.managerUserIds.includes(user.id));
   res.json([...venues]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map(({ joinRequests, ...v }) => ({
-      ...v,
-      joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
-      pendingJoinRequests: (joinRequests || []).filter((r) => r.status === 'pending').length,
-    })));
+    .map(({ joinRequests, ...v }) => {
+      const out = {
+        ...v,
+        joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
+        pendingJoinRequests: (joinRequests || []).filter((r) => r.status === 'pending').length,
+      };
+      if (req.barStaffMode) delete out.managerUserIds;
+      return out;
+    }));
 }));
 
 // Join policy for a venue: 'open' (players add it themselves) or 'approval'
@@ -9767,7 +9834,7 @@ app.patch('/api/admin/users/:id', requireAdmin, asyncRoute((req, res) => {
 // Sets isAdmin/isCaptain in one call - replaces the old single-value `role`
 // toggle now that an account can be both, either or neither.
 app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res) => {
-  const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isReferee, venuePortalDefault, playerPortalDisabled } = req.body;
+  const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isBarStaff, isReferee, venuePortalDefault, playerPortalDisabled } = req.body;
   const db = readDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
@@ -9810,9 +9877,9 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
     changes.push(user.isVenueManager ? 'granted Venue Manager' : 'revoked Venue Manager');
     if (!user.isVenueManager) {
       // No longer a Venue Manager, so the "land on the portal" tick goes too.
-      user.venuePortalDefault = false;
+      if (!user.isBarStaff) user.venuePortalDefault = false;
       // ...and so does "Player Portal off" (it only applies to Venue Managers).
-      user.playerPortalDisabled = false;
+      if (!user.isBarStaff) user.playerPortalDisabled = false;
       for (const venue of db.venues) {
         if (Array.isArray(venue.managerUserIds) && venue.managerUserIds.includes(user.id)) {
           venue.managerUserIds = venue.managerUserIds.filter((id) => id !== user.id);
@@ -9820,12 +9887,23 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
       }
     }
   }
+  // Bar Staff flag (2026-10-10): lets the account use the Bar Staff Portal for
+  // the venue(s) it is a member of (user.venueMemberships) - no separate venue
+  // assignment, see assertVenueAccess in userAuth.js.
+  if (isBarStaff !== undefined && !!isBarStaff !== !!user.isBarStaff) {
+    user.isBarStaff = !!isBarStaff;
+    changes.push(user.isBarStaff ? 'granted Bar Staff' : 'revoked Bar Staff');
+    if (!user.isBarStaff && !user.isVenueManager) {
+      user.venuePortalDefault = false;
+      user.playerPortalDisabled = false;
+    }
+  }
   // Venue Manager Portal as the login landing page (2026-10-01). Only an
   // account that is a Venue Manager can have it ticked. Overall Admins always
   // land on the Admin Portal regardless (see Login.jsx).
   if (venuePortalDefault !== undefined && !!venuePortalDefault !== !!user.venuePortalDefault) {
-    if (venuePortalDefault && !user.isVenueManager) {
-      throw new ApiError(400, 'Grant Venue Manager first - only Venue Managers can land on the Venue Manager Portal');
+    if (venuePortalDefault && !user.isVenueManager && !user.isBarStaff) {
+      throw new ApiError(400, 'Grant Venue Manager or Bar Staff first - only they can land on a staff portal');
     }
     user.venuePortalDefault = !!venuePortalDefault;
     changes.push(user.venuePortalDefault ? 'set Venue Manager Portal as login landing page' : 'cleared Venue Manager Portal as login landing page');
@@ -9835,8 +9913,8 @@ app.post('/api/admin/users/:id/permissions', requireAdmin, asyncRoute((req, res)
   // set; the client then hides the Player Portal link and redirects / and
   // /account to the Venue Manager Portal (see App.jsx RequirePlayerPortal).
   if (playerPortalDisabled !== undefined && !!playerPortalDisabled !== !!user.playerPortalDisabled) {
-    if (playerPortalDisabled && !user.isVenueManager) {
-      throw new ApiError(400, 'Grant Venue Manager first - only Venue Managers can have the Player Portal switched off');
+    if (playerPortalDisabled && !user.isVenueManager && !user.isBarStaff) {
+      throw new ApiError(400, 'Grant Venue Manager or Bar Staff first - only they can have the Player Portal switched off');
     }
     user.playerPortalDisabled = !!playerPortalDisabled;
     changes.push(user.playerPortalDisabled ? 'switched Player Portal off' : 'switched Player Portal back on');

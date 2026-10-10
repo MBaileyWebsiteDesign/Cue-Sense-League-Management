@@ -253,7 +253,13 @@ export function requireVenueManager(req, res, next) {
   if (!user || user.status === 'suspended') {
     throw new ApiError(401, 'Login required for this action');
   }
-  if (!user.isAdmin && !user.isVenueManager) {
+  if (req.barStaffMode) {
+    // Reached through /api/bar-staff/* (see the Bar Staff Portal middleware in
+    // index.js): only Bar Staff (or an Overall Admin) get in this way.
+    if (!user.isAdmin && !user.isBarStaff) {
+      throw new ApiError(403, 'Admin or Bar Staff access required');
+    }
+  } else if (!user.isAdmin && !user.isVenueManager) {
     throw new ApiError(403, 'Admin or Venue Manager access required');
   }
   req.auth = { userId: user.id, user };
@@ -270,6 +276,20 @@ export function assertVenueAccess(req, venue) {
   const user = req.auth && req.auth.user;
   if (!user) throw new ApiError(401, 'Login required for this action');
   if (user.isAdmin) return;
+  // Bar Staff (2026-10-10): scoped to the venue(s) they are a member of
+  // (user.venueMemberships), not to venue.managerUserIds. Only ever reached via
+  // /api/bar-staff/*, so a Bar Staff flag alone gives no access to /api/venue-manager/*.
+  if (req.barStaffMode) {
+    if (
+      user.isBarStaff &&
+      venue &&
+      Array.isArray(user.venueMemberships) &&
+      user.venueMemberships.some((m) => m && m.venueId === venue.id)
+    ) {
+      return;
+    }
+    throw new ApiError(403, "You don't have access to this venue");
+  }
   if (
     user.isVenueManager &&
     venue &&

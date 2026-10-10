@@ -457,6 +457,7 @@ const ROLE_FILTERS = [
   { key: 'isAdmin', label: 'Admins' },
   { key: 'isLeagueManager', label: 'League Managers' },
   { key: 'isVenueManager', label: 'Venue Managers' },
+  { key: 'isBarStaff', label: 'Bar Staff' },
   { key: 'isCaptain', label: 'Captains' },
   { key: 'walkin', label: 'Walk-ins' },
   { key: 'suspended', label: 'Suspended' },
@@ -478,6 +479,7 @@ function RoleChips({ u }) {
       {u.isAdmin && <span className="au-role au-role-admin">Admin</span>}
       {u.isLeagueManager && <span className="au-role">League Manager</span>}
       {u.isVenueManager && <span className="au-role">Venue Manager</span>}
+      {u.isBarStaff && <span className="au-role">Bar Staff</span>}
       {u.isCaptain && <span className="au-role">Captain</span>}
       {u.classification && <span className="au-role au-role-class">Class {u.classification}</span>}
     </span>

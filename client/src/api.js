@@ -664,3 +664,108 @@ const networkApi = {
 };
 
 export const api = DEMO_MODE ? demoApi : networkApi;
+
+// Bar Staff Portal (client/src/pages/BarStaffPortal.jsx, BarStaffMember.jsx): the same
+// calls as the Venue Manager Portal, but against /api/bar-staff/* (see BAR_STAFF_ROUTES in
+// server/src/index.js for what Bar Staff are allowed to reach). Everything else falls
+// through to the normal api.
+const barStaffNetworkApi = {
+  setVenueJoinPolicy: (venueId, joinPolicy) =>
+    request(`/bar-staff/venues/${encodeURIComponent(venueId)}/join-policy`, { method: 'POST', body: JSON.stringify({ joinPolicy }) }),
+  setVenueExpiryEmails: (venueId, enabled) =>
+    request(`/bar-staff/venues/${encodeURIComponent(venueId)}/expiry-emails`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  setVenueExpiredEmails: (venueId, enabled) =>
+    request(`/bar-staff/venues/${encodeURIComponent(venueId)}/expired-emails`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  getVenueJoinRequests: (venueId) => request(`/bar-staff/join-requests?venueId=${encodeURIComponent(venueId)}`),
+  decideVenueJoinRequest: (id, decision) =>
+    request(`/bar-staff/join-requests/${encodeURIComponent(id)}/${decision === 'approve' ? 'approve' : 'decline'}`, { method: 'POST' }),
+  getMyManagedVenues: () => request('/bar-staff/venues'),
+  getVenueManagerStatus: (venueId) => request(`/bar-staff/status?venueId=${encodeURIComponent(venueId)}`),
+  getVenueBookings: (venueId, refresh = false) =>
+    request(`/bar-staff/bookings?venueId=${encodeURIComponent(venueId)}${refresh ? '&refresh=1' : ''}`),
+  setVenueBookingPaid: (venueId, bookingId, paid) =>
+    request(`/bar-staff/bookings/${encodeURIComponent(bookingId)}/paid`, { method: 'POST', body: JSON.stringify({ venueId, paid }) }),
+  streamVenueBookings: async (venueId, { onUpdate, onOpen, signal } = {}) => {
+    const token = getStoredToken();
+    const res = await fetch(`${BASE}/bar-staff/bookings/stream?venueId=${encodeURIComponent(venueId)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`Live updates unavailable (${res.status})`);
+    if (onOpen) onOpen();
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf('\n\n')) >= 0) {
+        const chunk = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        if (/^event: bookings$/m.test(chunk) && onUpdate) onUpdate();
+      }
+    }
+  },
+  getWalkinTables: (venueId) =>
+    request(`/bar-staff/walkin-tables?venueId=${encodeURIComponent(venueId)}`),
+  bookWalkin: (venueId, tableId, start, minutes, player = {}) =>
+    request('/bar-staff/walkins', {
+      method: 'POST',
+      body: JSON.stringify({ venueId, tableId, start, minutes, ...player }),
+    }),
+  cancelWalkin: (venueId, bookingId) =>
+    request(`/bar-staff/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId }),
+    }),
+  cancelBlock: (venueId, eventId) =>
+    request(`/bar-staff/blocks/${encodeURIComponent(eventId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId }),
+    }),
+  bookAllTables: (venueId, day, opts = {}) =>
+    request('/bar-staff/walkins/book-all-tables', {
+      method: 'POST',
+      body: JSON.stringify({ venueId, day, ...opts }),
+    }),
+  getTableAvailability: (venueId, day) =>
+    request(`/bar-staff/table-availability?venueId=${encodeURIComponent(venueId)}&day=${encodeURIComponent(day)}`),
+  getVenueManagerDuePlayers: (venueId, months) =>
+    request(`/bar-staff/status/players?venueId=${encodeURIComponent(venueId)}&months=${months}`),
+  searchVenuePlayers: (venueId, q = '') =>
+    request(`/bar-staff/players?venueId=${encodeURIComponent(venueId)}&q=${encodeURIComponent(q)}`),
+  renewVenuePlayer: (venueId, playerId, months) =>
+    request(`/bar-staff/players/${playerId}/renew`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId, months }),
+    }),
+  setVenuePlayerDates: (venueId, playerId, startDate, endDate) =>
+    request(`/bar-staff/players/${encodeURIComponent(playerId)}/membership-dates`, {
+      method: 'POST',
+      body: JSON.stringify({ venueId, startDate, endDate }),
+    }),
+  removeVenuePlayer: (venueId, playerId) =>
+    request(`/bar-staff/players/${encodeURIComponent(playerId)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  venueCheckin: (venueId, uid) =>
+    request('/bar-staff/checkins', { method: 'POST', body: JSON.stringify({ venueId, uid }) }),
+  getVenueMember: (venueId, userId) =>
+    request(`/bar-staff/players/${encodeURIComponent(userId)}/membership?venueId=${encodeURIComponent(venueId)}`),
+  addPlayerToVenue: (venueId, userId) =>
+    request(`/bar-staff/players/${encodeURIComponent(userId)}/venue`, { method: 'POST', body: JSON.stringify({ venueId }) }),
+  getVenueCheckinsToday: (venueId, all = false) =>
+    request(`/bar-staff/checkins?venueId=${encodeURIComponent(venueId)}${all ? '&all=1' : ''}`),
+  clearVenueCheckins: (venueId) =>
+    request('/bar-staff/checkins/clear', { method: 'POST', body: JSON.stringify({ venueId }) }),
+  deleteVenueCheckin: (venueId, id) =>
+    request(`/bar-staff/checkins/${encodeURIComponent(id)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  linkVenueCard: (venueId, playerId, uid, label = '') =>
+    request(`/bar-staff/players/${playerId}/cards`, { method: 'POST', body: JSON.stringify({ venueId, uid, label }) }),
+  unlinkVenueCard: (venueId, playerId, uid) =>
+    request(`/bar-staff/players/${playerId}/cards/${encodeURIComponent(uid)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
+  getCheckinTag: (venueId, rotate = false) =>
+    request('/bar-staff/checkin-tag', { method: 'POST', body: JSON.stringify({ venueId, rotate }) }),
+};
+
+export const barStaffApi = DEMO_MODE ? demoApi : { ...networkApi, ...barStaffNetworkApi };
