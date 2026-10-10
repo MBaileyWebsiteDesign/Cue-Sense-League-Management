@@ -11,22 +11,18 @@ export default function Register() {
   const location = useLocation();
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '',
-    phone: '', teamName: '', classification: '',
+    phone: '', teamName: '', classification: '', venueId: '',
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // League to join (optional) - GET /api/open-leagues is deliberately
-  // public (see server/src/index.js), so it's browsable here before an
-  // account even exists. Picking one just pre-fills the same interest
-  // registration a player could otherwise make from the Open Leagues page
-  // after signing up - a League Manager still decides which division to
-  // place them in later, from that league's League Interests panel.
-  const [openLeagues, setOpenLeagues] = useState([]);
-  const [leagueId, setLeagueId] = useState('');
+  // Venue (optional) - the venues already in the system. GET /api/venues/list
+  // is public so it can fill this before an account exists. Venues set to
+  // 'approval' send a join request instead of joining straight away.
+  const [venues, setVenues] = useState([]);
 
   useEffect(() => {
-    api.getOpenLeagues().then(setOpenLeagues).catch(() => {});
+    api.listVenuesPublic().then(setVenues).catch(() => {});
   }, []);
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
@@ -39,19 +35,9 @@ export default function Register() {
       const { token, expiresAt, user } = await api.register({
         ...form,
         classification: form.classification || null,
+        venueId: form.venueId || null,
       });
       login(token, expiresAt, user);
-      // Register interest in the chosen league now that we're logged in
-      // and have a linked player profile - failing this shouldn't block
-      // account creation, since the player can always register interest
-      // themselves from the Open Leagues page afterwards.
-      if (leagueId) {
-        try {
-          await api.requestToJoinLeague(leagueId);
-        } catch {
-          // ignored - see comment above
-        }
-      }
       // If the player came here from a page that needed a login (e.g. they
       // tapped the bar check-in sticker, went to Log In, then "Create one"),
       // RequireLogin's state.from is passed along by Login.jsx's link - send
@@ -109,13 +95,15 @@ export default function Register() {
             ))}
           </select>
         </label>
-        {openLeagues.length > 0 && (
+        {venues.length > 0 && (
           <label>
-            League to join <span className="muted">(optional)</span>
-            <select value={leagueId} onChange={(e) => setLeagueId(e.target.value)}>
+            Venue <span className="muted">(optional)</span>
+            <select value={form.venueId} onChange={set('venueId')}>
               <option value="">Not now</option>
-              {openLeagues.map((l) => (
-                <option key={l.leagueId} value={l.leagueId}>{l.leagueName}</option>
+              {venues.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}{v.joinPolicy === 'approval' ? ' (needs approval)' : ''}
+                </option>
               ))}
             </select>
           </label>
