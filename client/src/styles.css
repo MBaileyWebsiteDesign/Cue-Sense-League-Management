@@ -2422,6 +2422,7 @@ button.vm-tile { cursor: pointer; }
 .cs-venue-lock { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: #d1fae5; color: #065f46; white-space: nowrap; }
 /* Admin > Edit user > Venues & memberships */
 .aue-mem { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+.aue-mem-left { border-style: dashed; background: rgba(0, 0, 0, 0.02); }
 
 /* Venue Manager Portal > Tap to check in (NFC cards + bar tag), 2026-09-25 */
 .ci-reader { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; }
