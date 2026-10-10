@@ -2380,6 +2380,23 @@ button.vm-tile { cursor: pointer; }
 .vm-renews-green { background: #16a34a; color: #fff; }
 .vm-player .vm-renew-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .vm-player .vm-renew-row .btn { min-height: 44px; font-size: 0.9rem; padding: 4px 8px; }
+/* Compact Registered players rows (Matt, 2026-10-10): smaller initials, name/email and the
+   expiry line stacked on the left, the two renew buttons small on the right. From 720px up
+   everything sits on one line. Later rules override the full-width layout above. */
+.vm-players { gap: 4px; }
+.vm-player { grid-template-columns: auto minmax(0, 1fr) auto; padding: 5px 10px; gap: 2px 10px; }
+.vm-player-ini { width: 34px; height: 34px; border-radius: 8px; font-size: 0.8rem; grid-column: 1; grid-row: 1 / span 2; }
+.vm-player-main { grid-column: 2; grid-row: 1; }
+.vm-player-foot { grid-column: 2; grid-row: 2; }
+.vm-renews { font-size: 0.75rem; min-height: 24px; padding: 0 8px; border-radius: 6px; }
+.vm-player .vm-renew-row { grid-column: 3; grid-row: 1 / span 2; display: flex; gap: 6px; align-self: center; }
+.vm-player .vm-renew-row .btn { min-height: 32px; min-width: 64px; font-size: 0.8rem; padding: 2px 10px; }
+@media (min-width: 720px) {
+  .vm-player { grid-template-columns: auto minmax(180px, 1fr) auto auto; align-items: center; }
+  .vm-player-ini, .vm-player-main, .vm-player-foot, .vm-player .vm-renew-row { grid-row: 1; }
+  .vm-player-foot { grid-column: 3; }
+  .vm-player .vm-renew-row { grid-column: 4; }
+}
 @media (max-width: 640px) {
   .vm-bk-actions { flex-direction: column; gap: 8px; }
   .vm-bk { grid-template-columns: auto minmax(0, 1fr); }

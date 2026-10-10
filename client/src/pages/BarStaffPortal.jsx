@@ -260,7 +260,7 @@ const RENEW_BUTTON_CLASS = { 1: 'btn-danger', 6: 'btn-renew-yellow', 12: 'btn-re
 function RenewButtons({ player, busy, onRenew }) {
   return (
     <span className="vm-renew-row">
-      {[1, 6, 12].map((months) => (
+      {[1, 12].map((months) => (
         <button
           key={months}
           className={`btn ${RENEW_BUTTON_CLASS[months]}`}
