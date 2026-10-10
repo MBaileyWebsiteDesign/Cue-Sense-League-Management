@@ -282,6 +282,9 @@ function RenewButtons({ player, busy, onRenew }) {
 // endpoint, which already returns everyone when `q` is blank), and Clear
 // brings the full list back. The header count always shows the venue's total
 // registered players, not the number of matches.
+// The list shows this many players at a time; "Show more" adds another page (Matt, 2026-10-10).
+const PLAYERS_PAGE = 20;
+
 function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved }) {
   const dueMonths = typeof bucket === 'number' ? bucket : null; // 2 | 4 | 6 filters the list to that renewal window
   const [players, setPlayers] = useState(null);
@@ -295,9 +298,14 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
   const [removingId, setRemovingId] = useState(null);
   const [removeError, setRemoveError] = useState('');
   const [removedNote, setRemovedNote] = useState('');
+  // "Expired" button next to Search: only memberships whose end date has passed.
+  const [expiredOnly, setExpiredOnly] = useState(false);
+  const [shown, setShown] = useState(PLAYERS_PAGE);
 
   useEffect(() => {
     let cancelled = false;
+    setExpiredOnly(false);
+    setShown(PLAYERS_PAGE);
     setPlayers(null);
     setTotal(null);
     setQuery('');
@@ -322,6 +330,7 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
         : await api.getVenueManagerDuePlayers(venueId, dueMonths);
       setPlayers(found);
       setActiveQuery(trimmed);
+      setShown(PLAYERS_PAGE);
       if (!trimmed && !dueMonths) setTotal(found.length);
     } catch (err) {
       setError(err.message);
@@ -370,6 +379,8 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
     }
   };
 
+  const visiblePlayers = players && expiredOnly ? players.filter((p) => renewalExpired(p.membershipRenewalDate)) : players;
+
   return (
     <section className="card sx-card vm-panel" id="vm-registered-players">
       <div className="vm-bk-band">
@@ -392,6 +403,15 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
         <button className="btn btn-primary" type="submit" disabled={searching}>
           {searching ? 'Searching…' : 'Search'}
         </button>
+        <button
+          className={`btn${expiredOnly ? ' btn-primary' : ''}`}
+          type="button"
+          aria-pressed={expiredOnly}
+          title="Show only players whose membership has expired"
+          onClick={() => { setExpiredOnly((v) => !v); setShown(PLAYERS_PAGE); }}
+        >
+          Expired
+        </button>
         {activeQuery && (
           <button className="btn" type="button" onClick={onClear} disabled={searching}>
             Clear
@@ -413,23 +433,35 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
           {players.length} of {total} player{total === 1 ? '' : 's'} match “{activeQuery}”.
         </p>
       )}
+      {expiredOnly && visiblePlayers && (
+        <p className="muted vm-filter-note">Showing expired memberships only ({visiblePlayers.length}).</p>
+      )}
       {!players && !error ? (
         <p>Loading…</p>
       ) : players && (
-        players.length === 0 ? (
+        visiblePlayers.length === 0 ? (
           <p className="muted">
-            {activeQuery
+            {expiredOnly
+              ? 'No expired memberships in this list.'
+              : activeQuery
               ? 'No players at this venue match that search.'
               : dueMonths
                 ? 'No players are due for renewal in this window.'
                 : 'No players are registered to this venue yet.'}
           </p>
         ) : (
-          <ul className="vm-players">
-            {players.map((p) => (
-              <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} onRemove={onRemove} removing={removingId === p.id} />
-            ))}
-          </ul>
+          <>
+            <ul className="vm-players">
+              {visiblePlayers.slice(0, shown).map((p) => (
+                <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} onRemove={onRemove} removing={removingId === p.id} />
+              ))}
+            </ul>
+            {visiblePlayers.length > shown && (
+              <button type="button" className="btn vm-bk-more" onClick={() => setShown((n) => n + PLAYERS_PAGE)}>
+                {`Show more (${Math.min(visiblePlayers.length - shown, PLAYERS_PAGE)} more)`}
+              </button>
+            )}
+          </>
         )
       )}
       </div>
