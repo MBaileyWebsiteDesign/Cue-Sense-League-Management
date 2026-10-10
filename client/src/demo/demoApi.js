@@ -1360,7 +1360,7 @@ export const demoApi = {
   }),
 
   adminSetPermissions: op((id, permissions) => {
-    const { isAdmin, isCaptain, isLeagueManager } = permissions;
+    const { isAdmin, isCaptain, isLeagueManager, isVenueManager, isBarStaff, venuePortalDefault, playerPortalDisabled } = permissions;
     const user = db.users.find((u) => u.id === id);
     if (!user) throw new ApiError(404, 'User not found');
     const changes = [];
@@ -1382,6 +1382,40 @@ export const demoApi = {
           }
         }
       }
+    }
+    // Venue Manager / Bar Staff and the two "staff portal" tickboxes - mirrors
+    // POST /api/admin/users/:id/permissions on the real server so the demo's
+    // Manage Users -> Permissions & Status panel behaves the same.
+    if (isVenueManager !== undefined && !!isVenueManager !== !!user.isVenueManager) {
+      user.isVenueManager = !!isVenueManager;
+      changes.push(user.isVenueManager ? 'granted Venue Manager' : 'revoked Venue Manager');
+      if (!user.isVenueManager) {
+        if (!user.isBarStaff) { user.venuePortalDefault = false; user.playerPortalDisabled = false; }
+        for (const venue of db.venues || []) {
+          if (Array.isArray(venue.managerUserIds) && venue.managerUserIds.includes(user.id)) {
+            venue.managerUserIds = venue.managerUserIds.filter((mid) => mid !== user.id);
+          }
+        }
+      }
+    }
+    if (isBarStaff !== undefined && !!isBarStaff !== !!user.isBarStaff) {
+      user.isBarStaff = !!isBarStaff;
+      changes.push(user.isBarStaff ? 'granted Bar Staff' : 'revoked Bar Staff');
+      if (!user.isBarStaff && !user.isVenueManager) { user.venuePortalDefault = false; user.playerPortalDisabled = false; }
+    }
+    if (venuePortalDefault !== undefined && !!venuePortalDefault !== !!user.venuePortalDefault) {
+      if (venuePortalDefault && !user.isVenueManager && !user.isBarStaff) {
+        throw new ApiError(400, 'Grant Venue Manager or Bar Staff first - only they can land on a staff portal');
+      }
+      user.venuePortalDefault = !!venuePortalDefault;
+      changes.push(user.venuePortalDefault ? 'set Venue Manager Portal as login landing page' : 'cleared Venue Manager Portal as login landing page');
+    }
+    if (playerPortalDisabled !== undefined && !!playerPortalDisabled !== !!user.playerPortalDisabled) {
+      if (playerPortalDisabled && !user.isVenueManager && !user.isBarStaff) {
+        throw new ApiError(400, 'Grant Venue Manager or Bar Staff first - only they can have the Player Portal switched off');
+      }
+      user.playerPortalDisabled = !!playerPortalDisabled;
+      changes.push(user.playerPortalDisabled ? 'switched Player Portal off' : 'switched Player Portal back on');
     }
     if (changes.length > 0) {
       recordAudit(db, {
