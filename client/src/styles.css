@@ -2715,3 +2715,48 @@ button.vm-tile { cursor: pointer; }
 .lg-div-status::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: #9ca3af; }
 .lg-div-status-live::before { background: var(--secondary); }
 .lg-div-status-done::before { background: var(--cta); }
+
+/* League Interests manager page (2026-10-10). Existing palette only. */
+.li-page { display: flex; flex-direction: column; gap: 14px; }
+.li-head {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px 16px; border-radius: 20px; color: #fff;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 10px 28px rgba(10, 38, 23, 0.28);
+}
+.li-head h1 { margin: 0; color: #fff; font-size: 1.7rem; }
+.li-head p { margin: 0; color: rgba(255, 255, 255, 0.9); }
+.li-public { color: var(--cta); font-weight: 700; text-decoration: none; }
+.li-public:hover { text-decoration: underline; }
+.li-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.li-filter {
+  min-height: 40px; padding: 0 14px; border-radius: 999px; border: 2px solid var(--primary); background: #fff; color: var(--primary);
+  font: inherit; font-weight: 700; cursor: pointer;
+}
+.li-filter-on { background: var(--primary); color: #fff; }
+.li-bulk { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.li-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.li-row {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #fff; border: 1px solid var(--border);
+  border-left: 5px solid #d1d5db; border-radius: 14px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.li-row-unpaid { border-left-color: #b3413a; }
+.li-row-confirmed { border-left-color: var(--secondary); }
+.li-row-waived { border-left-color: var(--cta); }
+.li-who { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.li-who input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; }
+.li-name { font-weight: 700; font-size: 1.05rem; }
+.li-chip { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; }
+.li-chip-unpaid { background: #fff6f5; color: #b3413a; border: 1px solid #f1c7c3; }
+.li-chip-confirmed { background: #e7f2ea; color: var(--secondary-dark); border: 1px solid #bfe0c4; }
+.li-chip-waived { background: #fbf5e3; color: #7a5a10; border: 1px solid #e6d59e; }
+.li-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.li-btn { min-height: 44px; padding: 0 16px; font-weight: 700; }
+.li-decline { color: #b3413a; border-color: #f1c7c3; }
+.li-place {
+  position: sticky; bottom: 8px; z-index: 5; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #fff;
+  border: 2px solid var(--primary); border-radius: 16px; box-shadow: 0 -4px 18px rgba(10, 38, 23, 0.18);
+}
+.li-place select, .li-place .btn { min-height: 46px; width: 100%; }
+@media (min-width: 640px) {
+  .li-row { flex-direction: row; align-items: center; justify-content: space-between; }
+}

@@ -195,58 +195,22 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
   const [selectedUserId, setSelectedUserId] = useState('');
   const [managerBusy, setManagerBusy] = useState(false);
 
-  // League-level "Open For Registration" toggle + League Interests bulk
-  // assignment - see server/src/index.js's "---------- Open leagues
-  // ----------" block. Interested players are listed here with checkboxes
-  // plus a division picker, so a League Manager can split e.g. 10
-  // interested players across several divisions in a few clicks rather
-  // than adding each one individually. This is the only self-service join
-  // mechanism left in the app - the older division-level "Is Open"/Join
-  // Requests feature was removed (see claude/join-requests-removal doc in
-  // the project) in favour of this league-level flow.
-  //
-  // Each pending interest also carries the requester's payment-wall status
-  // (server-side, GET /api/leagues/:id/league-interests joins against
-  // db.leaguePayments) with inline Confirm/Waive/Reset controls - folded in
-  // from what used to be a separate "Players" list under the Payment Wall
-  // panel, so a manager clears payment right where they decide who to
-  // place, instead of jumping between two lists. Deliberately pending-only:
-  // bulk-assign already calls assertPaymentCleared before adding anyone to
-  // a division, so an assigned player's payment is cleared by definition -
-  // there's nothing left to manage for them here.
+  // League-level "Open For Registration" toggle and venue restriction - see
+  // server/src/index.js's "---------- Open leagues ----------" block. Reviewing
+  // interested players (payment, decline, bulk-add to a division) moved to the
+  // League Interests page (LeagueInterests.jsx, 2026-10-10), reached from the
+  // Interests tile at the top of this page.
   const [leagueOpenBusy, setLeagueOpenBusy] = useState(false);
   // Venue restriction - only players registered at the chosen venue can
   // register interest (managers can still assign anyone to a division).
   const [venues, setVenues] = useState([]);
   const [venueBusy, setVenueBusy] = useState(false);
-  const [leagueInterests, setLeagueInterests] = useState([]);
-  const [selectedInterestIds, setSelectedInterestIds] = useState([]);
-  const [assignDivisionId, setAssignDivisionId] = useState('');
-  const [interestBusy, setInterestBusy] = useState(false);
-  // Per-item failures from the last bulk-assign attempt (e.g. a selected
-  // player hasn't cleared the league's payment wall) - shown as a red
-  // notice directly under the "Add ... selected to division" button rather
-  // than the page-level error banner, since bulk-assign returns 200 with a
-  // per-item results array (see server's POST /api/league-interests/bulk-
-  // assign) instead of throwing, so these were previously swallowed
-  // silently by onBulkAssign below.
-  const [assignFailures, setAssignFailures] = useState([]);
 
   useEffect(() => {
     if (!open || !isAdmin) return;
     api.adminListUsers().then(setCandidates).catch((e) => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isAdmin]);
-
-  const loadLeagueInterests = () => {
-    api.getLeagueInterests(league.id).then(setLeagueInterests).catch((e) => setError(e.message));
-  };
-
-  useEffect(() => {
-    if (!open || !canManage) return;
-    loadLeagueInterests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, canManage, league.id]);
 
   useEffect(() => {
     if (!open || !canManage) return;
@@ -276,65 +240,6 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
       setError(err.message);
     } finally {
       setLeagueOpenBusy(false);
-    }
-  };
-
-  const toggleInterestSelected = (id) => {
-    setSelectedInterestIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
-  };
-
-  const onDeclineInterest = async (id) => {
-    setInterestBusy(true);
-    setError('');
-    try {
-      await api.declineLeagueInterest(id);
-      setSelectedInterestIds((ids) => ids.filter((x) => x !== id));
-      loadLeagueInterests();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setInterestBusy(false);
-    }
-  };
-
-  // Confirm/waive/reset a requester's payment status right from their
-  // League Interests row - see the block comment above for why this lives
-  // here instead of a separate Payment Wall players list.
-  const onSetInterestPayment = async (playerId, status) => {
-    setInterestBusy(true);
-    setError('');
-    try {
-      await api.setLeaguePaymentStatus(league.id, playerId, status);
-      loadLeagueInterests();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setInterestBusy(false);
-    }
-  };
-
-  const onBulkAssign = async () => {
-    if (selectedInterestIds.length === 0 || !assignDivisionId) return;
-    setInterestBusy(true);
-    setError('');
-    setAssignFailures([]);
-    try {
-      const res = await api.bulkAssignLeagueInterests(selectedInterestIds, assignDivisionId);
-      const results = res?.results || [];
-      const succeededIds = results.filter((r) => r.ok).map((r) => r.interestId);
-      // Only drop the ones that succeeded from the selection - a failed one
-      // (e.g. unpaid) stays selected/visible so the manager can see exactly
-      // who still needs sorting out before trying again. The server's error
-      // message already names the player (see assertPaymentCleared), so
-      // there's no need to re-look-up the interest here.
-      setSelectedInterestIds((ids) => ids.filter((id) => !succeededIds.includes(id)));
-      setAssignFailures(results.filter((r) => !r.ok).map((r) => r.error));
-      loadLeagueInterests();
-      onChange();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setInterestBusy(false);
     }
   };
 
@@ -469,9 +374,8 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
               <p className="muted">
                 League-level version of "Is Open" - when this league is open for interest registration,
                 any registered player can register interest from the <Link to="/open-leagues">Open
-                Leagues</Link> page without picking a division. Select who you're ready to place, pick a
-                division to put them in, and add them in bulk - repeat for as many divisions as you like.
-                {league.payment?.required && ' If this league has a payment wall, confirm or waive each player’s payment below before adding them.'}
+                Leagues</Link> page without picking a division. Confirm payment, waive, decline and add
+                players to divisions from the League Interests page (the Interests tile at the top of this page).
               </p>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
                 <input
@@ -500,100 +404,9 @@ function ManageLeaguePanel({ league, isAdmin, canManage, canCloseEarly, onChange
                   interest. You can still place any player into a division yourself.
                 </span>
               </label>
-              {leagueInterests.length === 0 ? (
-                <p className="muted">No pending interest registrations for this league right now.</p>
-              ) : (
-                <>
-                  <ul className="fixture-list">
-                    {leagueInterests.map((r) => (
-                      <li key={r.id}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <input
-                            type="checkbox"
-                            style={{ width: 'auto' }}
-                            checked={selectedInterestIds.includes(r.id)}
-                            disabled={interestBusy}
-                            onChange={() => toggleInterestSelected(r.id)}
-                          />
-                          {r.playerName}
-                          {league.payment?.required && (
-                            <span className="muted" style={{ fontSize: '0.8rem' }}>
-                              (<strong>{r.paymentStatus}</strong>)
-                            </span>
-                          )}
-                        </label>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {league.payment?.required && (
-                            <>
-                              {r.paymentStatus !== 'confirmed' && (
-                                <button
-                                  className="btn-link"
-                                  type="button"
-                                  disabled={interestBusy}
-                                  onClick={() => onSetInterestPayment(r.playerId, 'confirmed')}
-                                >
-                                  confirm paid
-                                </button>
-                              )}
-                              {r.paymentStatus !== 'waived' && (
-                                <button
-                                  className="btn-link"
-                                  type="button"
-                                  disabled={interestBusy}
-                                  onClick={() => onSetInterestPayment(r.playerId, 'waived')}
-                                >
-                                  waive
-                                </button>
-                              )}
-                              {r.paymentStatus !== 'unpaid' && (
-                                <button
-                                  className="btn-link"
-                                  type="button"
-                                  disabled={interestBusy}
-                                  onClick={() => onSetInterestPayment(r.playerId, 'unpaid')}
-                                >
-                                  reset
-                                </button>
-                              )}
-                            </>
-                          )}
-                          <button
-                            className="btn"
-                            type="button"
-                            disabled={interestBusy}
-                            onClick={() => onDeclineInterest(r.id)}
-                          >
-                            Decline
-                          </button>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="inline-form">
-                    <select value={assignDivisionId} onChange={(e) => setAssignDivisionId(e.target.value)}>
-                      <option value="">Select a division to add them to…</option>
-                      {league.divisions
-                        .filter((d) => d.entryType === 'singles' && !d.fixturesGenerated)
-                        .map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                    </select>
-                    <button
-                      className="btn btn-primary"
-                      type="button"
-                      disabled={interestBusy || selectedInterestIds.length === 0 || !assignDivisionId}
-                      onClick={onBulkAssign}
-                    >
-                      {interestBusy ? 'Adding…' : `Add ${selectedInterestIds.length || ''} selected to division`}
-                    </button>
-                  </div>
-                  {assignFailures.length > 0 && (
-                    <p className="error" style={{ marginTop: 8 }}>
-                      {assignFailures.join(' ')}
-                    </p>
-                  )}
-                </>
-              )}
+              <Link className="btn btn-primary" to={`/leagues/${league.id}/interests`} style={{ textDecoration: 'none', display: 'inline-block' }}>
+                Manage interest registrations
+              </Link>
             </div>
           )}
 
@@ -1016,7 +829,7 @@ export default function LeagueDetail() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
             Fixtures
           </Link>
-          <Link className="lg-share-tile lg-st-interests" to={`/public/leagues/${league.id}/interests`}>
+          <Link className="lg-share-tile lg-st-interests" to={canManage ? `/leagues/${league.id}/interests` : `/public/leagues/${league.id}/interests`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 3-5 6-5s6 2 6 5M16 11h5M18.5 8.5v5" /></svg>
             Interests
           </Link>
