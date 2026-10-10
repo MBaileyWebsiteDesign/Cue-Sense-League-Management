@@ -15,13 +15,22 @@ import './arena.css';
 //   https://your-deployment.example.com/arena/<leagueId>
 // The league id is the same one in that league's own page URL
 // (/leagues/<leagueId>) - copy it from there.
+//
+// Display refresh (2026-10-10): sizes scale with the screen (em units off a
+// viewport-based root size in arena.css) so the same page reads on a phone, a
+// laptop mirrored to a TV, or a 4K screen; live matches get a highlighted card;
+// a small notice appears if the feed stops updating; and the page reloads
+// itself every few hours (only when the site is reachable) so a TV that is
+// never touched still picks up new versions of the app.
 const POLL_INTERVAL_MS = 15000;
+const RELOAD_EVERY_MS = 6 * 60 * 60 * 1000;
 
 export default function Arena() {
   const { leagueId } = useParams();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [now, setNow] = useState(new Date());
+  const [lastOk, setLastOk] = useState(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -38,6 +47,7 @@ export default function Arena() {
         .then((result) => {
           if (!mountedRef.current) return;
           setData(result);
+          setLastOk(new Date());
           setError('');
         })
         .catch((err) => {
@@ -56,6 +66,18 @@ export default function Arena() {
     };
   }, [leagueId]);
 
+  // Reload now and then so an unattended TV picks up new app versions - but
+  // only if the site answers first, so a dropped connection never leaves a
+  // browser error page on the screen.
+  useEffect(() => {
+    const t = setInterval(() => {
+      fetch(window.location.href, { cache: 'no-store' })
+        .then((r) => { if (r.ok) window.location.reload(); })
+        .catch(() => {});
+    }, RELOAD_EVERY_MS);
+    return () => clearInterval(t);
+  }, []);
+
   if (!data) {
     return (
       <div className="arena-root">
@@ -64,52 +86,75 @@ export default function Arena() {
     );
   }
 
+  const hasSide = data.unscheduled.length > 0 || data.recentResults.length > 0;
+  const time = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   return (
     <div className="arena-root">
       <div className="arena-header">
         <h1>{data.leagueName}</h1>
-        <span className="arena-clock">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        <div className="arena-clock-block">
+          <span className="arena-clock">{time(now)}</span>
+          <span className="arena-date">{now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+        </div>
       </div>
 
-      <div className="arena-tables-grid">
-        {data.tables.map((table) => (
-          <div key={table.id} className="arena-table-card">
-            <div className="arena-table-name">{table.name}</div>
-            {table.fixture ? <ArenaFixture fixture={table.fixture} /> : <div className="arena-table-empty">No match scheduled</div>}
+      {error && (
+        <p className="arena-stale" role="status">
+          Connection lost - showing scores from {lastOk ? time(lastOk) : 'earlier'}. Retrying…
+        </p>
+      )}
+
+      <div className={`arena-body${hasSide ? ' has-side' : ''}`}>
+        <div className="arena-tables-col">
+          <div className="arena-tables-grid">
+            {data.tables.map((table) => {
+              const live = table.fixture && table.fixture.status === 'in_progress';
+              return (
+                <div key={table.id} className={`arena-table-card${live ? ' arena-card-live' : ''}${table.fixture ? '' : ' arena-card-idle'}`}>
+                  <div className="arena-table-name">{table.name}</div>
+                  {table.fixture ? <ArenaFixture fixture={table.fixture} /> : <div className="arena-table-empty">No match scheduled</div>}
+                </div>
+              );
+            })}
           </div>
-        ))}
-        {data.tables.length === 0 && (
-          <p className="arena-empty-state">No tables set up for this league yet.</p>
+          {data.tables.length === 0 && (
+            <p className="arena-empty-state">No tables set up for this league yet.</p>
+          )}
+        </div>
+
+        {hasSide && (
+          <aside className="arena-side">
+            {data.unscheduled.length > 0 && (
+              <>
+                <h2 className="arena-section-title">Not yet on a table</h2>
+                <ul className="arena-unscheduled-list">
+                  {data.unscheduled.map((f) => (
+                    <li key={f.fixtureId}>
+                      <span>{f.home.name} vs {f.away.name}</span>
+                      <span className="arena-li-div">{f.divisionName}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {data.recentResults.length > 0 && (
+              <>
+                <h2 className="arena-section-title">Recent Results</h2>
+                <ul className="arena-results-list">
+                  {data.recentResults.map((f) => (
+                    <li key={f.fixtureId}>
+                      <span>{f.home.name} <strong className="arena-li-score">{f.home.score} - {f.away.score}</strong> {f.away.name}</span>
+                      <span className="arena-li-div">{f.divisionName}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </aside>
         )}
       </div>
-
-      {data.unscheduled.length > 0 && (
-        <>
-          <h2 className="arena-section-title">Not yet on a table</h2>
-          <ul className="arena-unscheduled-list">
-            {data.unscheduled.map((f) => (
-              <li key={f.fixtureId}>
-                <span>{f.home.name} vs {f.away.name}</span>
-                <span>{f.divisionName}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      {data.recentResults.length > 0 && (
-        <>
-          <h2 className="arena-section-title">Recent Results</h2>
-          <ul className="arena-results-list">
-            {data.recentResults.map((f) => (
-              <li key={f.fixtureId}>
-                <span>{f.home.name} {f.home.score} - {f.away.score} {f.away.name}</span>
-                <span>{f.divisionName}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
     </div>
   );
 }
@@ -129,9 +174,9 @@ function ArenaFixture({ fixture }) {
         </div>
       </div>
       <div className="arena-fixture-meta">
-        <span className={fixture.status === 'in_progress' ? 'arena-status-live' : ''}>
-          {fixture.status === 'in_progress' ? 'LIVE' : fixture.scheduledTime || 'Time TBD'}
-        </span>
+        {fixture.status === 'in_progress'
+          ? <span className="arena-status-live"><span className="arena-live-dot" aria-hidden="true" />LIVE</span>
+          : <span>{fixture.scheduledTime || 'Time TBD'}</span>}
         <span>{fixture.divisionName}</span>
       </div>
     </div>
