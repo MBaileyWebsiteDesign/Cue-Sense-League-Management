@@ -13,6 +13,8 @@ import MobileStandings, { standingsRows } from '../components/MobileStandings.js
 //   https://your-deployment.example.com/public/divisions/<divisionId>/table
 // The division id is the same one in that division's own management page
 // URL (/divisions/<divisionId>).
+// Look refreshed 2026-10-10 (green header banner, accent rows) - scoped to
+// .public-themed in publicPages.css so the other embeddable pages are unchanged.
 const POLL_INTERVAL_MS = 20000;
 
 export default function PublicDivisionTable() {
@@ -50,7 +52,7 @@ export default function PublicDivisionTable() {
 
   if (!data) {
     return (
-      <div className="public-root">
+      <div className="public-root public-themed">
         {error ? <p className="public-empty-state">{error}</p> : <p className="public-empty-state">Loading…</p>}
       </div>
     );
@@ -59,7 +61,7 @@ export default function PublicDivisionTable() {
   const isTeams = data.entryType === 'teams';
 
   return (
-    <div className="public-root">
+    <div className="public-root public-themed">
       <div className="public-header">
         <h1>{data.divisionName}{data.leagueName ? ` — ${data.leagueName}` : ''}</h1>
         <span className="public-updated">Updated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
