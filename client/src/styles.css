@@ -2662,3 +2662,19 @@ button.vm-tile { cursor: pointer; }
 .vmm-edit input[type="date"] { width: 100%; min-height: 44px; font-size: 1rem; box-sizing: border-box; }
 .vmm-edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .vmm-edit-actions .btn, .vmm-edit-toggle { min-height: 48px; font-weight: 700; }
+
+/* Portal colour refresh (2026-10-10). League Manager Portal reuses the Admin
+   Portal's .ap-* look (hero, stat cards, accent tiles) via .admin-theme-home;
+   Captain and Venue Manager Portals get the same green header band via
+   .portal-theme. Existing brand palette only (--primary / --secondary / --cta). */
+.portal-theme .au-head {
+  padding: 12px 14px; border-radius: 16px; color: #fff;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 6px 16px rgba(10, 38, 23, 0.25);
+}
+.portal-theme .au-head h1 { color: #fff; font-size: 1.4rem; }
+.portal-theme .au-head .muted, .portal-theme .au-head .vm-title .muted { color: rgba(255, 255, 255, 0.92); }
+.portal-theme .au-head .msg-icon-btn { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.4); color: #fff; }
+.portal-theme .au-head .msg-icon-btn:hover { background: rgba(255, 255, 255, 0.28); border-color: #fff; }
+.portal-theme .au-head .status { background: var(--cta); border-color: var(--cta); color: #1a1a1a; font-weight: 700; }
+.lm-leagues { border: 1px solid #bfe0c4; border-top: 4px solid var(--secondary-dark); border-radius: 16px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }

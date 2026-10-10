@@ -12,6 +12,9 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 // (same source as the Player Portal), a Guides tile, and a short note on
 // what's coming.
 //
+// Colour refresh (2026-10-10): green header band (.portal-theme) and tiles
+// with the Admin Portal's per-tool accent colours (.ap-sec-*), existing palette only.
+//
 // Mobile layout (2026-09-24): back button, a status chip that reflects the
 // real flag (Captain / Viewing as admin), the coming-soon note at the top
 // (per Matt), then upcoming matches as cards and a Guides tile with a live
@@ -32,7 +35,7 @@ export default function CaptainPortal() {
   const upcoming = (fixtures || []).filter((f) => f.status !== 'completed');
 
   return (
-    <div className="sx-page">
+    <div className="sx-page portal-theme admin-theme-home">
       <div className="au-head">
         <Link to="/" className="msg-icon-btn" aria-label="Back to home">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
@@ -83,8 +86,10 @@ export default function CaptainPortal() {
         )}
       </section>
 
+      <section className="ap-section">
+        <h2 className="ap-section-title">Tools</h2>
       <div className="ap-grid">
-        <Link to="/guides" className="ap-tile">
+        <Link to="/guides" className="ap-tile ap-sec-help">
           <span className="ap-tile-top">
             <span className="ap-icon">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4z" /><path d="M20 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z" /></svg>
@@ -95,7 +100,7 @@ export default function CaptainPortal() {
             {guideCount === null ? 'Reference documents' : `${guideCount} guide${guideCount === 1 ? '' : 's'} available`}
           </span>
         </Link>
-        <Link to="/messages" className="ap-tile">
+        <Link to="/messages" className="ap-tile ap-sec-people">
           <span className="ap-tile-top">
             <span className="ap-icon">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" /></svg>
@@ -105,6 +110,7 @@ export default function CaptainPortal() {
           <span className="ap-tile-desc">Arrange games with players</span>
         </Link>
       </div>
+      </section>
 
     </div>
   );
