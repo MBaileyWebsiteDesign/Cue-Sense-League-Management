@@ -2809,3 +2809,38 @@ button.vm-tile { cursor: pointer; }
 .dv-page .standings-table tbody tr:first-child td:first-child { color: var(--cta-dark); font-weight: 800; }
 .dv-page .standings-table td strong { display: inline-block; min-width: 1.9em; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #fff; }
 .dv-page .standings-table tbody tr:first-child td strong { background: var(--cta); color: #1a1a1a; }
+
+/* Manage Fixtures refresh (2026-10-10). Existing palette only: green banner header,
+   round cards with a visible/hidden edge and a gold Make Visible action, pill links,
+   and a two-column round grid on wide screens. */
+.mf-head {
+  align-items: center; padding: 14px 16px; border-radius: 16px; color: #fff;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 6px 16px rgba(10, 38, 23, 0.25);
+}
+.mf-head-text h1 { color: #fff; }
+.mf-head-text .muted { color: rgba(255, 255, 255, 0.9); }
+.mf-head .msg-icon-btn { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.4); color: #fff; }
+.mf-head .msg-icon-btn:hover { background: rgba(255, 255, 255, 0.28); border-color: #fff; }
+.mf-count-chip { background: var(--cta); color: #1a1a1a; font-weight: 700; font-size: 0.8rem; border-radius: 999px; padding: 3px 12px; white-space: nowrap; }
+.mf-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.mf-pill {
+  display: inline-flex; align-items: center; min-height: 38px; padding: 0 16px; border-radius: 999px;
+  background: var(--primary); color: #fff; font-weight: 700; font-size: 0.9rem; text-decoration: none;
+}
+.mf-pill:hover { background: var(--primary-dark); }
+.mf-pill-ghost { background: #fff; color: var(--primary); border: 2px solid var(--primary); }
+.mf-pill-ghost:hover { background: #e7f2ea; }
+.mf-callout { margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; background: #fbf5e3; border: 1px solid #e6d59e; color: #7a5a10; font-size: 0.9rem; }
+.mf-round { background: #fff; border-left: 5px solid #d1d5db; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+.mf-round-on { border-left-color: var(--secondary-dark); }
+.mf-round-off { background: #faf9f5; }
+.mf-round-top strong { font-size: 1.1rem; color: var(--primary); }
+.mf-vis-yes { background: var(--secondary-dark); color: #fff; }
+.mf-round-btn { min-height: 46px; font-weight: 700; }
+.mf-round-off .mf-round-btn { background: var(--cta); border-color: var(--cta); color: #1a1a1a; font-weight: 800; }
+.mf-round-off .mf-round-btn:hover:not(:disabled) { background: #e6b53c; border-color: #e6b53c; }
+.mf-hide-all-btn { margin-top: 14px; min-height: 44px; color: #b3413a; border-color: #f1c7c3; }
+@media (min-width: 900px) {
+  .mf-round-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+}
