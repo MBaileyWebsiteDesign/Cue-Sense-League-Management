@@ -4,6 +4,9 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
+// Look refreshed 2026-10-10: green banner header, round cards with a status edge and
+// a clear Make Visible / Hide action, and the league picker follows the division you
+// came in on. Existing palette only.
 const BRACKET_ROLE_LABEL = {
   winners: 'Winners Bracket',
   losers: 'Losers Bracket',
@@ -45,7 +48,7 @@ function RoundCard({ round, divisionId, onChanged, setError }) {
   };
 
   return (
-    <div className="mf-round">
+    <div className={`mf-round ${round.visible ? 'mf-round-on' : 'mf-round-off'}`}>
       <div className="mf-round-top">
         <strong>Round {round.round}</strong>
         <span className={`mf-vis-chip ${round.visible ? 'mf-vis-yes' : 'mf-vis-no'}`}>
@@ -56,19 +59,24 @@ function RoundCard({ round, divisionId, onChanged, setError }) {
         {round.bracketRole && round.bracketRole !== 'single' && `${BRACKET_ROLE_LABEL[round.bracketRole] || round.bracketRole} · `}
         {round.count} fixture{round.count === 1 ? '' : 's'}
       </p>
-      <button className="btn cs-btn-block" disabled={busy} onClick={toggle}>
+      <button className="btn cs-btn-block mf-round-btn" disabled={busy} onClick={toggle}>
         {busy ? 'Saving…' : round.visible ? 'Hide from Players' : 'Make Visible'}
       </button>
     </div>
   );
 }
 
-function DivisionRounds({ divisionId }) {
+function DivisionRounds({ divisionId, onLoaded }) {
   const [division, setDivision] = useState(null);
   const [error, setError] = useState('');
   const [hidingAll, setHidingAll] = useState(false);
 
-  const load = () => api.getDivision(divisionId).then(setDivision).catch((e) => setError(e.message));
+  const load = () => api.getDivision(divisionId)
+    .then((d) => {
+      setDivision(d);
+      if (onLoaded) onLoaded(d);
+    })
+    .catch((e) => setError(e.message));
 
   useEffect(() => {
     load();
@@ -111,34 +119,35 @@ function DivisionRounds({ divisionId }) {
     }
   };
 
+  const visibleCount = rounds.filter((r) => r.visible).length;
+
   return (
     <section className="card mf-panel">
-      <p className="mf-back-links muted">
-        <Link to="/admin/manage-fixtures">&larr; Manage Fixtures</Link>
-        {' · '}
-        <Link to={`/divisions/${division.id}`}>&larr; {division.name}</Link>
-      </p>
-      <div className="page-header">
+      <div className="page-header dv-card-head">
         <h2>{division.name} — Rounds</h2>
+        <span className="mf-count-chip">{visibleCount} of {rounds.length} visible</span>
       </div>
-      <p className="mf-open-link"><Link to={`/divisions/${division.id}`}>Open division page &rarr;</Link></p>
-      <p className="muted mf-intro">
+      <div className="mf-links">
+        <Link className="mf-pill" to={`/divisions/${division.id}`}>Open division page &rarr;</Link>
+        <Link className="mf-pill mf-pill-ghost" to="/admin/manage-fixtures">&larr; Change division</Link>
+      </div>
+      <p className="mf-intro mf-callout">
         Players never see the whole season up front - a round's fixtures (and the ability to
-        play or score them) only appear in the Player Portal once you release that round here.
+        play or score them) only appear in the Player Portal once you make that round visible.
         Release Round 1 now, then come back and release Round 2 the following week, and so on.
       </p>
       {error && <p className="error">{error}</p>}
-      {anyVisible && (
-        <button className="btn cs-btn-block mf-hide-all" disabled={hidingAll} onClick={hideAll}>
-          {hidingAll ? 'Hiding…' : 'Hide All Rounds'}
-        </button>
-      )}
       <div className="mf-round-list">
         {rounds.map((round) => (
           <RoundCard key={round.round} round={round} divisionId={division.id} onChanged={load} setError={setError} />
         ))}
         {rounds.length === 0 && <p className="muted">No fixtures in this division yet.</p>}
       </div>
+      {anyVisible && (
+        <button className="btn cs-btn-block mf-hide-all-btn" disabled={hidingAll} onClick={hideAll}>
+          {hidingAll ? 'Hiding…' : 'Hide all rounds'}
+        </button>
+      )}
     </section>
   );
 }
@@ -247,7 +256,12 @@ export default function ManageFixtures() {
         </section>
       )}
 
-      {routedDivisionId && <DivisionRounds divisionId={routedDivisionId} />}
+      {routedDivisionId && (
+        <DivisionRounds
+          divisionId={routedDivisionId}
+          onLoaded={(d) => setSelectedLeagueId((cur) => cur || d.leagueId || '')}
+        />
+      )}
     </div>
   );
 }
