@@ -39,6 +39,7 @@ export default function Login() {
       let home = '/account';
       if (user && user.isAdmin) home = '/admin';
       else if (user && user.isVenueManager && (user.venuePortalDefault || user.playerPortalDisabled)) home = '/venue-manager';
+      else if (user && user.isBarStaff && (user.venuePortalDefault || user.playerPortalDisabled)) home = '/bar-staff';
       navigate(from || home, { replace: true });
     } catch (err) {
       setError(err.message);

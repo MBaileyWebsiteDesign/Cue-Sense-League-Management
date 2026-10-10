@@ -215,6 +215,9 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         <button className="btn" disabled={busy} onClick={() => setPermission({ isVenueManager: !user.isVenueManager })}>
           {user.isVenueManager ? 'Revoke Venue Manager' : 'Grant Venue Manager'}
         </button>
+        <button className="btn" disabled={busy} onClick={() => setPermission({ isBarStaff: !user.isBarStaff })}>
+          {user.isBarStaff ? 'Revoke Bar Staff' : 'Grant Bar Staff'}
+        </button>
         <button className="btn" disabled={busy} onClick={() => setPermission({ isReferee: !user.isReferee })}>
           {user.isReferee ? 'Unmark Referee' : 'Mark as Referee'}
         </button>
@@ -222,7 +225,7 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
           {user.status === 'suspended' ? 'Reactivate Account' : 'Suspend Account'}
         </button>
       </div>
-      {user.isVenueManager && (
+      {(user.isVenueManager || user.isBarStaff) && (
         <>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
             <input
@@ -231,7 +234,7 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
               disabled={busy}
               onChange={(e) => setPermission({ venuePortalDefault: e.target.checked })}
             />
-            Land on the Venue Manager Portal after logging in
+            Land on the {user.isVenueManager ? 'Venue Manager' : 'Bar Staff'} Portal after logging in
           </label>
           <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.8rem' }}>
             Leave unticked for a Venue Manager who is also a player, so they land on their own My Account page
@@ -248,7 +251,7 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
           </label>
           <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.8rem' }}>
             For a venue-manager-only login (e.g. venue staff) that isn't a player: hides the Player Portal link and sends them to
-            the Venue Manager Portal instead, and they will always land there after logging in. Leave unticked for anyone who also plays.
+            their staff portal (Venue Manager or Bar Staff) instead, and they will always land there after logging in. Leave unticked for anyone who also plays.
             {user.isAdmin && ' Has no effect while this account is an Overall Admin. '}Takes effect next time they log in or refresh.
           </p>
         </>

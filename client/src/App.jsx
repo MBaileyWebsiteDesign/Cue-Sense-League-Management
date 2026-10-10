@@ -59,6 +59,8 @@ const Guides = lazy(() => import('./pages/Guides.jsx'));
 const AdHocGame = lazy(() => import('./pages/AdHocGame.jsx'));
 const CheckIn = lazy(() => import('./pages/CheckIn.jsx'));
 const VenueMember = lazy(() => import('./pages/VenueMember.jsx'));
+const BarStaffPortal = lazy(() => import('./pages/BarStaffPortal.jsx'));
+const BarStaffMember = lazy(() => import('./pages/BarStaffMember.jsx'));
 
 // Gates the standard "view the site" pages: any logged-in account (whatever
 // combination of admin/captain/plain-player flags it has) can browse. There
@@ -123,12 +125,24 @@ function RequireVenueManager({ children }) {
   return children;
 }
 
+// Bar Staff Portal gate - same pattern as RequireVenueManager (an Overall Admin
+// can also see it; server side: requireVenueManager in barStaffMode).
+function RequireBarStaff({ children }) {
+  const { isBarStaff, isAdmin } = useAuth();
+  const location = useLocation();
+
+  if (!isBarStaff && !isAdmin) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return children;
+}
+
 // Player Portal gate: a venue-manager-only account with the Player Portal
 // switched off (Manage Users -> Permissions & Status) is sent to the Venue
 // Manager Portal instead of the player pages. Everyone else passes straight through.
 function RequirePlayerPortal({ children }) {
-  const { playerPortalDisabled } = useAuth();
-  if (playerPortalDisabled) return <Navigate to="/venue-manager" replace />;
+  const { playerPortalDisabled, staffPortalPath } = useAuth();
+  if (playerPortalDisabled) return <Navigate to={staffPortalPath || '/venue-manager'} replace />;
   return children;
 }
 
@@ -141,7 +155,7 @@ function RequirePlayerPortal({ children }) {
 // hamburger button is display:none and .header-accounts just renders as
 // the same inline row it always did - nothing changes for desktop/tablet.
 function HeaderNav() {
-  const { isLoggedIn, isAdmin, isCaptain, isLeagueManager, isVenueManager, playerPortalDisabled, logout } = useAuth();
+  const { isLoggedIn, isAdmin, isCaptain, isLeagueManager, isVenueManager, isBarStaff, playerPortalDisabled, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -182,6 +196,11 @@ function HeaderNav() {
         {isVenueManager && !isAdmin && (
           <Link to="/venue-manager" className="header-link" onClick={closeMenu}>
             Venue Manager Portal
+          </Link>
+        )}
+        {isBarStaff && !isAdmin && (
+          <Link to="/bar-staff" className="header-link" onClick={closeMenu}>
+            Bar Staff Portal
           </Link>
         )}
         {(isAdmin || isCaptain) && (
@@ -266,12 +285,12 @@ function adminThemeClass(pathname) {
 }
 
 function AppShell() {
-  const { playerPortalDisabled } = useAuth();
+  const { playerPortalDisabled, staffPortalPath } = useAuth();
   const location = useLocation();
   return (
     <div className="app-shell">
       <header className="app-header">
-        <Link to={playerPortalDisabled ? '/venue-manager' : '/account'} className="brand">
+        <Link to={playerPortalDisabled ? (staffPortalPath || '/venue-manager') : '/account'} className="brand">
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
           <span className="brand-text">
             <span className="brand-name">Cue Sense</span>
@@ -318,6 +337,8 @@ function AppShell() {
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
             <Route path="/venue-manager" element={<RequireVenueManager><VenueManagerPortal /></RequireVenueManager>} />
             <Route path="/venue-manager/players/:userId" element={<RequireVenueManager><VenueMember /></RequireVenueManager>} />
+            <Route path="/bar-staff" element={<RequireBarStaff><BarStaffPortal /></RequireBarStaff>} />
+            <Route path="/bar-staff/players/:userId" element={<RequireBarStaff><BarStaffMember /></RequireBarStaff>} />
             {/* Bar NFC tag link - checks the logged-in player in at that venue. */}
             <Route path="/checkin/:token" element={<RequireLogin><CheckIn /></RequireLogin>} />
             <Route path="/admin" element={<RequireAdmin><AdminPortal /></RequireAdmin>} />
