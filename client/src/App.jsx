@@ -45,6 +45,7 @@ const Arena = lazy(() => import('./pages/Arena.jsx'));
 const PublicLeagueTable = lazy(() => import('./pages/PublicLeagueTable.jsx'));
 const PublicLeagueFixtures = lazy(() => import('./pages/PublicLeagueFixtures.jsx'));
 const PublicLeagueInterests = lazy(() => import('./pages/PublicLeagueInterests.jsx'));
+const LeagueInterests = lazy(() => import('./pages/LeagueInterests.jsx'));
 const PublicDivisionBracket = lazy(() => import('./pages/PublicDivisionBracket.jsx'));
 const PublicDivisionTable = lazy(() => import('./pages/PublicDivisionTable.jsx'));
 const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures.jsx'));
@@ -339,6 +340,7 @@ function AppShell() {
             <Route path="/admin/manage-fixtures" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />
             <Route path="/admin/manage-fixtures/:divisionId" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />
             <Route path="/leagues/:leagueId" element={<RequireLogin><LeagueDetail /></RequireLogin>} />
+            <Route path="/leagues/:leagueId/interests" element={<RequireAnyAdmin><LeagueInterests /></RequireAnyAdmin>} />
             <Route path="/divisions/:divisionId" element={<RequireLogin><DivisionDetail /></RequireLogin>} />
             <Route path="/fixtures/:fixtureId" element={<RequireLogin><FixtureDetail /></RequireLogin>} />
             <Route path="/players/:playerId" element={<RequireLogin><PlayerProfile /></RequireLogin>} />
