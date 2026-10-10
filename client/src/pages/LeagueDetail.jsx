@@ -653,6 +653,7 @@ function divisionStatus(division) {
   return { label: 'Not started', tone: 'idle' };
 }
 
+// Colour refresh (2026-10-10): rows carry a status-coloured edge (lg-div-row-*).
 // Divisions as one compact card of tappable rows. When every division
 // plays the same way the format is shown once at the top; otherwise each
 // row carries its own format line.
@@ -682,7 +683,7 @@ function DivisionsCard({ divisions }) {
               const st = divisionStatus(division);
               return (
                 <li key={division.id}>
-                  <Link to={`/divisions/${division.id}`} className="lg-div-row">
+                  <Link to={`/divisions/${division.id}`} className={`lg-div-row lg-div-row-${st.tone}`}>
                     <span className="lg-div-main">
                       <strong>{division.name}</strong>
                       <span className="muted">
@@ -833,7 +834,7 @@ export default function LeagueDetail() {
 
   return (
     <div className="lg-page">
-      {!isPlayerSession && <p><Link to="/leagues">&larr; All leagues</Link></p>}
+      {!isPlayerSession && <p><Link to="/leagues" className="lg-back">&larr; All leagues</Link></p>}
       <section className="lg-head">
         <div className="lg-head-top">
           <div className="lg-head-title">
@@ -1003,28 +1004,27 @@ export default function LeagueDetail() {
       <section className="lg-share" aria-label="Share and display">
         <span className="lg-section-label">Share &amp; display</span>
         <div className="lg-share-grid">
-          <Link className="lg-share-tile" to={`/arena/${league.id}`}>
+          <Link className="lg-share-tile lg-st-arena" to={`/arena/${league.id}`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
             Arena display
           </Link>
-          <Link className="lg-share-tile" to={`/public/leagues/${league.id}/table`}>
+          <Link className="lg-share-tile lg-st-table" to={`/public/leagues/${league.id}/table`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
             League table
           </Link>
-          <Link className="lg-share-tile" to={`/public/leagues/${league.id}/fixtures`}>
+          <Link className="lg-share-tile lg-st-fixtures" to={`/public/leagues/${league.id}/fixtures`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
             Fixtures
           </Link>
-          <Link className="lg-share-tile" to={`/public/leagues/${league.id}/interests`}>
+          <Link className="lg-share-tile lg-st-interests" to={`/public/leagues/${league.id}/interests`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3 3-5 6-5s6 2 6 5M16 11h5M18.5 8.5v5" /></svg>
             Interests
           </Link>
         </div>
         {canManage && (
           <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
-            These links are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
-            &lt;iframe&gt; on another site) - copy any URL from your browser's address bar once you're on
-            the page.
+            Live public pages you can embed elsewhere (e.g. in an &lt;iframe&gt;). Open one and copy
+            its address from your browser.
           </p>
         )}
       </section>
