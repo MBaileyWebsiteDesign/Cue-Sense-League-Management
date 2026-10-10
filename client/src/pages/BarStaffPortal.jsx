@@ -283,7 +283,7 @@ function RenewButtons({ player, busy, onRenew }) {
 // brings the full list back. The header count always shows the venue's total
 // registered players, not the number of matches.
 // The list shows this many players at a time; "Show more" adds another page (Matt, 2026-10-10).
-const PLAYERS_PAGE = 20;
+const PLAYERS_PAGE = 10;
 
 function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved }) {
   const dueMonths = typeof bucket === 'number' ? bucket : null; // 2 | 4 | 6 filters the list to that renewal window
