@@ -988,7 +988,7 @@ function PlayerSubstitutionPanel({ division, registeredPlayers, onChange, setErr
 
   return (
     <section className="card">
-      <div className="page-header">
+      <div className="page-header dv-card-head">
         <h2 style={{ margin: 0 }}>Substitute a Player</h2>
         <button className="btn" type="button" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide' : 'Show'}
@@ -1860,6 +1860,18 @@ export default function DivisionDetail() {
           {division.createdByName && <span className="ol-chip">Created by {division.createdByName}</span>}
         </div>
       </section>
+      {!isKiller && division.fixturesGenerated && division.fixtures.length > 0 && !isSingleElimKnockout && !isDoubleElim && !isAdaptiveKnockout && (() => {
+        const played = division.fixtures.filter((f) => f.status === 'completed').length;
+        const rounds = [...new Set(division.fixtures.map((f) => f.round))];
+        const roundsDone = rounds.filter((r) => division.fixtures.filter((f) => f.round === r).every((f) => f.status === 'completed')).length;
+        const totalRounds = division.totalRounds || rounds.length;
+        return (
+          <div className="dv-progress" aria-label="Season progress">
+            <div className="dv-progress-tile"><strong>{played}</strong><span>played</span></div>
+            <div className="dv-progress-tile"><strong>{roundsDone} of {totalRounds}</strong><span>rounds complete</span></div>
+          </div>
+        );
+      })()}
       {error && <p className="error">{error}</p>}
 
       {division.status === 'completed' && (
@@ -2036,11 +2048,11 @@ export default function DivisionDetail() {
       <section className="lg-share" aria-label="Share and display">
         <span className="lg-section-label">Share &amp; display</span>
         <div className="lg-share-grid dv-share-grid">
-          <Link className="lg-share-tile" to={`/public/divisions/${division.id}/table`}>
+          <Link className="lg-share-tile lg-st-table" to={`/public/divisions/${division.id}/table`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
             Public table
           </Link>
-          <Link className="lg-share-tile" to={`/public/divisions/${division.id}/fixtures`}>
+          <Link className="lg-share-tile lg-st-fixtures" to={`/public/divisions/${division.id}/fixtures`}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
             Public fixtures
           </Link>
@@ -2048,9 +2060,8 @@ export default function DivisionDetail() {
       </section>
       {canManage && (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
-          The two links above are live, unauthenticated pages meant to be embedded elsewhere (e.g. an
-          &lt;iframe&gt; on another site) - copy either URL from your browser's address bar once you're on
-          the page.
+          Live public pages you can embed elsewhere (e.g. in an &lt;iframe&gt;). Open one and copy its
+          address from your browser.
         </p>
       )}
       </>
@@ -2137,10 +2148,10 @@ export default function DivisionDetail() {
       )}
 
       <section className="card">
-        <div className="page-header">
+        <div className="page-header dv-card-head">
           <h2>Fixtures</h2>
           {canManage && division.fixturesGenerated && (
-            <Link to={`/admin/manage-fixtures/${division.id}`}>Manage round visibility</Link>
+            <Link className="dv-pill-link" to={`/admin/manage-fixtures/${division.id}`}>Manage round visibility</Link>
           )}
         </div>
         {canManage && division.fixturesGenerated && (
@@ -2282,12 +2293,25 @@ function buildDoubleElimMatches(fixtures, isTeams, nameOf) {
 // fixture that's genuinely ready to play right now, which is misleading.
 // `bothEntrantsKnown` (added in hydrateDivision) distinguishes the two: a
 // still-waiting fixture gets its own "awaiting result" badge instead.
+// A completed fixture with equal scores and no winner is a draw (0 - 0 counts as
+// a draw - Matt, 2026-10-10). Knockout fixtures always have a winner recorded, so
+// they never show as a draw.
+function isDrawFixture(f) {
+  if (f.closedEarly || f.status !== 'completed') return false;
+  const winnerId = f.winnerPlayerId || f.winnerTeamId;
+  if (winnerId) return false;
+  const home = f.homePlayerId !== undefined && f.homePlayerId !== null ? f.homeFrameScore : f.homeLegsWon;
+  const away = f.awayPlayerId !== undefined && f.awayPlayerId !== null ? f.awayFrameScore : f.awayLegsWon;
+  return home !== undefined && home !== null && home === away;
+}
 function fixtureStatusLabel(f) {
   if (f.closedEarly) return 'closed early';
+  if (isDrawFixture(f)) return 'draw';
   if (f.status !== 'completed' && f.bothEntrantsKnown === false) return 'awaiting result';
   return f.status.replace('_', ' ');
 }
 function fixtureStatusClass(f) {
+  if (isDrawFixture(f)) return 'status-draw';
   if (!f.closedEarly && f.status !== 'completed' && f.bothEntrantsKnown === false) return 'status-awaiting';
   return `status-${f.status}`;
 }
@@ -2301,7 +2325,7 @@ function FixtureList({ fixtures, isTeams, nameOf }) {
         const homeScore = isTeams ? f.homeLegsWon : f.homeFrameScore;
         const awayScore = isTeams ? f.awayLegsWon : f.awayFrameScore;
         return (
-          <li key={f.id}>
+          <li key={f.id} className={`fx fx-${isDrawFixture(f) ? 'draw' : f.status}`}>
             <Link to={`/fixtures/${f.id}`}>
               {nameOf(homeId)} <strong>{homeScore} - {awayScore}</strong> {nameOf(awayId)}
             </Link>

@@ -2760,3 +2760,52 @@ button.vm-tile { cursor: pointer; }
 @media (min-width: 640px) {
   .li-row { flex-direction: row; align-items: center; justify-content: space-between; }
 }
+
+/* Division page refresh (2026-10-10). Existing palette only: green banner header
+   with a gold status chip, season progress tiles, a gold leader on Standings,
+   the Fixtures tab brought in line with the other cards (green band, fixture
+   cards with a status-coloured edge) and a "draw" status for equal-score results. */
+.dv-head {
+  border: 0; color: #fff;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 6px 16px rgba(10, 38, 23, 0.25);
+}
+.dv-head-top h1 { color: #fff; }
+.dv-head .msg-icon-btn { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.4); color: #fff; }
+.dv-head .msg-icon-btn:hover { background: rgba(255, 255, 255, 0.28); border-color: #fff; }
+.dv-head .lg-div-status { background: var(--cta); border-color: var(--cta); color: #1a1a1a; font-weight: 700; }
+.dv-head .lg-div-status::before { background: #1a1a1a; }
+.dv-head .ol-chip { background: rgba(255, 255, 255, 0.18); color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); }
+.dv-progress { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dv-progress-tile {
+  background: #fff; border: 1px solid #bfe0c4; border-top: 4px solid var(--secondary-dark); border-radius: 14px;
+  padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.dv-progress-tile strong { font-size: 1.4rem; color: var(--primary); line-height: 1.1; }
+.dv-progress-tile span { font-size: 0.8rem; color: var(--muted); }
+.dv-pill-link {
+  display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px; border-radius: 999px;
+  background: var(--cta); color: #1a1a1a !important; font-weight: 700; font-size: 0.85rem; text-decoration: none;
+}
+.dv-pill-link:hover { background: #e6b53c; }
+.dv-page .round-block h3 { color: var(--primary); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.dv-page .fixture-list li.fx {
+  padding: 10px 12px; margin-bottom: 8px; background: #fff; border: 1px solid var(--border); border-left: 5px solid #d1d5db;
+  border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); gap: 10px;
+}
+.dv-page .fixture-list li.fx-completed { border-left-color: var(--secondary-dark); }
+.dv-page .fixture-list li.fx-draw { border-left-color: var(--cta); }
+.dv-page .fixture-list li.fx-in_progress { border-left-color: var(--cta); background: #fffaf0; }
+.dv-page .fixture-list li.fx strong { background: #e7f2ea; color: var(--primary); border-radius: 6px; padding: 1px 8px; }
+.dv-page .fixture-list li.fx-in_progress strong { background: var(--cta); color: #1a1a1a; }
+.status-draw { background: #fbf5e3; color: #7a5a10; }
+.dv-page .cs-st-row:nth-child(2) .cs-st-pos { color: var(--cta-dark); }
+.dv-page .cs-st-row:nth-child(2) .cs-st-name { font-weight: 800; }
+.dv-page .cs-st-main .cs-st-pts {
+  display: inline-block; min-width: 1.9em; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #fff;
+  text-align: center; font-weight: 700;
+}
+.dv-page .cs-st-row:nth-child(2) .cs-st-main .cs-st-pts { background: var(--cta); color: #1a1a1a; }
+.dv-page .standings-table tbody tr:first-child td:first-child { color: var(--cta-dark); font-weight: 800; }
+.dv-page .standings-table td strong { display: inline-block; min-width: 1.9em; padding: 2px 8px; border-radius: 999px; background: var(--primary); color: #fff; }
+.dv-page .standings-table tbody tr:first-child td strong { background: var(--cta); color: #1a1a1a; }
