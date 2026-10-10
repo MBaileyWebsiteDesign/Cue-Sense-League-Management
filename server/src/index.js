@@ -10041,6 +10041,19 @@ app.delete('/api/admin/users/:id/venue-memberships/:venueId', requireAdmin, asyn
       details: `Removed ${user.firstName} ${user.lastName} from "${venue ? venue.name : req.params.venueId}"`,
     });
     writeDb(db);
+  } else if (pruneLeftMemberships(user).some((x) => x.venueId === req.params.venueId)) {
+    // Membership details kept after the player left the venue (2026-10-08):
+    // an admin can delete them before the end date.
+    const venue = db.venues.find((v) => v.id === req.params.venueId);
+    user.leftVenueMemberships = user.leftVenueMemberships.filter((x) => x.venueId !== req.params.venueId);
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'user.venueMembership',
+      targetType: 'user',
+      targetId: user.id,
+      details: `Deleted ${user.firstName} ${user.lastName}'s kept membership details for "${venue ? venue.name : req.params.venueId}"`,
+    });
+    writeDb(db);
   }
   res.json(publicUser(user));
 }));

@@ -56,12 +56,57 @@ function MembershipRow({ user, membership, venueName, onSaved, setError, setSucc
   );
 }
 
+// Memberships the player left while still running (2026-10-08): kept until
+// the end date passes. An admin can restore one (same dates) or delete it.
+function ukDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return `${d}-${m}-${y}`;
+}
+
+function KeptMembershipRow({ user, membership, venueName, onSaved, setError, setSuccess }) {
+  const [busy, setBusy] = useState(false);
+  const restore = async () => {
+    setError(''); setSuccess(''); setBusy(true);
+    try {
+      const updated = await api.adminSetVenueMembership(user.id, { venueId: membership.venueId, startDate: membership.startDate || null, renewalDate: membership.renewalDate || null });
+      onSaved(updated);
+      setSuccess(`${venueName} membership restored.`);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const discard = async () => {
+    if (!window.confirm(`Delete ${user.firstName} ${user.lastName}'s kept membership details for ${venueName}? This can't be undone.`)) return;
+    setError(''); setSuccess(''); setBusy(true);
+    try {
+      const updated = await api.adminRemoveVenueMembership(user.id, membership.venueId);
+      onSaved(updated);
+      setSuccess(`Kept membership details for ${venueName} deleted.`);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="aue-mem aue-mem-left">
+      <h3 style={{ margin: 0 }}>{venueName}</h3>
+      <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+        Left {membership.leftAt ? ukDate(membership.leftAt) : ''} – membership {membership.startDate ? `${ukDate(membership.startDate)} ` : ''}to {ukDate(membership.renewalDate)} kept until the end date.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" type="button" onClick={restore} disabled={busy}>{busy ? 'Working…' : 'Restore membership'}</button>
+        <button className="btn btn-danger" type="button" onClick={discard} disabled={busy}>Delete kept details</button>
+      </div>
+    </div>
+  );
+}
+
 function VenueMembershipsPanel({ user, venues, onSaved, setError, setSuccess }) {
   const [addId, setAddId] = useState('');
   const [busy, setBusy] = useState(false);
   const memberships = Array.isArray(user.venueMemberships) ? user.venueMemberships : [];
   const nameOf = (id) => venues.find((v) => v.id === id)?.name || 'Unknown venue';
-  const available = venues.filter((v) => !memberships.some((m) => m.venueId === v.id));
+  const todayUk = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+  const kept = (Array.isArray(user.leftVenueMemberships) ? user.leftVenueMemberships : [])
+    .filter((m) => m.renewalDate && m.renewalDate >= todayUk && !memberships.some((x) => x.venueId === m.venueId));
+  // Venues with kept details are restored or deleted from their own row, not re-added blank.
+  const available = venues.filter((v) => !memberships.some((m) => m.venueId === v.id) && !kept.some((m) => m.venueId === v.id));
 
   const add = async () => {
     if (!addId) return;
@@ -92,6 +137,22 @@ function VenueMembershipsPanel({ user, venues, onSaved, setError, setSuccess }) 
           setSuccess={setSuccess}
         />
       ))}
+      {kept.length > 0 && (
+        <>
+          <h3 style={{ margin: '6px 0 4px' }}>Left venues (membership kept)</h3>
+          {kept.map((m) => (
+            <KeptMembershipRow
+              key={`left:${m.venueId}`}
+              user={user}
+              membership={m}
+              venueName={nameOf(m.venueId)}
+              onSaved={onSaved}
+              setError={setError}
+              setSuccess={setSuccess}
+            />
+          ))}
+        </>
+      )}
       {available.length > 0 && (
         <label>
           Add a venue
