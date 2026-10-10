@@ -1,0 +1,24 @@
+/* Scan score card (staging trial). Uses the app's green/gold palette tokens. */
+.sc-card { margin-bottom: 16px; }
+.sc-lead { margin: 0 0 12px; }
+.sc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sc-busy { margin: 0; font-weight: 700; color: var(--primary); }
+.sc-photo { display: block; width: 100%; max-height: 260px; object-fit: contain; background: var(--tile-bg); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; }
+.sc-note { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--tile-bg); border-left: 4px solid var(--cta); font-size: 0.9rem; }
+.sc-error { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--loss-bg); color: var(--loss-ink); font-weight: 600; font-size: 0.9rem; }
+.sc-small { font-size: 0.8rem; }
+.sc-row { margin-bottom: 12px; padding: 10px; border-radius: 10px; background: var(--tile-bg); border-left: 5px solid var(--primary); }
+.sc-row-away { border-left-color: var(--cta); }
+.sc-rowhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.sc-boxes { display: grid; gap: 4px; }
+.sc-box { width: 100%; min-width: 0; height: 40px; padding: 0; text-align: center; font-size: 16px; font-weight: 700; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--ink); }
+.sc-box:focus { outline: 2px solid var(--secondary); outline-offset: 0; border-color: var(--secondary); }
+.sc-total { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin: 14px 0 8px; padding: 10px 12px; border-radius: 10px; background: var(--primary); color: #fff; font-weight: 600; }
+.sc-total span:last-child { text-align: right; }
+.sc-total strong { font-size: 1.5rem; color: var(--cta); }
+.sc-order { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.sc-sq { width: 30px; height: 30px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800; }
+.sc-sq-home { background: var(--primary); color: #fff; }
+.sc-sq-away { background: var(--cta); color: var(--ink); }
+.sc-issues { margin: 0 0 12px; padding: 8px 12px 8px 28px; border-radius: 8px; background: var(--loss-bg); color: var(--loss-ink); font-size: 0.9rem; font-weight: 600; }
+.sc-confirm { width: 100%; margin: 4px 0 8px; padding: 12px 16px; font-size: 1rem; }
