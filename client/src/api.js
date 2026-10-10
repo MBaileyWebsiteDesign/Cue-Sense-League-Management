@@ -42,6 +42,33 @@ async function request(path, options = {}) {
   return body;
 }
 
+// Server-Sent Events reader for the Today's check-ins live updates (same idea as
+// streamVenueBookings below). base is '/venue-manager' or '/bar-staff'. Calls onOpen
+// once connected and onUpdate on each "checkins" event; resolves when the stream ends.
+async function streamCheckins(base, venueId, { onUpdate, onOpen, signal } = {}) {
+  const token = getStoredToken();
+  const res = await fetch(`${BASE}${base}/checkins/stream?venueId=${encodeURIComponent(venueId)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    signal,
+  });
+  if (!res.ok || !res.body) throw new Error(`Live updates unavailable (${res.status})`);
+  if (onOpen) onOpen();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf('\n\n')) >= 0) {
+      const chunk = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      if (/^event: checkins$/m.test(chunk) && onUpdate) onUpdate();
+    }
+  }
+}
+
 const networkApi = {
   // Single unified login for every account (admin, player, captain - any
   // combination of flags on the same account).
@@ -146,6 +173,7 @@ const networkApi = {
 
   // Venue Manager Portal (client/src/pages/VenueManagerPortal.jsx).
   getMyManagedVenues: () => request('/venue-manager/venues'),
+  streamVenueCheckins: (venueId, opts) => streamCheckins('/venue-manager', venueId, opts),
   getVenueManagerStatus: (venueId) => request(`/venue-manager/status?venueId=${encodeURIComponent(venueId)}`),
   // Today's and future table bookings from the venue's Wix site (read-only;
   // the server syncs from Wix at 09:00, 11:00 and 17:00 UK time).
@@ -670,6 +698,7 @@ export const api = DEMO_MODE ? demoApi : networkApi;
 // server/src/index.js for what Bar Staff are allowed to reach). Everything else falls
 // through to the normal api.
 const barStaffNetworkApi = {
+  streamVenueCheckins: (venueId, opts) => streamCheckins('/bar-staff', venueId, opts),
   setVenueJoinPolicy: (venueId, joinPolicy) =>
     request(`/bar-staff/venues/${encodeURIComponent(venueId)}/join-policy`, { method: 'POST', body: JSON.stringify({ joinPolicy }) }),
   setVenueExpiryEmails: (venueId, enabled) =>
