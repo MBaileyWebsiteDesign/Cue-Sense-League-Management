@@ -1378,6 +1378,44 @@ function CheckinCard({ venueId }) {
     return () => clearInterval(t);
   }, [venueId]);
 
+  // Live updates: while the card is on screen, hold a stream open to the server;
+  // when a check-in is logged, cleared or deleted it pings the stream and the list
+  // reloads straight away (the 30s refresh above stays as a backstop). Disconnects
+  // while the tab is hidden and retries every 5s if the connection drops.
+  useEffect(() => {
+    if (typeof api.streamVenueCheckins !== 'function') return undefined;
+    let stopped = false;
+    let ctrl = null;
+    let retry = null;
+    const connect = () => {
+      if (stopped || document.hidden) return;
+      const mine = new AbortController();
+      ctrl = mine;
+      api.streamVenueCheckins(venueId, { onUpdate: loadToday, signal: mine.signal })
+        .catch(() => {})
+        .finally(() => {
+          if (!stopped && !mine.signal.aborted) retry = setTimeout(connect, 5000);
+        });
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearTimeout(retry);
+        if (ctrl) ctrl.abort();
+      } else if (!stopped) {
+        loadToday();
+        if (!ctrl || ctrl.signal.aborted) connect();
+      }
+    };
+    connect();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      if (ctrl) ctrl.abort();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [venueId]);
+
   const all = today || [];
   const visible = all.filter((v) => !v.hidden);
   const hiddenCount = all.length - visible.length;

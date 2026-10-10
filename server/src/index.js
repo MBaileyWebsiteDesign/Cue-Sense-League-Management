@@ -1367,6 +1367,7 @@ const BAR_STAFF_ROUTES = [
   ['DELETE', '/players/:id'],
   ['POST', '/checkins'],
   ['GET', '/checkins'],
+  ['GET', '/checkins/stream'],
   ['POST', '/checkins/clear'],
   ['DELETE', '/checkins/:id'],
   ['GET', '/players/:id/membership'],
@@ -3166,9 +3167,61 @@ app.post('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, re
   const user = findUserByCard(db, uid);
   if (!user) return res.json({ found: false, uid });
   const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'card', cardUid: uid, by: req.adminSession.label });
-  if (!repeat) writeDb(db);
+  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id); }
   res.json({ found: true, uid, repeat, visit, player: checkinPlayerView(db, user, venue.id) });
 }));
+
+// Live updates for Today's check-ins (Matt, 2026-10-10): the card holds a
+// Server-Sent Events stream open per venue; whenever a check-in is logged (a
+// player tapping the bar tag, or a card tapped on the reader), cleared or
+// deleted, the server sends "event: checkins" and the card re-reads the list.
+// Same shape as the Table bookings stream (GET /bookings/stream above): the
+// page disconnects while its tab is hidden and keeps its 30s refresh as a backstop.
+const checkinStreams = new Map(); // venueId -> Set<res>
+function notifyCheckinStreams(venueId) {
+  const set = checkinStreams.get(venueId);
+  if (!set || set.size === 0) return;
+  const msg = `event: checkins\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`;
+  for (const res of set) {
+    try {
+      res.write(msg);
+      if (typeof res.flush === 'function') res.flush();
+    } catch {
+      /* closed - cleaned up when the request closes */
+    }
+  }
+}
+
+app.get('/api/venue-manager/checkins/stream', requireVenueManager, (req, res, next) => {
+  try {
+    const venue = managedVenueOr404(req, readDb(), req.query.venueId);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write('retry: 5000\n: connected\n\n');
+    if (typeof res.flush === 'function') res.flush();
+    if (!checkinStreams.has(venue.id)) checkinStreams.set(venue.id, new Set());
+    const set = checkinStreams.get(venue.id);
+    set.add(res);
+    const ping = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+        if (typeof res.flush === 'function') res.flush();
+      } catch {
+        /* closed - cleaned up below */
+      }
+    }, 25 * 1000);
+    req.on('close', () => {
+      clearInterval(ping);
+      set.delete(res);
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Today's check-ins (UK day) at a venue, newest first - card and bar tag.
 app.get('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, res) => {
@@ -3217,6 +3270,7 @@ app.post('/api/venue-manager/checkins/clear', requireVenueManager, asyncRoute((r
     details: `Cleared Today's check-ins list at ${venue.name} (visits kept)`,
   });
   writeDb(db);
+  notifyCheckinStreams(venue.id);
   res.json({ clearedAt: venue.checkinsClearedAt });
 }));
 
@@ -3238,6 +3292,7 @@ app.delete('/api/venue-manager/checkins/:id', requireVenueManager, asyncRoute((r
     details: `Deleted ${u ? `${u.firstName} ${u.lastName}` : 'a deleted account'}'s check-in at ${venue.name} (${visit.source}, ${visit.at})`,
   });
   writeDb(db);
+  notifyCheckinStreams(venue.id);
   res.json({ ok: true, id: visit.id });
 }));
 
@@ -3376,7 +3431,7 @@ app.post('/api/checkin/:token', requireAuth, asyncRoute((req, res) => {
   const user = db.users.find((u) => u.id === req.auth.user.id);
   if (!user) throw new ApiError(404, 'Account not found');
   const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'tag' });
-  if (!repeat) writeDb(db);
+  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id); }
   const m = membershipAt(user, venue.id);
   res.json({
     venueName: venue.name,
