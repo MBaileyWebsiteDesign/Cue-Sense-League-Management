@@ -97,6 +97,8 @@ export default function VenueMember() {
   const m = (p && p.membership) || {};
   const st = p ? (STATUS[p.membershipStatus] || STATUS['not-member']) : null;
   const willExtend = p && p.membershipStatus === 'active';
+  // Venue has switched memberships off: no status, dates or plans, just the player.
+  const memberOn = !data || data.membershipEnabled !== false;
 
   return (
     <div className="sx-page">
@@ -119,13 +121,15 @@ export default function VenueMember() {
             <div className="vm-panel-body vmm-body">
               <p className="muted vm-small vmm-email">{p.email}</p>
               {p.status === 'suspended' && <p><span className="status status-disputed">suspended account</span></p>}
-              <div className={`ci-self-status ${st.cls}`}>
-                <strong>{st.title}</strong>
-                <span>{st.text(m)}</span>
-              </div>
+              {(memberOn || p.membershipStatus === 'not-member') && (
+                <div className={`ci-self-status ${st.cls}`}>
+                  <strong>{st.title}</strong>
+                  <span>{memberOn ? st.text(m) : 'Not registered at this venue yet.'}</span>
+                </div>
+              )}
               <dl className="vmm-dates">
-                <div><dt>Start</dt><dd>{formatDateUK(m.startDate) || '—'}</dd></div>
-                <div><dt>End</dt><dd>{formatDateUK(m.renewalDate) || '—'}</dd></div>
+                {memberOn && <div><dt>Start</dt><dd>{formatDateUK(m.startDate) || '—'}</dd></div>}
+                {memberOn && <div><dt>End</dt><dd>{formatDateUK(m.renewalDate) || '—'}</dd></div>}
                 <div><dt>Visits here</dt><dd>{p.visitCount}</dd></div>
               </dl>
 
@@ -135,10 +139,10 @@ export default function VenueMember() {
                   <button type="button" className={`btn ${armJoin ? 'btn-primary' : ''} cs-btn-block`} disabled={joining || !!busy} onClick={addToVenue}>
                     {joining ? 'Adding…' : armJoin ? 'Tap again to confirm' : `Add to ${data.venueName}`}
                   </button>
-                  <p className="muted vm-small">Adds them to this venue's Registered players with no membership dates. Use Add 1 month or Add 1 year below when they pay.</p>
+                  <p className="muted vm-small">{memberOn ? 'Adds them to this venue\'s Registered players with no membership dates. Use Add 1 month or Add 1 year below when they pay.' : 'Adds them to this venue\'s Registered players.'}</p>
                 </div>
               )}
-              <div className="vmm-plans">
+              {memberOn && <div className="vmm-plans">
                 {PLANS.map((plan) => (
                   <button
                     key={plan.months}
@@ -150,8 +154,8 @@ export default function VenueMember() {
                     {busy === plan.months ? 'Adding…' : armed === plan.months ? `Tap again to confirm` : plan.label}
                   </button>
                 ))}
-              </div>
-              {p.membershipStatus !== 'not-member' || editing ? (
+              </div>}
+              {memberOn && (p.membershipStatus !== 'not-member' || editing) ? (
                 editing ? (
                   <div className="vmm-edit">
                     <div className="vmm-edit-fields">
@@ -168,12 +172,12 @@ export default function VenueMember() {
                   <button type="button" className="btn vmm-edit-toggle" disabled={!!busy} onClick={openEdit}>Edit dates</button>
                 )
               ) : null}
-              <p className="muted vm-small">
+              {memberOn && <p className="muted vm-small">
                 {willExtend
                   ? `Adds to the current end date (${formatDateUK(m.renewalDate)}).`
                   : 'Starts today.'}
                 {' '}Take payment first - adding it here doesn't charge the player.
-              </p>
+              </p>}
               {p.playerId && <p className="vm-small"><Link to={`/players/${p.playerId}`}>View playing stats</Link></p>}
             </div>
           </section>

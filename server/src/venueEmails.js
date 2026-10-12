@@ -313,7 +313,7 @@ export async function runMembershipExpiryEmailsOnce(deps, now = new Date()) {
     const due = [];
     for (const kind of KINDS) {
       for (const venue of db0.venues || []) {
-        if (venue[kind.venueFlag] !== true) continue;
+        if (venue[kind.venueFlag] !== true || venue.membershipEnabled === false) continue;
         for (const u of db0.users || []) {
           const m = membershipAt(u, venue.id);
           if (!m || !m.renewalDate || !/^\d{4}-\d{2}-\d{2}$/.test(m.renewalDate)) continue;
@@ -334,7 +334,7 @@ export async function runMembershipExpiryEmailsOnce(deps, now = new Date()) {
       const venue = (db.venues || []).find((v) => v.id === item.venueId);
       const user = (db.users || []).find((u) => u.id === item.userId);
       const m = user && membershipAt(user, item.venueId);
-      if (!venue || !user || !m || m.renewalDate !== item.renewalDate || m[kind.sentFor] === item.renewalDate || venue[kind.venueFlag] !== true || isPlaceholderEmail(user.email)) continue;
+      if (!venue || !user || !m || m.renewalDate !== item.renewalDate || m[kind.sentFor] === item.renewalDate || venue[kind.venueFlag] !== true || venue.membershipEnabled === false || isPlaceholderEmail(user.email)) continue;
       m[kind.sentFor] = item.renewalDate;
       m[kind.sentAt] = nowIso;
       writeDb(db);

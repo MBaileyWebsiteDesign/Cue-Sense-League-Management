@@ -35,7 +35,12 @@ export default function CheckIn() {
   let detail = '';
   if (data) {
     const end = data.membership && data.membership.renewalDate;
-    if (data.membershipStatus === 'active') {
+    if (data.membershipEnabled === false) {
+      // This venue doesn't run memberships, so there is no status to show.
+      tone = 'green';
+      headline = 'Checked in';
+      detail = `You're checked in at ${data.venueName}.`;
+    } else if (data.membershipStatus === 'active') {
       tone = 'green';
       headline = 'Membership active';
       detail = `Your membership at ${data.venueName} runs to ${formatDateUK(end)}.`;

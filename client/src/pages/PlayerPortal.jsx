@@ -967,6 +967,8 @@ function MyVenuesForm({ player, onSaved }) {
 
   const memberships = Array.isArray(player.venueMemberships) ? player.venueMemberships : [];
   const nameOf = (id) => (venues || []).find((v) => v.id === id)?.name || 'Venue';
+  // Venues that have switched memberships off show no dates or member status.
+  const memberOnFor = (id) => (venues || []).find((v) => v.id === id)?.membershipEnabled !== false;
   const notMember = (venues || []).filter((v) => !memberships.some((m) => m.venueId === v.id));
   // Venues that need approval show their pending requests separately and
   // can't be picked again until the request is decided or withdrawn.
@@ -978,7 +980,7 @@ function MyVenuesForm({ player, onSaved }) {
   // Venues left while the membership was still running: details kept until
   // the end date, restored if the venue is added again before then.
   const leftKept = (Array.isArray(player.leftVenueMemberships) ? player.leftVenueMemberships : [])
-    .filter((m) => m.renewalDate && m.renewalDate >= today && !memberships.some((x) => x.venueId === m.venueId));
+    .filter((m) => memberOnFor(m.venueId) && m.renewalDate && m.renewalDate >= today && !memberships.some((x) => x.venueId === m.venueId));
 
   const runRequest = (fn, msg) => {
     setBusy(true);
@@ -1007,13 +1009,15 @@ function MyVenuesForm({ player, onSaved }) {
       ) : (
         <ul className="cs-venue-list">
           {memberships.map((m) => {
-            const active = !!m.renewalDate && m.renewalDate >= today;
+            const active = memberOnFor(m.venueId) && !!m.renewalDate && m.renewalDate >= today;
             return (
               <li key={m.venueId} className="cs-venue-row">
                 <span className="cs-venue-main">
                   <strong>{nameOf(m.venueId)}</strong>
                   <span className="muted">
-                    {m.renewalDate
+                    {!memberOnFor(m.venueId)
+                      ? 'Registered'
+                      : m.renewalDate
                       ? `${active ? 'Member' : 'Membership ended'}${m.startDate ? ` ${ukDate(m.startDate)}` : ''} – ${ukDate(m.renewalDate)}`
                       : 'No membership dates'}
                   </span>

@@ -448,6 +448,7 @@ app.get('/api/venues/list', optionalAuth, asyncRoute((req, res) => {
       id: v.id,
       name: v.name,
       joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
+      membershipEnabled: venueMembershipOn(v),
       // This player's own pending request for the venue, if any.
       // (false for logged-out visitors - the sign-up form uses this list too.)
       requestPending: req.auth?.user ? !!pendingJoinRequest(v, req.auth.user.id) : false,
@@ -684,6 +685,14 @@ function canJoinLeagueVenue(user, league) {
 }
 function userVenueIds(user) {
   return venueMembershipsOf(user).map((m) => m.venueId);
+}
+// Per-venue membership switch (Matt, 2026-10-12): not every venue has a
+// membership. venue.membershipEnabled === false hides the membership features
+// (dates, renewals, expiry emails, member chips) for that venue; anything else
+// (including a venue that has never had the field) means ON, so existing
+// venues are unchanged. Nothing is deleted when it is switched off.
+function venueMembershipOn(venue) {
+  return !venue || venue.membershipEnabled !== false;
 }
 // Adds (or returns the existing) membership entry for venueId.
 function ensureMembership(user, venueId) {
@@ -1416,6 +1425,7 @@ app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) 
       const out = {
         ...v,
         joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
+        membershipEnabled: venueMembershipOn(v),
         pendingJoinRequests: (joinRequests || []).filter((r) => r.status === 'pending').length,
       };
       if (req.barStaffMode) delete out.managerUserIds;
@@ -1445,6 +1455,33 @@ app.post('/api/venue-manager/venues/:id/join-policy', requireVenueManager, async
     writeDb(db);
   }
   res.json({ joinPolicy: venue.joinPolicy });
+}));
+
+// Per-venue membership on/off (Matt, 2026-10-12). Venue Manager Portal tickbox
+// (and Membership Management > Venue settings for Overall Admins). Venue
+// Managers of the venue and Overall Admins only - Bar Staff are not in
+// BAR_STAFF_ROUTES, so they cannot reach this. Off hides dates, renewals,
+// expiry emails and member chips for the venue; nothing is deleted.
+app.post('/api/venue-manager/venues/:id/membership', requireVenueManager, asyncRoute((req, res) => {
+  if (req.barStaffMode) throw new ApiError(403, 'Only a Venue Manager or an admin can change this');
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') throw new ApiError(400, 'enabled must be true or false');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  if (venueMembershipOn(venue) !== enabled) {
+    venue.membershipEnabled = enabled;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.membership_enabled',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `${enabled ? 'Turned on' : 'Turned off'} memberships for \"${venue.name}\"`,
+    });
+    writeDb(db);
+  }
+  res.json({ membershipEnabled: venueMembershipOn(venue) });
 }));
 
 // Per-venue switch for the automatic membership-expiry emails (Matt, 2026-10-07).
@@ -2660,7 +2697,7 @@ function applyWalkinPlayer(db, req, venue, p, by) {
       html: emailHtml('Welcome to Cue Sense', `<p>Hi ${escapeHtml(first)},</p><p>Welcome to Cue Sense! ${escapeHtml(venueName)} has created a player account for you.</p><p><a href="${escapeHtml(link)}" style="display:inline-block;background:#166534;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Set your password</a></p><p style="color:#555;font-size:13px">The link works once and expires in 7 days. After that you can use "Forgot password" on the Log In page with this email address.</p>`),
     }).catch((err) => console.warn('Welcome email failed:', err && err.message));
   }
-  if (p.membershipMonths) {
+  if (p.membershipMonths && venueMembershipOn(venue)) {
     const today = londonLocalString(new Date()).slice(0, 10);
     const [y, m, d] = today.split('-').map(Number);
     const end = addMonths(new Date(Date.UTC(y, m - 1, d, 12)), p.membershipMonths).toISOString().slice(0, 10);
@@ -3320,7 +3357,7 @@ app.get('/api/venue-manager/players/:id/membership', requireVenueManager, asyncR
     .sort((a, b) => (a.at < b.at ? 1 : -1))
     .slice(0, 20)
     .map((v) => ({ id: v.id, at: v.at, source: v.source }));
-  res.json({ venueId: venue.id, venueName: venue.name, player: checkinPlayerView(db, player, venue.id), visits });
+  res.json({ venueId: venue.id, venueName: venue.name, membershipEnabled: venueMembershipOn(venue), player: checkinPlayerView(db, player, venue.id), visits });
 }));
 
 // Member page > "Add to <venue>" (Matt, 2026-09-25): a Venue Manager can
@@ -3444,6 +3481,7 @@ app.post('/api/checkin/:token', requireAuth, asyncRoute((req, res) => {
   const m = membershipAt(user, venue.id);
   res.json({
     venueName: venue.name,
+    membershipEnabled: venueMembershipOn(venue),
     repeat,
     at: visit.at,
     firstName: user.firstName,
@@ -9825,8 +9863,9 @@ app.get('/api/players/:id/venues', requireAuth, asyncRoute((req, res) => {
     .map((row) => ({ ...row, list: row.list.sort((a, b) => (a.at < b.at ? 1 : -1)) }))
     .sort((a, b) => b.count - a.count || (a.lastAt < b.lastAt ? 1 : -1));
 
+  // Venues with memberships switched off (2026-10-12) have no membership to show.
   const memberships = venueMembershipsOf(account)
-    .filter((m) => inScope(m.venueId))
+    .filter((m) => inScope(m.venueId) && venueMembershipOn((db.venues || []).find((v) => v.id === m.venueId)))
     .map((m) => ({
       venueId: m.venueId,
       venueName: venueName.get(m.venueId) || 'Deleted venue',

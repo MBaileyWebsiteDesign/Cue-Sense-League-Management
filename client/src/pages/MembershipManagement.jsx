@@ -282,7 +282,22 @@ function BarTagPanel({ venueId }) {
 function VenueCard({ venue, users, onChange, setError }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [membershipOn, setMembershipOn] = useState(venue.membershipEnabled !== false);
+  const [savingMembership, setSavingMembership] = useState(false);
   const registeredCount = users.filter((u) => (u.venueMemberships || []).some((m) => m.venueId === venue.id)).length;
+
+  const changeMembership = async (next) => {
+    setSavingMembership(true);
+    setError('');
+    try {
+      const r = await api.setVenueMembership(venue.id, next);
+      setMembershipOn(r.membershipEnabled !== false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingMembership(false);
+    }
+  };
 
   const onDelete = async () => {
     if (!window.confirm(`Delete venue "${venue.name}"? This can't be undone.`)) return;
@@ -318,6 +333,16 @@ function VenueCard({ venue, users, onChange, setError }) {
         </button>
         {settingsOpen && (
           <div className="mm-settings-body">
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, margin: '0 0 12px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={membershipOn}
+                disabled={savingMembership}
+                onChange={(e) => changeMembership(e.target.checked)}
+                style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }}
+              />
+              <span>This venue has memberships</span>
+            </label>
             <RenameVenueForm venue={venue} onSaved={onChange} setError={setError} />
             <button className="btn btn-danger cs-btn-block" type="button" disabled={deleting} onClick={onDelete}>
               {deleting ? 'Deleting…' : 'Delete venue'}
