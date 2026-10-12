@@ -332,7 +332,7 @@ startMembershipExpiryEmailJob({ readDb, writeDb, sendMail, membershipAt, canEmai
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
     firstName, lastName, email, password,
-    phone = '', teamName = '', classification = null, venueId = null,
+    phone = '', teamName = '', classification = null, venueId = null, joinVia = null,
   } = req.body;
 
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
@@ -354,11 +354,20 @@ app.post('/api/users/register', asyncRoute((req, res) => {
   // set to 'approval' get a pending join request instead (same as
   // POST /api/users/me/venue-requests).
   let signupVenue = null;
-  if (venueId) {
+  // Dedicated /RegisterAura page (Matt, 2026-10-12): joinVia 'aura' presets the
+  // venue to Aura Technology (looked up by name, so it works whatever the
+  // venue's id) and joins straight away even though the venue's normal join
+  // policy is 'approval'. Only this one venue can be reached this way.
+  let directJoin = false;
+  if (joinVia === 'aura') {
+    signupVenue = db.venues.find((v) => String(v.name || '').trim().toLowerCase() === 'aura technology');
+    if (!signupVenue) throw new ApiError(400, 'The Aura Technology venue could not be found');
+    directJoin = true;
+  } else if (venueId) {
     signupVenue = db.venues.find((v) => v.id === venueId);
     if (!signupVenue) throw new ApiError(400, 'That venue could not be found - please pick another');
   }
-  const venueNeedsApproval = !!signupVenue && signupVenue.joinPolicy === 'approval';
+  const venueNeedsApproval = !!signupVenue && !directJoin && signupVenue.joinPolicy === 'approval';
 
   const user = createUserAccount(db, {
     firstName: firstName.trim(),
