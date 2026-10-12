@@ -11,6 +11,7 @@ import PlayerProfile from './pages/PlayerProfile.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import RegisterWix from './pages/RegisterWix.jsx';
+import RegisterAura from './pages/RegisterAura.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
@@ -504,6 +505,18 @@ export default function App() {
         element={
           <AuthProvider>
             <RegisterWix />
+          </AuthProvider>
+        }
+      />
+      {/* Dedicated Aura Technology player registration (Matt, 2026-10-12):
+          four fields, venue preset to Aura Technology, lands on /account.
+          Own route/component (RegisterAura.jsx) so /register is unaffected.
+          Needs AuthProvider (not AppShell) since it calls useAuth().login(). */}
+      <Route
+        path="/RegisterAura"
+        element={
+          <AuthProvider>
+            <RegisterAura />
           </AuthProvider>
         }
       />
