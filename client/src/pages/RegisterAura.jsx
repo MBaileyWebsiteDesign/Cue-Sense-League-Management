@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
-import './registerWix.css';
+import './registerPages.css';
 
 // Dedicated registration page for Aura Technology players, at /RegisterAura.
 // Own component/route, separate from the standard /register page, so changes
@@ -13,7 +13,8 @@ import './registerWix.css';
 // venue up by name and adds the membership straight away, even though the
 // venue's normal join policy is 'approval' (Matt, 2026-10-12: anyone using
 // this link is let straight in). Afterwards the player lands on My Account,
-// as with the standard /register page.
+// as with the standard /register page. Look (green banner, gold chip, card,
+// 16px inputs) shared with /register via registerPages.css (2026-10-12).
 export default function RegisterAura() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -39,35 +40,41 @@ export default function RegisterAura() {
   };
 
   return (
-    <div className="register-popup">
-      <h1>Create your account</h1>
-      <p className="register-subtitle">
-        Registering for Aura Technology. Already have an account? <Link to="/login">Sign in</Link>.
-      </p>
-      <form className="register-form" onSubmit={onSubmit}>
-        <div className="register-row">
+    <div className="rg-page">
+      <div className="rg-banner">
+        <h1>Create your account</h1>
+        <p>Register to join your venue and see your leagues, fixtures and results.</p>
+        <span className="rg-chip">Aura Technology</span>
+      </div>
+      <form className="card form rg-form" onSubmit={onSubmit}>
+        <p className="rg-req">* Required field</p>
+        <div className="rg-row">
           <label>
             First name *
-            <input value={form.firstName} onChange={set('firstName')} required autoFocus />
+            <input value={form.firstName} onChange={set('firstName')} autoComplete="given-name" required autoFocus />
           </label>
           <label>
             Last name *
-            <input value={form.lastName} onChange={set('lastName')} required />
+            <input value={form.lastName} onChange={set('lastName')} autoComplete="family-name" required />
           </label>
         </div>
         <label>
           Email *
-          <input type="email" value={form.email} onChange={set('email')} required />
+          <input type="email" value={form.email} onChange={set('email')} autoComplete="email" required />
         </label>
         <label>
           Password *
-          <input type="password" value={form.password} onChange={set('password')} minLength={8} required />
+          <input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" minLength={8} required />
+          <span className="rg-hint">At least 8 characters</span>
         </label>
         {error && <p className="error">{error}</p>}
-        <button className="btn btn-primary register-submit" type="submit" disabled={submitting}>
+        <button className="btn btn-primary rg-submit" type="submit" disabled={submitting}>
           {submitting ? 'Creating account…' : 'Create Account'}
         </button>
       </form>
+      <p className="rg-foot">
+        Already have an account? <Link to="/login">Sign in</Link>
+      </p>
     </div>
   );
 }

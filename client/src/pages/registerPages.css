@@ -1,0 +1,66 @@
+/* Registration pages restyle (Matt, 2026-10-12): shared by the standard
+   /register page (Register.jsx) and the dedicated /RegisterAura page
+   (RegisterAura.jsx). Existing brand palette only (--primary / --secondary /
+   --cta), same green banner as the portals (.portal-theme .au-head) and the
+   same soft glow as the Login page. Inputs are 16px so iPhones do not zoom in
+   on focus, with a 46px minimum height for a comfortable tap target. */
+.rg-page {
+  max-width: 480px;
+  margin: 24px auto;
+  padding: 16px 16px 20px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(217, 166, 42, 0.12), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgba(18, 61, 36, 0.10), transparent 55%);
+}
+
+.rg-banner {
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 6px 16px rgba(10, 38, 23, 0.25);
+}
+.rg-banner h1 { margin: 0; font-size: 1.5rem; color: #fff; }
+.rg-banner p { margin: 6px 0 0; font-size: 0.92rem; color: rgba(255, 255, 255, 0.92); }
+.rg-chip {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--cta);
+  color: #1a1a1a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.rg-page .card.form { margin-bottom: 0; box-shadow: 0 12px 30px rgba(18, 61, 36, 0.12); }
+.rg-req { margin: 0 0 10px; font-size: 0.82rem; color: var(--muted); }
+
+.rg-form input,
+.rg-form select {
+  min-height: 46px;
+  padding: 10px 12px;
+  font-size: 16px;
+  border-radius: 8px;
+}
+
+.rg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+@media (max-width: 479px) {
+  .rg-row { display: block; }
+}
+
+.rg-hint { display: block; margin-top: 4px; font-size: 0.78rem; font-weight: 400; color: var(--muted); }
+
+.rg-submit {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 6px;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 8px;
+}
+
+.rg-foot { margin: 14px 0 0; text-align: center; font-size: 0.92rem; }
