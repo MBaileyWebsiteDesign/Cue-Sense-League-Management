@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { api } from '../api.js';
+
+// Whether the selected venue runs memberships (venue.membershipEnabled is only
+// ever switched off with an explicit false). When off, every membership
+// date, status, renewal button and expiry email is hidden in this portal.
+const MembershipOnContext = createContext(true);
+const useMembershipOn = () => useContext(MembershipOnContext);
 
 // Displays a membershipRenewalDate (stored/sent as ISO "yyyy-mm-dd") in UK
 // format, dd-mm-yyyy, per Matt's request. Plain string reslicing rather than
@@ -112,10 +118,11 @@ function renewalExpired(isoDate) {
 }
 
 function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus = true }) {
+  const membershipOn = useMembershipOn();
   const urgency = renewalUrgency(p.membershipRenewalDate);
   // Coloured edge + chip by how close the renewal is (same bands as the Status
   // tiles: red = due within 2 months or already past, amber = within 4, green = later).
-  const tone = !p.membershipRenewalDate ? 'none' : urgency === 'red' ? 'red' : urgency === 'amber' ? 'amber' : 'green';
+  const tone = !membershipOn || !p.membershipRenewalDate ? 'none' : urgency === 'red' ? 'red' : urgency === 'amber' ? 'amber' : 'green';
   const initials = `${(p.firstName || '').charAt(0)}${(p.lastName || '').charAt(0)}`.toUpperCase() || '?';
   return (
     <li className={`vm-player vm-player-${tone}`}>
@@ -125,25 +132,27 @@ function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus =
         <span className="muted vm-small">{p.email}</span>
       </span>
       <span className="vm-player-foot">
-        <span className={`vm-renews vm-renews-${tone}`}>
-          {p.membershipRenewalDate ? `${renewalExpired(p.membershipRenewalDate) ? 'Expired' : 'Expires'} ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
-        </span>
+        {membershipOn && (
+          <span className={`vm-renews vm-renews-${tone}`}>
+            {p.membershipRenewalDate ? `${renewalExpired(p.membershipRenewalDate) ? 'Expired' : 'Expires'} ${formatDateUK(p.membershipRenewalDate)}` : 'No expiry date set'}
+          </span>
+        )}
         {showStatus && p.status && (
           <span className={`status ${p.status === 'suspended' ? 'status-disputed' : 'status-completed'}`}>{p.status}</span>
         )}
-        {p.expiryEmailSentAt && (
+        {membershipOn && p.expiryEmailSentAt && (
           <span className="status status-completed" title="The 5-day membership-expiry email has been sent to this player">
             Email sent {formatDateUK(String(p.expiryEmailSentAt).slice(0, 10))}
           </span>
         )}
-        {p.expiredEmailSentAt && (
+        {membershipOn && p.expiredEmailSentAt && (
           <span className="status status-completed" title="The 'membership has expired' email has been sent to this player">
             Expired email sent {formatDateUK(String(p.expiredEmailSentAt).slice(0, 10))}
           </span>
         )}
         {onRemove && <RemovePlayerButton player={p} busy={removing} onRemove={onRemove} />}
       </span>
-      {onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
+      {membershipOn && onRenew && <RenewButtons player={p} busy={busy} onRenew={onRenew} />}
     </li>
   );
 }
@@ -184,6 +193,7 @@ function RemovePlayerButton({ player, busy, onRemove }) {
 // 2026-10-06), via `selected` / `onSelect` held by the page: 'all' or null =
 // everyone, 2 / 4 / 6 = players due for renewal in that window.
 function StatusBox({ status, loading, selected, onSelect }) {
+  const membershipOn = useMembershipOn();
   const pick = (value) => onSelect(selected === value ? null : value);
 
   return (
@@ -207,6 +217,7 @@ function StatusBox({ status, loading, selected, onSelect }) {
             caption="at this venue"
             tint={registeredPlayersTint(status.registeredPlayers)}
           />
+          {membershipOn && (<>
           <DueTile
             label="Due in 2 months"
             count={status.dueIn2Months}
@@ -231,10 +242,13 @@ function StatusBox({ status, loading, selected, onSelect }) {
             caption="renewals"
             tint={TINT_GREEN}
           />
+          </>)}
         </div>
       )}
       <p className="muted vm-small" style={{ margin: 0 }}>
-        Each player is counted in one window only. Tap a tile to filter the Registered players list.
+        {membershipOn
+          ? 'Each player is counted in one window only. Tap a tile to filter the Registered players list.'
+          : 'Tap the tile to show the Registered players list.'}
       </p>
       </div>
     </section>
@@ -282,6 +296,7 @@ function RenewButtons({ player, busy, onRenew }) {
 const PLAYERS_PAGE = 10;
 
 function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved }) {
+  const membershipOn = useMembershipOn();
   const dueMonths = typeof bucket === 'number' ? bucket : null; // 2 | 4 | 6 filters the list to that renewal window
   const [players, setPlayers] = useState(null);
   const [total, setTotal] = useState(null);
@@ -399,7 +414,7 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
         <button className="btn btn-primary" type="submit" disabled={searching}>
           {searching ? 'Searching…' : 'Search'}
         </button>
-        <button
+        {membershipOn && <button
           className={`btn${expiredOnly ? ' btn-primary' : ''}`}
           type="button"
           aria-pressed={expiredOnly}
@@ -407,7 +422,7 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
           onClick={() => { setExpiredOnly((v) => !v); setShown(PLAYERS_PAGE); }}
         >
           Expired
-        </button>
+        </button>}
         {activeQuery && (
           <button className="btn" type="button" onClick={onClear} disabled={searching}>
             Clear
@@ -529,8 +544,9 @@ const PAYMENT_LABEL = {
 // membership check instead of a meaningless label.
 const needsPayCheck = (b) => b.paymentStatus === 'NOT_PAID' || b.paymentStatus === 'UNDEFINED';
 
-function notPaidChip(b) {
-  const m = b.membershipStatus;
+function notPaidChip(b, membershipOn = true) {
+  // Memberships off: nobody is an 'active member' to skip payment, so treat everyone as not a member.
+  const m = membershipOn ? b.membershipStatus : 'not-member';
   if (m === 'active' || m === 'no-dates') return { text: 'Active Membership', cls: 'vm-bk-paid', clickable: false };
   if (m === 'expired') return { text: 'Membership Expired', cls: 'vm-bk-pay-amber', clickable: false };
   return b.markedPaid
@@ -599,6 +615,7 @@ const WALKIN_LENGTH_LABEL = { 60: '1 hr', 120: '2 hrs', 180: '3 hrs' };
 // "Book walk-in" form: books a table on the venue's Wix site straight away
 // (a confirmed booking named "Walk-in"), so it can't be booked online.
 function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
+  const membershipOn = useMembershipOn();
   const [tables, setTables] = useState(null);
   const [lengths, setLengths] = useState([60, 120, 180]);
   const [tableId, setTableId] = useState('');
@@ -742,15 +759,15 @@ function WalkinForm({ venueId, onDone, onClose, initialPlayer = null }) {
           <input type="checkbox" checked={signUp} onChange={(e) => setSignUp(e.target.checked)} disabled={busy} />
           <span>Sign up - create a player account and email a link to set a password</span>
         </label>
-        <label className="vm-wi-check">
+        {membershipOn && <label className="vm-wi-check">
           <input type="checkbox" checked={membership === '1m'} onChange={(e) => setMembership(e.target.checked ? '1m' : '')} disabled={busy} />
           <span>1 month membership (starts today)</span>
-        </label>
-        <label className="vm-wi-check">
+        </label>}
+        {membershipOn && <label className="vm-wi-check">
           <input type="checkbox" checked={membership === '12m'} onChange={(e) => setMembership(e.target.checked ? '12m' : '')} disabled={busy} />
           <span>1 year membership (starts today)</span>
-        </label>
-        {wantsAccount && <p className="vm-wi-help">First name, last name and email are needed. A membership also adds them to this venue's Registered players.</p>}
+        </label>}
+        {wantsAccount && <p className="vm-wi-help">First name, last name and email are needed.{membershipOn ? ' A membership also adds them to this venue\'s Registered players.' : ''}</p>}
       </fieldset>
       {error && <p className="error vm-small">{error}</p>}
       <div className="vm-wi-actions">
@@ -977,6 +994,7 @@ function groupRows(items) {
 }
 
 function BookingsCard({ venueId }) {
+  const membershipOn = useMembershipOn();
   const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1265,7 +1283,7 @@ function BookingsCard({ venueId }) {
                   const st = BOOKING_STATUS[b.status] || { label: b.status ? 'Status unknown' : 'Unknown', cls: 'vm-bk-st-unknown' };
                   const cancelled = b.status === 'CANCELED' || b.status === 'DECLINED';
                   const tone = cancelled ? 'cancelled' : b.status === 'CONFIRMED' ? 'confirmed' : 'pending';
-                  const payChip = !cancelled && !b.walkIn && !b.blocked && needsPayCheck(b) ? notPaidChip(b) : null;
+                  const payChip = !cancelled && !b.walkIn && !b.blocked && needsPayCheck(b) ? notPaidChip(b, membershipOn) : null;
                   const unpaid = !!payChip && payChip.cls === 'vm-bk-pay-red';
                   return (
                     <li key={b.id} className={`vm-bk vm-bk-${tone}${unpaid ? ' vm-bk-unpaid' : ''}`}>
@@ -1370,6 +1388,7 @@ function CheckinStatusChip({ status, renewalDate, small = false }) {
 }
 
 function CheckinCard({ venueId }) {
+  const membershipOn = useMembershipOn();
   const [today, setToday] = useState(null);
   const [error, setError] = useState('');
   const [showCleared, setShowCleared] = useState(false);
@@ -1486,7 +1505,7 @@ function CheckinCard({ venueId }) {
                 <span className="ci-time">{ukTime(v.at)}</span>
                 <span className="ci-who"><Link to={`/venue-manager/players/${v.userId}?venueId=${encodeURIComponent(venueId)}`}>{v.name}</Link></span>
                 <span className="muted vm-small">{v.source === 'tag' ? 'Bar tag' : 'Card'}</span>
-                <CheckinStatusChip status={v.membershipStatus} small />
+                {membershipOn && <CheckinStatusChip status={v.membershipStatus} small />}
                 <button
                   type="button"
                   className={`ci-del${armedDelete === v.id ? ' ci-del-armed' : ''}`}
@@ -1513,13 +1532,15 @@ function CheckinCard({ venueId }) {
 // Join policy + pending join requests for one venue. 'open' = players add
 // the venue to their account themselves; 'approval' = they send a request
 // that is approved/declined here (the player is emailed either way).
-function JoinRequestsCard({ venue, onApproved }) {
+function JoinRequestsCard({ venue, onApproved, onMembershipChange }) {
   const venueId = venue.id;
   const [policy, setPolicy] = useState(venue.joinPolicy === 'approval' ? 'approval' : 'open');
   const [requests, setRequests] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const membershipOn = useMembershipOn();
   const [expiryOn, setExpiryOn] = useState(venue.expiryEmailsEnabled === true);
+  const [savingMembership, setSavingMembership] = useState(false);
   const [savingExpiry, setSavingExpiry] = useState(false);
   const [expiredOn, setExpiredOn] = useState(venue.expiredEmailsEnabled === true);
   const [savingExpired, setSavingExpired] = useState(false);
@@ -1540,6 +1561,20 @@ function JoinRequestsCard({ venue, onApproved }) {
       setError(e.message);
     } finally {
       setSavingPolicy(false);
+    }
+  };
+
+  const changeMembership = async (next) => {
+    setSavingMembership(true);
+    setError('');
+    setNotice('');
+    try {
+      const r = await api.setVenueMembership(venueId, next);
+      if (onMembershipChange) onMembershipChange(venueId, r.membershipEnabled !== false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingMembership(false);
     }
   };
 
@@ -1607,6 +1642,18 @@ function JoinRequestsCard({ venue, onApproved }) {
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, margin: '14px 0 4px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
           <input
             type="checkbox"
+            checked={membershipOn}
+            disabled={savingMembership}
+            onChange={(e) => changeMembership(e.target.checked)}
+            style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }}
+          />
+          <span>This venue has memberships</span>
+        </label>
+        {!membershipOn && <p className="muted vm-small" style={{ margin: '0 0 8px' }}>Memberships are off here: dates, renewals and expiry emails are hidden, and players are simply registered.</p>}
+        {membershipOn && (<>
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, margin: '14px 0 4px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
             checked={expiryOn}
             disabled={savingExpiry}
             onChange={(e) => changeExpiry(e.target.checked)}
@@ -1624,6 +1671,7 @@ function JoinRequestsCard({ venue, onApproved }) {
           />
           <span>Email players when their membership has expired</span>
         </label>
+        </>)}
         {error && <p className="error">{error}</p>}
         {notice && <p className="banner banner-success">{notice}</p>}
         {requests === null ? (
@@ -1680,6 +1728,7 @@ export default function VenueManagerPortal() {
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal' }]);
   const selectedVenue = (venues || []).find((v) => v.id === selectedVenueId);
+  const membershipOn = !selectedVenue || selectedVenue.membershipEnabled !== false;
 
   useEffect(() => {
     api.getMyManagedVenues()
@@ -1726,7 +1775,7 @@ export default function VenueManagerPortal() {
           from the Membership Management page.
         </p>
       ) : (
-        <>
+        <MembershipOnContext.Provider value={membershipOn}>
           {venues.length > 1 && (
             <div className="vm-switch">
               <label className="ll-field">
@@ -1742,9 +1791,9 @@ export default function VenueManagerPortal() {
           <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
           {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
           {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
-          {selectedVenue && <JoinRequestsCard key={selectedVenue.id} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
+          {selectedVenue && <JoinRequestsCard key={selectedVenue.id} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} onMembershipChange={(id, on) => setVenues((list) => (list || []).map((v) => (v.id === id ? { ...v, membershipEnabled: on } : v)))} />}
           {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
-        </>
+        </MembershipOnContext.Provider>
       )}
     </div>
   );

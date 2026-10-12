@@ -53,6 +53,10 @@ export function registerPlayerBookingRoutes(app, {
   wixBookingsStartingBetween,
   getBlockedTableEvents,
 }) {
+  // Venues with membership switched off: being registered there is enough to book.
+  const memberCanBook = (user, venue) => venue.membershipEnabled === false
+    ? !!membershipAt(user, venue.id)
+    : membershipActive(membershipAt(user, venue.id));
   app.get('/api/users/me/bookings', requireAuth, asyncRoute(async (req, res) => {
     const myEmail = (req.auth.user.email || '').trim().toLowerCase();
     if (!myEmail) return res.json({ bookings: [] });
@@ -125,7 +129,7 @@ export function registerPlayerBookingRoutes(app, {
     const db = readDb();
     const user = db.users.find((u) => u.id === req.auth.user.id) || req.auth.user;
     const venues = db.venues
-      .filter((v) => membershipActive(membershipAt(user, v.id)) && !!wixSiteIdForVenue(v) && !!process.env.WIX_API_KEY)
+      .filter((v) => memberCanBook(user, v) && !!wixSiteIdForVenue(v) && !!process.env.WIX_API_KEY)
       .map((v) => ({ id: v.id, name: v.name }));
     res.json(venues);
   }));
@@ -137,7 +141,7 @@ export function registerPlayerBookingRoutes(app, {
     const user = db.users.find((u) => u.id === req.auth.user.id) || req.auth.user;
     const venue = db.venues.find((v) => v.id === req.query.venueId);
     if (!venue) throw new ApiError(404, 'Venue not found');
-    if (!membershipActive(membershipAt(user, venue.id))) {
+    if (!memberCanBook(user, venue)) {
       throw new ApiError(403, 'You need an active membership at this venue to book a table.');
     }
     const siteId = wixSiteIdForVenue(venue);
@@ -168,7 +172,7 @@ export function registerPlayerBookingRoutes(app, {
     const user = db.users.find((u) => u.id === req.auth.user.id) || req.auth.user;
     const venue = db.venues.find((v) => v.id === req.query.venueId);
     if (!venue) throw new ApiError(404, 'Venue not found');
-    if (!membershipActive(membershipAt(user, venue.id))) {
+    if (!memberCanBook(user, venue)) {
       throw new ApiError(403, 'You need an active membership at this venue to book a table.');
     }
     const siteId = wixSiteIdForVenue(venue);
@@ -221,7 +225,7 @@ export function registerPlayerBookingRoutes(app, {
     if (!user.email) throw new ApiError(400, 'Your account needs an email address to book a table.');
     const venue = db.venues.find((v) => v.id === venueId);
     if (!venue) throw new ApiError(404, 'Venue not found');
-    if (!membershipActive(membershipAt(user, venue.id))) {
+    if (!memberCanBook(user, venue)) {
       throw new ApiError(403, 'You need an active membership at this venue to book a table.');
     }
     const siteId = wixSiteIdForVenue(venue);
