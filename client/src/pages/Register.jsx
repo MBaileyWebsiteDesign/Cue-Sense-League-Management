@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
+import './registerPages.css';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
+// Look (green banner, card, 16px inputs, full-width gold button) shared with
+// the dedicated /RegisterAura page via registerPages.css (Matt, 2026-10-12).
 export default function Register() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -54,38 +57,42 @@ export default function Register() {
   };
 
   return (
-    <div style={{ maxWidth: 420, margin: '40px auto' }}>
-      <h1>Create Your Account</h1>
-      <p className="muted">
-        Register to browse leagues, divisions, fixtures and player profiles. Already have
-        an account? <Link to="/login" state={location.state}>Sign in</Link>.
-      </p>
-      <p className="muted" style={{ fontSize: '0.85rem' }}>* Required field</p>
-      <form className="card form" onSubmit={onSubmit}>
-        <label>
-          First name *
-          <input value={form.firstName} onChange={set('firstName')} required autoFocus />
-        </label>
-        <label>
-          Last name *
-          <input value={form.lastName} onChange={set('lastName')} required />
-        </label>
+    <div className="rg-page">
+      <div className="rg-banner">
+        <h1>Create your account</h1>
+        <p>Register to browse leagues, divisions, fixtures and player profiles.</p>
+      </div>
+      <form className="card form rg-form" onSubmit={onSubmit}>
+        <p className="rg-req">* Required field</p>
+        <div className="rg-row">
+          <label>
+            First name *
+            <input value={form.firstName} onChange={set('firstName')} autoComplete="given-name" required autoFocus />
+          </label>
+          <label>
+            Last name *
+            <input value={form.lastName} onChange={set('lastName')} autoComplete="family-name" required />
+          </label>
+        </div>
         <label>
           Email *
-          <input type="email" value={form.email} onChange={set('email')} required />
+          <input type="email" value={form.email} onChange={set('email')} autoComplete="email" required />
         </label>
         <label>
           Password *
-          <input type="password" value={form.password} onChange={set('password')} minLength={8} required />
+          <input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" minLength={8} required />
+          <span className="rg-hint">At least 8 characters</span>
         </label>
-        <label>
-          Phone <span className="muted">(optional)</span>
-          <input type="tel" value={form.phone} onChange={set('phone')} />
-        </label>
-        <label>
-          Team name <span className="muted">(optional)</span>
-          <input value={form.teamName} onChange={set('teamName')} />
-        </label>
+        <div className="rg-row">
+          <label>
+            Phone <span className="muted">(optional)</span>
+            <input type="tel" value={form.phone} onChange={set('phone')} autoComplete="tel" />
+          </label>
+          <label>
+            Team name <span className="muted">(optional)</span>
+            <input value={form.teamName} onChange={set('teamName')} autoComplete="off" />
+          </label>
+        </div>
         <label>
           Classification <span className="muted">(optional)</span>
           <select value={form.classification} onChange={set('classification')}>
@@ -109,10 +116,13 @@ export default function Register() {
           </label>
         )}
         {error && <p className="error">{error}</p>}
-        <button className="btn btn-primary" type="submit" disabled={submitting}>
+        <button className="btn btn-primary rg-submit" type="submit" disabled={submitting}>
           {submitting ? 'Creating account…' : 'Create Account'}
         </button>
       </form>
+      <p className="rg-foot">
+        Already have an account? <Link to="/login" state={location.state}>Sign in</Link>
+      </p>
     </div>
   );
 }
