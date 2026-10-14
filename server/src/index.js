@@ -40,6 +40,7 @@ import { recordAudit } from './services/auditLog.js';
 import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
 import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt, expiredEmailSentAt } from './venueEmails.js';
+import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -328,6 +329,8 @@ app.post('/api/admin/mail/test', requireAdmin, asyncRoute((req, res) => {
 registerVenueEmailTestRoute(app, { requireAdmin, asyncRoute, sendMail, getMailLog, mailSettings });
 // Automatic 5-day membership-expiry emails (production only, per-venue switch).
 startMembershipExpiryEmailJob({ readDb, writeDb, sendMail, membershipAt, canEmail, recordAudit });
+// League entry-fee payment request email (bank details, test send, email unpaid players) - see leaguePaymentEmail.js.
+registerLeaguePaymentEmailRoutes(app, { requireAnyAdmin, assertLeagueAccess, asyncRoute, ApiError, readDb, writeDb, sendMail, canEmail, recordAudit });
 
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
