@@ -53,7 +53,7 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
   const text = [
     `Hi ${firstName || 'there'},`,
     '',
-    `We are now ready to accept payments for ${league}. Please use the details to make payments.`,
+    `We are now ready to accept payments for the ${league}. Please use the details below to make payments.`,
     '',
     'Bank details:',
     `Account name: ${bank.accountName}`,
@@ -96,7 +96,7 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
     </td></tr>
     <tr><td style="padding:28px 28px 8px 28px;font-size:16px;line-height:1.55;">
       <p style="margin:0 0 14px 0;">Hi ${name},</p>
-      <p style="margin:0 0 6px 0;">We are now ready to accept payments for ${escapeHtml(league)}. Please use the details to make payments.</p>
+      <p style="margin:0 0 6px 0;">We are now ready to accept payments for the ${escapeHtml(league)}. Please use the details below to make payments.</p>
     </td></tr>
     <tr><td style="padding:8px 28px 4px 28px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
