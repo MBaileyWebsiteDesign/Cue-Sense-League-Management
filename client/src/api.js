@@ -440,6 +440,13 @@ const networkApi = {
     request(`/league-interests/${id}/decline`, { method: 'POST' }),
   bulkAssignLeagueInterests: (interestIds, divisionId) =>
     request('/league-interests/bulk-assign', { method: 'POST', body: JSON.stringify({ interestIds, divisionId }) }),
+  // League entry-fee payment request email (bank details, test, email unpaid players).
+  getLeaguePaymentEmail: (leagueId) => request(`/leagues/${leagueId}/payment-email`),
+  saveLeaguePaymentEmail: (leagueId, data) =>
+    request(`/leagues/${leagueId}/payment-email`, { method: 'PUT', body: JSON.stringify(data) }),
+  testLeaguePaymentEmail: (leagueId) => request(`/leagues/${leagueId}/payment-email/test`, { method: 'POST' }),
+  sendLeaguePaymentEmails: (leagueId) =>
+    request(`/leagues/${leagueId}/payment-email/send`, { method: 'POST', body: JSON.stringify({ confirm: true }) }),
   setLeagueOpen: (id, isOpenForRegistration) =>
     request(`/leagues/${id}/set-open`, { method: 'POST', body: JSON.stringify({ isOpenForRegistration }) }),
   // Admin-only: force-completes every outstanding fixture in a division (or,

@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { sortDivisionsPremierFirst } from '../divisionDisplay.js';
+import LeaguePaymentEmailCard from './LeaguePaymentEmailCard.jsx';
 
 // League Interests (manager view), reached from the "Interests" tile at the top
 // of a league's page. Moved here from the "Admin: Manage this League" panel
@@ -129,6 +130,8 @@ export default function LeagueInterests() {
       </section>
 
       {error && <p className="error">{error}</p>}
+
+      {paywall && api.getLeaguePaymentEmail && <LeaguePaymentEmailCard leagueId={leagueId} refreshKey={interests} />}
 
       {paywall && (
         <div className="li-filters" role="tablist" aria-label="Filter by payment">
