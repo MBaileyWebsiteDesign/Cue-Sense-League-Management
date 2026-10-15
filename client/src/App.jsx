@@ -292,7 +292,12 @@ function AppShell() {
     <div className="app-shell">
       <header className="app-header">
         <Link to={playerPortalDisabled ? (staffPortalPath || '/venue-manager') : '/account'} className="brand">
-          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
+          {/* Venue Manager Portal pages use the Venue Management logo (2026-10-15); same .brand-logo box, so same size */}
+          <img
+            src={`${import.meta.env.BASE_URL}${location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') ? 'logo-venue.png' : 'logo.png'}`}
+            alt=""
+            className="brand-logo"
+          />
           <span className="brand-text">
             <span className="brand-name">Cue Sense</span>
             <span className="brand-tagline">
