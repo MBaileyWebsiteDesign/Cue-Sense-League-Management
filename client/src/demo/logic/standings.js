@@ -1,8 +1,11 @@
-// Standings table for a division: 2 points for a match win, 0 for a loss
-// (race-to-N frame formats can't end in a draw), ranked by points then by
+// Standings table for a division: 3 points for a match win, 2 for a draw, 0 for
+// a loss (race-to-N frame formats can't end in a draw unless a fixture is
+// genuinely level), plus frames won when division.addFramesToPoints is ticked.
+// Mirrors server/src/services/standings.js. Ranked by points then by
 // frame difference then by frames won, head-to-head is left as a manual
 // tie-break for the admin since it's rarely needed in a single round-robin.
 export function computeStandings(division, fixtures, players) {
+  const addFrames = !!division.addFramesToPoints;
   // Index once by id instead of Array.find()-ing `players` for every entrant
   // (was O(entrants * players) - a real cost once `players` is the whole
   // app's player pool, not just this division's roster).
@@ -16,6 +19,7 @@ export function computeStandings(division, fixtures, players) {
       played: 0,
       won: 0,
       lost: 0,
+      drawn: 0,
       framesFor: 0,
       framesAgainst: 0,
       frameDifference: 0,
@@ -52,17 +56,29 @@ export function computeStandings(division, fixtures, players) {
     }
 
     if (fixture.winnerPlayerId === null) {
-      // Force-completed 0-0 by an admin closing the division/league early -
-      // mirrors server/src/services/standings.js. Counts as played, no
-      // win/loss/points either way.
+      if (!fixture.closedEarly && fixture.homeFrameScore === fixture.awayFrameScore) {
+        // Genuinely level completed fixture - 2 points each.
+        home.drawn += 1;
+        away.drawn += 1;
+        home.points += 2;
+        away.points += 2;
+      }
+      // else: force-completed 0-0 by an admin closing the division/league
+      // early (see closeOutstandingFixtures in server/src/index.js) - counts
+      // as played, no win/loss/points either way.
     } else if (fixture.winnerPlayerId === fixture.homePlayerId) {
       home.won += 1;
-      home.points += 2;
+      home.points += 3;
       away.lost += 1;
     } else {
       away.won += 1;
-      away.points += 2;
+      away.points += 3;
       home.lost += 1;
+    }
+
+    if (addFrames) {
+      home.points += fixture.homeFrameScore;
+      away.points += fixture.awayFrameScore;
     }
   }
 

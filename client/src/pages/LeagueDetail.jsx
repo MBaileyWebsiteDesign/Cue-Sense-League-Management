@@ -542,10 +542,13 @@ export default function LeagueDetail() {
   // which don't apply to a lives-based free-for-all game. See
   // server/src/services/killer.js.
   const [startingLives, setStartingLives] = useState(3);
+  // Standard League singles/doubles only - see server/src/services/standings.js.
+  const [addFramesToPoints, setAddFramesToPoints] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
   const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
   const isFreePlay = scheduling === 'free_play';
+  const showFramesToPoints = scheduling.startsWith('round_robin') && entryType !== 'teams';
 
   const onSchedulingChange = (value) => {
     setScheduling(value);
@@ -625,6 +628,7 @@ export default function LeagueDetail() {
         ...(isKiller ? { startingLives: Number(startingLives) } : { raceTo }),
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
+        ...(showFramesToPoints && addFramesToPoints ? { addFramesToPoints: true } : {}),
       });
       setName('');
       setEntryType('singles');
@@ -634,6 +638,7 @@ export default function LeagueDetail() {
       setFormatMode('raceTo');
       setFormatValue(6);
       setStartingLives(3);
+      setAddFramesToPoints(false);
       setShowForm(false);
       load();
     } catch (err) {
@@ -804,6 +809,23 @@ export default function LeagueDetail() {
                   );
                 })()}
               </label>
+              {showFramesToPoints && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: 'auto' }}
+                    checked={addFramesToPoints}
+                    onChange={(e) => setAddFramesToPoints(e.target.checked)}
+                  />
+                  Add frames to points
+                </label>
+              )}
+              {showFramesToPoints && (
+                <span className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
+                  Win = 3 points, draw = 2, loss = 0. When ticked, every frame a player wins is also added to their
+                  points - e.g. a 2-1 result gives the winner 3 + 2 = 5 and the loser 0 + 1 = 1.
+                </span>
+              )}
             </>
           )}
           <button className="btn btn-primary" type="submit">

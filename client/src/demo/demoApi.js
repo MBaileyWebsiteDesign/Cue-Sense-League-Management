@@ -2360,6 +2360,7 @@ export const demoApi = {
       completedAt: null,
       completedBy: null,
       isOpen: false,
+      addFramesToPoints: !!data.addFramesToPoints,
       createdByUserId: currentUser()?.id || null,
     };
     db.divisions.push(division);
@@ -2415,6 +2416,7 @@ export const demoApi = {
     division.startingLives = isKiller ? Number(startingLives) : null;
     division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
     division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
+    if (data && data.addFramesToPoints !== undefined) division.addFramesToPoints = !!data.addFramesToPoints;
     return hydrateDivision(division);
   }),
 
