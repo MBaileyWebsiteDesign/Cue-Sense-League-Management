@@ -28,6 +28,20 @@ export default function Register() {
     api.listVenuesPublic().then(setVenues).catch(() => {});
   }, []);
 
+  // Came here from a bar check-in tag (Login passes it along as state.from)? For a Top Spin tag the
+  // venue is preset and fixed, and the account joins it straight away (Matt, 2026-10-15).
+  const tagMatch = /^\/checkin\/([^/?#]+)/.exec(location.state?.from?.pathname || '');
+  const tagToken = tagMatch ? decodeURIComponent(tagMatch[1]) : '';
+  const [tagVenue, setTagVenue] = useState(null);
+  useEffect(() => {
+    if (!tagToken || typeof api.checkinSignupVenue !== 'function') return undefined;
+    let off = false;
+    api.checkinSignupVenue(tagToken)
+      .then((r) => { if (!off) setTagVenue(r && r.venueName ? r.venueName : null); })
+      .catch(() => {});
+    return () => { off = true; };
+  }, [tagToken]);
+
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
 
   const onSubmit = async (e) => {
@@ -38,7 +52,8 @@ export default function Register() {
       const { token, expiresAt, user } = await api.register({
         ...form,
         classification: form.classification || null,
-        venueId: form.venueId || null,
+        venueId: tagVenue ? null : (form.venueId || null),
+        ...(tagVenue ? { checkinToken: tagToken } : {}),
       });
       login(token, expiresAt, user);
       // If the player came here from a page that needed a login (e.g. they
@@ -61,6 +76,7 @@ export default function Register() {
       <div className="rg-banner">
         <h1>Create your account</h1>
         <p>Register to browse leagues, divisions, fixtures and player profiles.</p>
+        {tagVenue && <span className="rg-chip">{tagVenue}</span>}
       </div>
       <form className="card form rg-form" onSubmit={onSubmit}>
         <p className="rg-req">* Required field</p>
@@ -102,7 +118,13 @@ export default function Register() {
             ))}
           </select>
         </label>
-        {venues.length > 0 && (
+        {tagVenue ? (
+          <label>
+            Venue
+            <input value={tagVenue} disabled readOnly />
+            <span className="rg-hint">You'll be added to {tagVenue} when you create your account.</span>
+          </label>
+        ) : venues.length > 0 && (
           <label>
             Venue <span className="muted">(optional)</span>
             <select value={form.venueId} onChange={set('venueId')}>
