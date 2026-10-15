@@ -299,7 +299,7 @@ function RenewButtons({ player, busy, onRenew }) {
 // The list shows this many players at a time; "Show more" adds another page (Matt, 2026-10-10).
 const PLAYERS_PAGE = 10;
 
-function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved }) {
+function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved, refreshTick = 0 }) {
   const membershipOn = useMembershipOn();
   const dueMonths = typeof bucket === 'number' ? bucket : null; // 2 | 4 | 6 filters the list to that renewal window
   const [players, setPlayers] = useState(null);
@@ -332,6 +332,20 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved })
       .catch((e) => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
   }, [venueId, dueMonths]);
+
+  // Quiet reload from the page's 10-minute timer. Skipped while a search is typed or
+  // showing, or a renew/remove is in progress, so it never disturbs what the user is doing.
+  // The Expired button is a client-side filter, so it keeps working on the fresh list.
+  useEffect(() => {
+    if (refreshTick === 0 || activeQuery || query.trim() || renewingId || removingId) return undefined;
+    let cancelled = false;
+    const reload = dueMonths ? api.getVenueManagerDuePlayers(venueId, dueMonths) : api.searchVenuePlayers(venueId, '');
+    reload
+      .then((p) => { if (!cancelled) { setPlayers(p); if (!dueMonths) setTotal(p.length); } })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [refreshTick]);
 
   const runSearch = async (q) => {
     const trimmed = q.trim();
@@ -1536,7 +1550,7 @@ function CheckinCard({ venueId }) {
 // Join policy + pending join requests for one venue. 'open' = players add
 // the venue to their account themselves; 'approval' = they send a request
 // that is approved/declined here (the player is emailed either way).
-function JoinRequestsCard({ venue, onApproved }) {
+function JoinRequestsCard({ refreshTick = 0, venue, onApproved }) {
   const venueId = venue.id;
   const [policy, setPolicy] = useState(venue.joinPolicy === 'approval' ? 'approval' : 'open');
   const [requests, setRequests] = useState(null);
@@ -1552,6 +1566,12 @@ function JoinRequestsCard({ venue, onApproved }) {
 
   const load = () => api.getVenueJoinRequests(venueId).then(setRequests).catch((e) => setError(e.message));
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [venueId]);
+  // Quiet reload from the page's 10-minute timer (errors stay silent).
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    api.getVenueJoinRequests(venueId).then(setRequests).catch(() => {});
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [refreshTick]);
 
   const changePolicy = async (next) => {
     setSavingPolicy(true);
@@ -1690,6 +1710,8 @@ export default function BarStaffPortal() {
   // Bumped when a player is removed so the Status counts reload (the Registered
   // players list updates itself, so it isn't remounted and keeps its search).
   const [statusRefresh, setStatusRefresh] = useState(0);
+  // Bumped every 10 minutes (while the tab is showing) to quietly reload Status, Registered players and Join requests.
+  const [liveTick, setLiveTick] = useState(0);
   // Which Status tile is selected: null / 'all' = everyone, 2 / 4 / 6 = due in
   // that many months. Drives the Registered players list.
   const [bucket, setBucket] = useState(null);
@@ -1725,6 +1747,24 @@ export default function BarStaffPortal() {
       .catch((e) => setError(e.message))
       .finally(() => setStatusLoading(false));
   }, [selectedVenueId, memberRefresh, statusRefresh]);
+
+  // 10-minute refresh: paused while the tab is hidden; if the 10 minutes have passed by the
+  // time the tab is shown again, it refreshes straight away. (Checked in and Table bookings
+  // have their own live streams.)
+  useEffect(() => {
+    const EVERY = 10 * 60 * 1000;
+    let last = Date.now();
+    const bump = () => { last = Date.now(); setLiveTick((n) => n + 1); };
+    const t = setInterval(() => { if (!document.hidden) bump(); }, EVERY);
+    const onVisible = () => { if (!document.hidden && Date.now() - last >= EVERY) bump(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+  useEffect(() => {
+    if (liveTick === 0 || !selectedVenueId) return;
+    api.getVenueManagerStatus(selectedVenueId).then(setStatus).catch(() => {});
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [liveTick]);
 
   return (
     <div className="sx-page portal-theme">
@@ -1769,8 +1809,8 @@ export default function BarStaffPortal() {
           <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
           {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
           {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
-          {selectedVenue && <JoinRequestsCard key={selectedVenue.id} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
-          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
+          {selectedVenue && <JoinRequestsCard key={selectedVenue.id} refreshTick={liveTick} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
+          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} refreshTick={liveTick} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
         </MembershipOnContext.Provider>
       )}
     </div>
