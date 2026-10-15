@@ -117,7 +117,7 @@ function renewalExpired(isoDate) {
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
 }
 
-function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus = true }) {
+function PlayerCard({ p, venueId, busy, onRenew, onRemove, removing = false, showStatus = true }) {
   const membershipOn = useMembershipOn();
   const urgency = renewalUrgency(p.membershipRenewalDate);
   // Coloured edge + chip by how close the renewal is (same bands as the Status
@@ -128,7 +128,14 @@ function PlayerCard({ p, busy, onRenew, onRemove, removing = false, showStatus =
     <li className={`vm-player vm-player-${tone}`}>
       <span className="vm-player-ini" aria-hidden="true">{initials}</span>
       <span className="vm-player-main">
-        <strong><PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink></strong>
+        <strong>
+          {p.id ? (
+            // Same member page as the Checked in card's names (renew, edit dates, expiry emails).
+            <Link to={`/venue-manager/players/${p.id}?venueId=${encodeURIComponent(venueId)}`}>{p.firstName} {p.lastName}</Link>
+          ) : (
+            <PlayerLink playerId={p.playerId}>{p.firstName} {p.lastName}</PlayerLink>
+          )}
+        </strong>
         <span className="muted vm-small">{p.email}</span>
       </span>
       <span className="vm-player-foot">
@@ -478,7 +485,7 @@ function RegisteredPlayersList({ venueId, bucket = null, onShowAll, onRemoved, r
           <>
             <ul className="vm-players">
               {visiblePlayers.slice(0, shown).map((p) => (
-                <PlayerCard key={p.id} p={p} busy={renewingId === p.id} onRenew={onRenew} onRemove={onRemove} removing={removingId === p.id} />
+                <PlayerCard key={p.id} p={p} venueId={venueId} busy={renewingId === p.id} onRenew={onRenew} onRemove={onRemove} removing={removingId === p.id} />
               ))}
             </ul>
             {visiblePlayers.length > shown && (
