@@ -288,21 +288,24 @@ function adminThemeClass(pathname) {
 function AppShell() {
   const { playerPortalDisabled, staffPortalPath } = useAuth();
   const location = useLocation();
+  const isVenueHeader = location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') || location.pathname === '/bar-staff' || location.pathname.startsWith('/bar-staff/');
+  // /login has its own CueSense logo and motto (Matt, 2026-10-15)
+  const isLoginHeader = location.pathname === '/login';
   return (
     <div className="app-shell">
       <header className="app-header">
         <Link to={playerPortalDisabled ? (staffPortalPath || '/venue-manager') : '/account'} className="brand">
           {/* Venue Manager Portal pages use the Venue Management logo (2026-10-15); same .brand-logo box, so same size */}
           <img
-            src={`${import.meta.env.BASE_URL}${location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') || location.pathname === '/bar-staff' || location.pathname.startsWith('/bar-staff/') ? 'logo-venue.png' : 'logo.png'}`}
+            src={`${import.meta.env.BASE_URL}${isLoginHeader ? 'logo-login.png' : isVenueHeader ? 'logo-venue.png' : 'logo.png'}`}
             alt=""
             className="brand-logo"
           />
           <span className="brand-text">
             <span className="brand-name">Cue Sense</span>
-            <span className="brand-tagline">
+            <span className={isLoginHeader ? 'brand-tagline brand-tagline-motto' : 'brand-tagline'}>
               {/* Venue Manager and Bar Staff portals (and their member pages) say "Venue Management" (2026-10-15) */}
-              {location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') || location.pathname === '/bar-staff' || location.pathname.startsWith('/bar-staff/') ? 'Venue Management' : 'League Management'}
+              {isLoginHeader ? 'Play - Compete - Improve - Win' : isVenueHeader ? 'Venue Management' : 'League Management'}
             </span>
           </span>
         </Link>
