@@ -2862,3 +2862,10 @@ button.vm-tile { cursor: pointer; }
 @media (min-width: 900px) {
   .mf-round-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 }
+
+/* Login header motto (Matt, 2026-10-15): "Play - Compete - Improve - Win" is longer than
+   "League Management", so it gets a slightly smaller size and may wrap on phones. */
+.brand-text .brand-tagline-motto { font-size: 0.85rem; letter-spacing: 0.03em; line-height: 1.2; }
+@media (max-width: 640px) {
+  .brand-text .brand-tagline-motto { font-size: 0.6rem; letter-spacing: 0.02em; }
+}

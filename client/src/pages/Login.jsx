@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
+import './registerPages.css';
+import './loginPage.css';
 
 // One login for everyone - admins, players and captains all sign in here
 // with the same email/password form. What you can see and do afterwards
@@ -48,28 +50,31 @@ export default function Login() {
     }
   };
 
+  // Look matches the restyled /register page (green banner, card, 16px inputs).
   return (
-    <div className="login-page">
-      <h1>Log In</h1>
-      <p className="muted">
-        Sign in to browse leagues, divisions, fixtures and player profiles. No account
-        yet? <Link to="/register" state={location.state}>Create one</Link>.
-      </p>
-      <form className="card form" onSubmit={onSubmit}>
+    <div className="rg-page rg-login">
+      <div className="rg-banner">
+        <h1>Welcome back</h1>
+        <p>Sign in to browse leagues, divisions, fixtures and player profiles.</p>
+      </div>
+      <form className="card form rg-form" onSubmit={onSubmit}>
         <label>
           Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required autoFocus />
         </label>
         <label>
           Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </label>
         {error && <p className="error">{error}</p>}
-        <button className="btn btn-primary" type="submit" disabled={submitting}>
+        <button className="btn btn-primary rg-submit" type="submit" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Sign In'}
         </button>
-        <p><Link to="/forgot-password">Forgot your password?</Link></p>
+        <p className="lg-login-forgot"><Link to="/forgot-password">Forgot your password?</Link></p>
       </form>
+      <p className="rg-foot">
+        No account yet? <Link to="/register" state={location.state}>Create one</Link>
+      </p>
     </div>
   );
 }
