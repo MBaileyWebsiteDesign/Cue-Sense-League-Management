@@ -497,6 +497,9 @@ export default function AdminUsers() {
   const [roleFilter, setRoleFilter] = useState('all');
   const [venueFilter, setVenueFilter] = useState('all');
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  // 'first' | 'last' | null: the First duplicates / Last duplicates buttons (Matt, 2026-10-15) list
+  // everyone whose first (or last) name is shared with at least one other account.
+  const [dupMode, setDupMode] = useState(null);
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Users' }]);
 
@@ -520,17 +523,37 @@ export default function AdminUsers() {
 
   const onSearch = (e) => {
     e.preventDefault();
+    setDupMode(null); // a search is its own view
     load(query);
+  };
+
+  // The duplicate buttons look across EVERYONE, so a search is cleared and the full list reloaded.
+  const toggleDup = (mode) => {
+    const next = dupMode === mode ? null : mode;
+    setDupMode(next);
+    if (next && query) { setQuery(''); load(''); }
   };
 
   // Role/status filter is applied on top of the server search, client-side,
   // to whatever the current search returned.
-  const shown = (users || []).filter(inVenue).filter((u) => {
+  // Duplicate names: case-insensitive, ignoring spaces at the ends. Counted over every account in
+  // the list (before the venue / role filters), so those filters just narrow what is shown.
+  const normName = (s) => String(s || '').trim().toLowerCase();
+  const dupKeyOf = (u) => normName(dupMode === 'last' ? u.lastName : u.firstName);
+  const dupCounts = {};
+  if (dupMode) (users || []).forEach((u) => { const k = dupKeyOf(u); if (k) dupCounts[k] = (dupCounts[k] || 0) + 1; });
+  const isDup = (u) => { const k = dupKeyOf(u); return !!k && dupCounts[k] > 1; };
+  const shownBase = (users || []).filter(inVenue).filter((u) => {
     if (roleFilter === 'all') return true;
     if (roleFilter === 'suspended') return u.status === 'suspended';
     if (roleFilter === 'walkin') return isWalkIn(u);
     return !!u[roleFilter];
   });
+  // With a duplicates button on, matching names sit together (by the shared name, then the other name).
+  const shown = dupMode
+    ? shownBase.filter(isDup).sort((a, b) => dupKeyOf(a).localeCompare(dupKeyOf(b))
+      || normName(dupMode === 'last' ? a.firstName : a.lastName).localeCompare(normName(dupMode === 'last' ? b.firstName : b.lastName)))
+    : shownBase;
   const countFor = (key) => (users || []).filter(inVenue).filter((u) => (
     key === 'all' ? true : key === 'suspended' ? u.status === 'suspended' : key === 'walkin' ? isWalkIn(u) : !!u[key]
   )).length;
@@ -623,6 +646,11 @@ export default function AdminUsers() {
         ))}
       </div>
 
+      <div className="au-filters" role="group" aria-label="Find accounts that share a name">
+        <button type="button" className={`au-filter${dupMode === 'first' ? ' au-filter-on' : ''}`} aria-pressed={dupMode === 'first'} onClick={() => toggleDup('first')}>First duplicates</button>
+        <button type="button" className={`au-filter${dupMode === 'last' ? ' au-filter-on' : ''}`} aria-pressed={dupMode === 'last'} onClick={() => toggleDup('last')}>Last duplicates</button>
+      </div>
+
       <section className="card au-add">
         <button type="button" className="au-add-toggle" aria-expanded={quickAddOpen} onClick={() => setQuickAddOpen((o) => !o)}>
           <span>Quick add a user</span>
@@ -635,6 +663,14 @@ export default function AdminUsers() {
       <BulkMembershipsPanel users={users} venues={venues} onDone={() => load(query)} />
 
       {error && <p className="error">{error}</p>}
+
+      {dupMode && users && (
+        <p className="muted">
+          {shown.length === 0
+            ? `No accounts share a ${dupMode} name.`
+            : `${shown.length} account${shown.length === 1 ? '' : 's'} sharing ${new Set(shown.map(dupKeyOf)).size} ${dupMode} name${new Set(shown.map(dupKeyOf)).size === 1 ? '' : 's'}, matching names together. Tap the button again to go back to everyone.`}
+        </p>
+      )}
 
       {deleteResult && (
         <div className="banner banner-success" style={{ marginTop: 0 }}>
