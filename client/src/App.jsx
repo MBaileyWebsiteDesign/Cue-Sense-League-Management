@@ -295,7 +295,10 @@ function AppShell() {
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="brand-logo" />
           <span className="brand-text">
             <span className="brand-name">Cue Sense</span>
-            <span className="brand-tagline">League Management</span>
+            <span className="brand-tagline">
+              {/* Venue Manager Portal and its member pages say "Venue Management" (2026-10-15) */}
+              {location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') ? 'Venue Management' : 'League Management'}
+            </span>
           </span>
         </Link>
         <div className="header-right">
