@@ -3709,6 +3709,9 @@ app.post('/api/leagues/:leagueId/divisions', requireAnyAdmin, asyncRoute((req, r
     // POST /api/divisions/:id/join-requests and the /api/join-requests/:id
     // approve/reject routes further down.
     isOpen: !!req.body.isOpen,
+    // "Add frames to points" - see services/standings.js. Standard League
+    // (round robin) singles/doubles only; ignored by every other format.
+    addFramesToPoints: !!req.body.addFramesToPoints,
   };
   db.divisions.push(division);
   writeDb(db);
@@ -4119,6 +4122,7 @@ app.patch('/api/divisions/:id', requireAnyAdmin, asyncRoute((req, res) => {
   division.startingLives = isKiller ? Number(startingLives) : null;
   division.legsPerMatch = entryType === 'teams' ? Number(effectiveLegsPerMatch) : null;
   division.pairingSize = entryType === 'doubles' ? Number(effectivePairingSize) : null;
+  if (req.body && req.body.addFramesToPoints !== undefined) division.addFramesToPoints = !!req.body.addFramesToPoints;
 
   recordAudit(db, {
     actor: req.adminSession.label,
