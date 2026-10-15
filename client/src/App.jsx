@@ -294,15 +294,15 @@ function AppShell() {
         <Link to={playerPortalDisabled ? (staffPortalPath || '/venue-manager') : '/account'} className="brand">
           {/* Venue Manager Portal pages use the Venue Management logo (2026-10-15); same .brand-logo box, so same size */}
           <img
-            src={`${import.meta.env.BASE_URL}${location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') ? 'logo-venue.png' : 'logo.png'}`}
+            src={`${import.meta.env.BASE_URL}${location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') || location.pathname === '/bar-staff' || location.pathname.startsWith('/bar-staff/') ? 'logo-venue.png' : 'logo.png'}`}
             alt=""
             className="brand-logo"
           />
           <span className="brand-text">
             <span className="brand-name">Cue Sense</span>
             <span className="brand-tagline">
-              {/* Venue Manager Portal and its member pages say "Venue Management" (2026-10-15) */}
-              {location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') ? 'Venue Management' : 'League Management'}
+              {/* Venue Manager and Bar Staff portals (and their member pages) say "Venue Management" (2026-10-15) */}
+              {location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') || location.pathname === '/bar-staff' || location.pathname.startsWith('/bar-staff/') ? 'Venue Management' : 'League Management'}
             </span>
           </span>
         </Link>
