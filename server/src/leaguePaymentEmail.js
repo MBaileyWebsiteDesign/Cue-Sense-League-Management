@@ -59,8 +59,6 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
     `League: ${leagueShort}`,
     'Reference: Your Name',
     '',
-    'Please use your name as reference.',
-    '',
     'Thank you',
     '',
     league,
@@ -111,7 +109,6 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
       </table>
     </td></tr>
     <tr><td style="padding:20px 28px 28px 28px;font-size:16px;line-height:1.55;">
-      <p style="margin:0 0 14px 0;">Please use your name as reference.</p>
       <p style="margin:0;">Thank you</p>
     </td></tr>
     <tr><td style="background:#f3f4f6;padding:14px 28px;text-align:center;font-size:12px;color:#6b7280;">
