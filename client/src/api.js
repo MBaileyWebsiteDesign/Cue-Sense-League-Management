@@ -297,6 +297,9 @@ const networkApi = {
   // Player's phone opened the bar tag's link (/checkin/:token).
   selfCheckin: (token) =>
     request(`/checkin/${encodeURIComponent(token)}`, { method: 'POST' }),
+  // Sign-up page, when the player came from a tag: the venue it registers them at (Top Spin tags only).
+  checkinSignupVenue: (token) =>
+    request(`/checkin/${encodeURIComponent(token)}/signup-venue`),
 
   // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
   // - visible to every logged-in account, not just admins.

@@ -332,10 +332,30 @@ startMembershipExpiryEmailJob({ readDb, writeDb, sendMail, membershipAt, canEmai
 // League entry-fee payment request email (bank details, test send, email unpaid players) - see leaguePaymentEmail.js.
 registerLeaguePaymentEmailRoutes(app, { requireAnyAdmin, assertLeagueAccess, asyncRoute, ApiError, readDb, writeDb, sendMail, canEmail, recordAudit });
 
+// Registering from the Top Spin check-in tag (Matt, 2026-10-15): the tag's link carries the
+// venue's checkinTagToken. For Top Spin ONLY, the sign-up page presets the venue (looked up
+// from the token, not changeable) and the new account joins straight away even when the
+// venue's join policy is 'approval' - the player is standing at the bar. Any other venue's
+// tag is ignored here and gets the normal sign-up form. Top Spin is matched by name, the same
+// way wixSiteIdForVenue does.
+function topSpinVenueForTagToken(db, token) {
+  const t = String(token || '');
+  if (!t) return null;
+  const venue = db.venues.find((v) => v.checkinTagToken && v.checkinTagToken === t);
+  return venue && /^\s*top\s*spin\b/i.test(venue.name || '') ? venue : null;
+}
+
+// Public (logged-out players use it): which venue a scanned tag registers people at.
+// Returns only the venue's name, and only for a Top Spin tag.
+app.get('/api/checkin/:token/signup-venue', asyncRoute((req, res) => {
+  const venue = topSpinVenueForTagToken(readDb(), req.params.token);
+  res.json({ venueName: venue ? venue.name : null });
+}));
+
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
     firstName, lastName, email, password,
-    phone = '', teamName = '', classification = null, venueId = null, joinVia = null,
+    phone = '', teamName = '', classification = null, venueId = null, joinVia = null, checkinToken = null,
   } = req.body;
 
   if (!firstName || !firstName.trim()) throw new ApiError(400, 'First name is required');
@@ -365,6 +385,9 @@ app.post('/api/users/register', asyncRoute((req, res) => {
   if (joinVia === 'aura') {
     signupVenue = db.venues.find((v) => String(v.name || '').trim().toLowerCase() === 'aura technology');
     if (!signupVenue) throw new ApiError(400, 'The Aura Technology venue could not be found');
+    directJoin = true;
+  } else if (checkinToken && topSpinVenueForTagToken(db, checkinToken)) {
+    signupVenue = topSpinVenueForTagToken(db, checkinToken);
     directJoin = true;
   } else if (venueId) {
     signupVenue = db.venues.find((v) => v.id === venueId);
