@@ -37,18 +37,14 @@ function formatAmount(amount, currency) {
   }
 }
 
-function amountPhrase(amount, currency) {
-  const money = formatAmount(amount, currency);
-  return (currency || 'GBP').toUpperCase() === 'GBP' ? `${money} of your finest sterling pounds` : money;
-}
-
 // Builds { subject, text, html }. bank = { accountName, accountNumber, sortCode }.
 export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, currency, bank }) {
   const b = venueBranding(venueName || leagueName);
   const name = escapeHtml(firstName || 'there');
   const league = leagueName || 'the league';
   const subject = `${league} - Payments`;
-  const pay = amountPhrase(amount, currency);
+  const amountText = formatAmount(amount, currency);
+  const leagueShort = String(league).replace(/\s+League$/i, '');
 
   const text = [
     `Hi ${firstName || 'there'},`,
@@ -59,10 +55,11 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
     `Account name: ${bank.accountName}`,
     `Account number: ${bank.accountNumber}`,
     `Sort code: ${bank.sortCode}`,
+    `Amount: ${amountText}`,
+    `League: ${leagueShort}`,
+    'Reference: Your Name',
     '',
     'Please use your name as reference.',
-    '',
-    `${pay}. Let's get this league going.`,
     '',
     'Thank you',
     '',
@@ -106,13 +103,15 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
             ${row('Account name', bank.accountName)}
             ${row('Account number', bank.accountNumber)}
             ${row('Sort code', bank.sortCode)}
+            ${row('Amount', amountText)}
+            ${row('League', leagueShort)}
+            ${row('Reference', 'Your Name')}
           </table>
         </td></tr>
       </table>
     </td></tr>
     <tr><td style="padding:20px 28px 28px 28px;font-size:16px;line-height:1.55;">
       <p style="margin:0 0 14px 0;">Please use your name as reference.</p>
-      <p style="margin:0 0 14px 0;"><strong>${escapeHtml(pay)}.</strong> Let's get this league going.</p>
       <p style="margin:0;">Thank you</p>
     </td></tr>
     <tr><td style="background:#f3f4f6;padding:14px 28px;text-align:center;font-size:12px;color:#6b7280;">
