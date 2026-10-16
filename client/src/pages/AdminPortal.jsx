@@ -57,7 +57,7 @@ const SECTIONS = [
     accent: 'people',
     tools: [
       { to: '/admin/users', icon: 'users', title: 'Manage Users', desc: 'Edit accounts, roles, suspensions and password resets.' },
-      { to: '/admin/membership', icon: 'membership', title: 'Membership', desc: 'Venues, Venue Managers and memberships.' },
+      { to: '/admin/membership', icon: 'membership', title: 'Venue Management', desc: 'Venues, Venue Managers and memberships.' },
       { to: '/message-reports', icon: 'reports', title: 'Message Reports', desc: 'Review abuse reports from player messages.', badge: 'reports' },
     ],
   },

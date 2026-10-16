@@ -165,7 +165,7 @@ function VenueMembershipsPanel({ user, venues, onSaved, setError, setSuccess }) 
       {addId && <button className="btn btn-primary" type="button" onClick={add} disabled={busy}>{busy ? 'Adding…' : 'Add venue'}</button>}
       {venues.length === 0 && (
         <p className="muted" style={{ fontSize: '0.85rem' }}>
-          No venues exist yet - create one from Admin Portal &rarr; Membership Management first.
+          No venues exist yet - create one from Admin Portal &rarr; Venue Management first.
         </p>
       )}
     </div>
@@ -324,7 +324,7 @@ function PermissionsPanel({ user, onSaved, setError, setSuccess }) {
         leagues (assign them from that league's own page) - granting it here doesn't give
         access to anything by itself, and revoking it also strips any leagues they were
         already assigned to. Venue Manager works the same way, but for venues - assign them
-        from Admin Portal &rarr; Membership Management. Referee lists this account in the fixture page's referee
+        from Admin Portal &rarr; Venue Management. Referee lists this account in the fixture page's referee
         dropdown for leagues it plays in or manages (and for ad hoc games).
       </p>
     </section>
