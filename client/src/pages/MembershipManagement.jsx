@@ -284,6 +284,8 @@ function VenueCard({ venue, users, onChange, setError }) {
   const [deleting, setDeleting] = useState(false);
   const [membershipOn, setMembershipOn] = useState(venue.membershipEnabled !== false);
   const [savingMembership, setSavingMembership] = useState(false);
+  const [sub, setSub] = useState(venue.subscription || { paid: true });
+  const [savingPaid, setSavingPaid] = useState(false);
   const registeredCount = users.filter((u) => (u.venueMemberships || []).some((m) => m.venueId === venue.id)).length;
 
   const changeMembership = async (next) => {
@@ -296,6 +298,19 @@ function VenueCard({ venue, users, onChange, setError }) {
       setError(err.message);
     } finally {
       setSavingMembership(false);
+    }
+  };
+
+  const changePaid = async (next) => {
+    setSavingPaid(true);
+    setError('');
+    try {
+      const r = await api.setVenuePaid(venue.id, next);
+      setSub(r.subscription || { paid: r.paid !== false });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingPaid(false);
     }
   };
 
@@ -320,6 +335,11 @@ function VenueCard({ venue, users, onChange, setError }) {
         </span>
         <h2>{venue.name}</h2>
         <span className="ol-chip">{registeredCount} member{registeredCount === 1 ? '' : 's'}</span>
+        {!sub.paid && (
+          <span className="ol-chip" style={sub.locked ? { background: '#fdecea', color: '#7a1c12' } : { background: '#fff6dc', color: '#6b4e00' }}>
+            {sub.locked ? 'Locked' : `${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'} left`}
+          </span>
+        )}
       </div>
 
       <VenueManagersPanel venue={venue} users={users} onChange={onChange} setError={setError} />
@@ -343,6 +363,23 @@ function VenueCard({ venue, users, onChange, setError }) {
               />
               <span>This venue has memberships</span>
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, margin: '0 0 6px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={sub.paid !== false}
+                disabled={savingPaid}
+                onChange={(e) => changePaid(e.target.checked)}
+                style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }}
+              />
+              <span>Paid (subscription active)</span>
+            </label>
+            <p className="muted vm-small" style={{ margin: '0 0 12px' }}>
+              {sub.paid !== false
+                ? 'Untick to start a 30-day countdown; after that the venue\'s Venue Manager and Bar Staff portals are locked. No data is deleted.'
+                : sub.locked
+                  ? 'Portals locked. Tick Paid to unlock them straight away.'
+                  : `Unpaid since ${new Date(sub.unpaidSince).toLocaleDateString('en-GB')} - portals lock in ${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'}.`}
+            </p>
             <RenameVenueForm venue={venue} onSaved={onChange} setError={setError} />
             <button className="btn btn-danger cs-btn-block" type="button" disabled={deleting} onClick={onDelete}>
               {deleting ? 'Deleting…' : 'Delete venue'}

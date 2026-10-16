@@ -272,7 +272,7 @@ export function requireVenueManager(req, res, next) {
 // venue whose managerUserIds (assigned by an Overall Admin via
 // POST /api/venues/:id/managers - Venue Managers can never assign
 // themselves) includes their own user id.
-export function assertVenueAccess(req, venue) {
+function assertVenueAccessBase(req, venue) {
   const user = req.auth && req.auth.user;
   if (!user) throw new ApiError(401, 'Login required for this action');
   if (user.isAdmin) return;
@@ -299,4 +299,33 @@ export function assertVenueAccess(req, venue) {
     return;
   }
   throw new ApiError(403, "You don't have manager access to this venue");
+}
+
+// Venue subscription (Matt, 2026-10-16). `paid` is only ever switched off with an
+// explicit false, so every existing venue stays paid. Unticking records
+// unpaidSince; 30 days later the venue's Venue Manager / Bar Staff portals lock.
+// Nothing is deleted - player accounts, memberships and results are untouched.
+export const VENUE_GRACE_DAYS = 30;
+export function venueSubscription(venue, now = Date.now()) {
+  if (!venue || venue.paid !== false) return { paid: true, unpaidSince: null, lockAt: null, daysLeft: null, locked: false };
+  const since = venue.unpaidSince ? Date.parse(venue.unpaidSince) : NaN;
+  if (Number.isNaN(since)) return { paid: false, unpaidSince: null, lockAt: null, daysLeft: VENUE_GRACE_DAYS, locked: false };
+  const lockAt = since + VENUE_GRACE_DAYS * 86400000;
+  return {
+    paid: false,
+    unpaidSince: venue.unpaidSince,
+    lockAt: new Date(lockAt).toISOString(),
+    daysLeft: Math.max(0, Math.ceil((lockAt - now) / 86400000)),
+    locked: now >= lockAt,
+  };
+}
+
+// The gate every Venue Manager / Bar Staff route goes through. Overall Admins
+// are never locked out.
+export function assertVenueAccess(req, venue) {
+  assertVenueAccessBase(req, venue);
+  const user = req.auth && req.auth.user;
+  if (user && !user.isAdmin && venueSubscription(venue).locked) {
+    throw new ApiError(403, 'Subscription expired - this venue portal is locked. Please contact Cue Sense to renew.');
+  }
 }

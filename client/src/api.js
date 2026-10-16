@@ -168,6 +168,7 @@ const networkApi = {
   createVenue: (name) => request('/venues', { method: 'POST', body: JSON.stringify({ name }) }),
   renameVenue: (id, name) => request(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   deleteVenue: (id) => request(`/venues/${id}`, { method: 'DELETE' }),
+  setVenuePaid: (id, paid) => request(`/venues/${id}/paid`, { method: 'POST', body: JSON.stringify({ paid }) }),
   addVenueManager: (venueId, userId) =>
     request(`/venues/${venueId}/managers`, { method: 'POST', body: JSON.stringify({ userId }) }),
   removeVenueManager: (venueId, userId) =>
