@@ -33,6 +33,7 @@ import {
   assertLeagueAccess,
   requireVenueManager,
   assertVenueAccess,
+  venueSubscription,
   generateApiKeyValue,
   hashApiKey,
 } from './userAuth.js';
@@ -1245,7 +1246,9 @@ app.delete('/api/leagues/:id/managers/:userId', requireAdmin, asyncRoute((req, r
 
 app.get('/api/venues', requireAdmin, asyncRoute((req, res) => {
   const db = readDb();
-  res.json([...db.venues].sort((a, b) => a.name.localeCompare(b.name)));
+  res.json([...db.venues]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((v) => ({ ...v, paid: v.paid !== false, subscription: venueSubscription(v) })));
 }));
 
 app.post('/api/venues', requireAdmin, asyncRoute((req, res) => {
@@ -1256,7 +1259,7 @@ app.post('/api/venues', requireAdmin, asyncRoute((req, res) => {
   if (db.venues.some((v) => v.name.toLowerCase() === trimmed.toLowerCase())) {
     throw new ApiError(409, 'A venue with this name already exists');
   }
-  const venue = { id: uuid(), name: trimmed, managerUserIds: [], joinPolicy: 'open', joinRequests: [], createdAt: new Date().toISOString() };
+  const venue = { id: uuid(), name: trimmed, managerUserIds: [], joinPolicy: 'open', joinRequests: [], paid: true, unpaidSince: null, createdAt: new Date().toISOString() };
   db.venues.push(venue);
   recordAudit(db, {
     actor: req.adminSession.label,
@@ -1292,6 +1295,32 @@ app.patch('/api/venues/:id', requireAdmin, asyncRoute((req, res) => {
     writeDb(db);
   }
   res.json(venue);
+}));
+
+// Paid / subscription flag (Matt, 2026-10-16). Overall Admin only. Unticking
+// starts a 30-day countdown (unpaidSince); after it the Venue Manager and Bar
+// Staff portals for the venue are locked (assertVenueAccess in userAuth.js).
+// Ticking again clears it. Nothing is deleted at any point.
+app.post('/api/venues/:id/paid', requireAdmin, asyncRoute((req, res) => {
+  const { paid } = req.body || {};
+  if (typeof paid !== 'boolean') throw new ApiError(400, 'paid must be true or false');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  const wasPaid = venue.paid !== false;
+  if (paid !== wasPaid) {
+    venue.paid = paid;
+    venue.unpaidSince = paid ? null : new Date().toISOString();
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: paid ? 'venue.paid' : 'venue.unpaid',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: paid ? `Marked "${venue.name}" as paid` : `Marked "${venue.name}" as unpaid (30-day countdown started)`,
+    });
+    writeDb(db);
+  }
+  res.json({ paid: venue.paid !== false, subscription: venueSubscription(venue) });
 }));
 
 // Blocked, rather than silently orphaning accounts, if anyone is still
@@ -1452,6 +1481,8 @@ app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) 
         ...v,
         joinPolicy: v.joinPolicy === 'approval' ? 'approval' : 'open',
         membershipEnabled: venueMembershipOn(v),
+        paid: v.paid !== false,
+        subscription: venueSubscription(v),
         pendingJoinRequests: (joinRequests || []).filter((r) => r.status === 'pending').length,
       };
       if (req.barStaffMode) delete out.managerUserIds;

@@ -1704,6 +1704,26 @@ function JoinRequestsCard({ refreshTick = 0, venue, onApproved }) {
   );
 }
 
+// Subscription (paid) notice for the selected venue (Matt, 2026-10-16). While a
+// venue is unpaid a banner counts down the 30 days; after that the portal is
+// locked for Venue Managers / Bar Staff (the server enforces it too).
+function SubscriptionNotice({ venue, isAdmin }) {
+  const s = venue && venue.subscription;
+  if (!s || s.paid) return null;
+  const days = s.daysLeft;
+  const text = s.locked
+    ? 'Subscription expired. This venue portal is locked - please contact Cue Sense to renew. All player data is kept.'
+    : `Subscription expired - ${days} day${days === 1 ? '' : 's'} left before this portal is locked.`;
+  const colours = s.locked
+    ? { background: '#fdecea', border: '1px solid #f1b5ae', color: '#7a1c12' }
+    : { background: '#fff6dc', border: '1px solid #e3c76a', color: '#6b4e00' };
+  return (
+    <div role="alert" style={{ ...colours, borderRadius: 12, padding: '12px 14px', margin: '0 0 14px', fontWeight: 600 }}>
+      {text}{isAdmin && s.locked ? ' (Admins can still view it.)' : ''}
+    </div>
+  );
+}
+
 export default function BarStaffPortal() {
   const { user, isAdmin } = useAuth();
   const [venues, setVenues] = useState(null);
@@ -1736,6 +1756,8 @@ export default function BarStaffPortal() {
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Bar Staff Portal' }]);
   const selectedVenue = (venues || []).find((v) => v.id === selectedVenueId);
   const membershipOn = !selectedVenue || selectedVenue.membershipEnabled !== false;
+  // Locked (30 days after Paid was unticked): the cards are hidden for non-admins.
+  const locked = !!(selectedVenue && selectedVenue.subscription && selectedVenue.subscription.locked) && !isAdmin;
 
   useEffect(() => {
     api.getMyManagedVenues()
@@ -1747,13 +1769,13 @@ export default function BarStaffPortal() {
   }, []);
 
   useEffect(() => {
-    if (!selectedVenueId) return;
+    if (!selectedVenueId || locked) return;
     setStatusLoading(true);
     api.getVenueManagerStatus(selectedVenueId)
       .then(setStatus)
       .catch((e) => setError(e.message))
       .finally(() => setStatusLoading(false));
-  }, [selectedVenueId, memberRefresh, statusRefresh]);
+  }, [selectedVenueId, memberRefresh, statusRefresh, locked]);
 
   // 10-minute refresh: paused while the tab is hidden; if the 10 minutes have passed by the
   // time the tab is shown again, it refreshes straight away. (Checked in and Table bookings
@@ -1768,7 +1790,7 @@ export default function BarStaffPortal() {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
   }, []);
   useEffect(() => {
-    if (liveTick === 0 || !selectedVenueId) return;
+    if (liveTick === 0 || !selectedVenueId || locked) return;
     api.getVenueManagerStatus(selectedVenueId).then(setStatus).catch(() => {});
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [liveTick]);
@@ -1813,11 +1835,16 @@ export default function BarStaffPortal() {
               </label>
             </div>
           )}
-          <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
-          {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
-          {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
-          {selectedVenue && <JoinRequestsCard key={selectedVenue.id} refreshTick={liveTick} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
-          {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} refreshTick={liveTick} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
+          <SubscriptionNotice venue={selectedVenue} isAdmin={isAdmin} />
+          {locked ? null : (
+            <>
+              <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
+              {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
+              {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
+              {selectedVenue && <JoinRequestsCard key={selectedVenue.id} refreshTick={liveTick} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
+              {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} refreshTick={liveTick} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
+            </>
+          )}
         </MembershipOnContext.Provider>
       )}
     </div>
