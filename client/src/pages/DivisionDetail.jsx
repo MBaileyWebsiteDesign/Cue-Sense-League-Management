@@ -670,14 +670,28 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   // /quick-add-player both 400 past 2 for free_play) - this is just the UI
   // reflecting that same limit instead of showing a control that would 400.
   const freePlayFull = isFreePlay && division.players.length >= 2;
+  // Standard League (single or double leg) late entrants - see
+  // isRoundRobinLateEntryOpen in server/src/index.js. Existing fixtures stay as
+  // they are; the newcomer's games are added as new hidden rounds at the end.
+  const canLateRoundRobin =
+    division.fixturesGenerated &&
+    division.entryType === 'singles' &&
+    (division.scheduling === 'round_robin_single' || division.scheduling === 'round_robin_double') &&
+    division.status === 'active';
+  const lateEntryMessage = (name, le) =>
+    `${name}: added. ${le.fixtureCount} new fixture${le.fixtureCount === 1 ? '' : 's'} added as round${le.firstRound === le.lastRound ? '' : 's'} ${le.firstRound === le.lastRound ? le.firstRound : `${le.firstRound}-${le.lastRound}`} at the end - hidden from players until you release ${le.firstRound === le.lastRound ? 'it' : 'them'} in Manage Fixtures. Existing fixtures are unchanged.`;
 
   const onAddPlayer = async (playerId) => {
     if (!playerId) return;
     setError('');
     setAddingId(playerId);
     try {
-      await api.addPlayer(division.id, playerId);
+      const res = await api.addPlayer(division.id, playerId);
       setSearch('');
+      if (res && res.lateEntry) {
+        const added = registeredPlayers.find((p) => p.id === playerId);
+        setQuickResult(lateEntryMessage(added ? added.name : 'Player', res.lateEntry));
+      }
       onChange();
     } catch (err) {
       setError(err.message);
@@ -699,7 +713,9 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
       setQuickResult(
         res.outcome?.method === 'reserved-slot'
           ? `${res.player.name}: added - took one of the bracket's reserved round 1 slots and plays forward through the bracket like anyone else, no decider match involved.`
-          : `${res.player.name}: Added.`
+          : res.outcome?.method === 'late-round-robin'
+            ? lateEntryMessage(res.player.name, res.outcome)
+            : `${res.player.name}: Added.`
       );
       onChange();
     } catch (err) {
@@ -781,8 +797,8 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
   const matches = q ? available.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8) : [];
   // Only an admin, this league's manager or the creator of their own Ad Hoc
   // game can change the roster - mirrors assertCanEditRoster server-side.
-  const canAdd = canEditRoster && !division.fixturesGenerated && !freePlayFull;
-  const showWalkIn = canEditRoster && !freePlayFull && (!division.fixturesGenerated || canQuickAddLateEntrant);
+  const canAdd = canEditRoster && (!division.fixturesGenerated || canLateRoundRobin) && !freePlayFull;
+  const showWalkIn = canEditRoster && !freePlayFull && (!division.fixturesGenerated || canQuickAddLateEntrant || canLateRoundRobin);
   const showSeed = isAdmin && !isFreePlay && !division.fixturesGenerated && division.players.length > 1;
 
   return (
@@ -854,7 +870,9 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
           {walkInOpen && (
             <form className="ah-walkin-form" onSubmit={onQuickAdd}>
               <p className="muted dv-small" style={{ margin: 0 }}>
-                {division.fixturesGenerated
+                {division.fixturesGenerated && canLateRoundRobin
+                  ? 'Fixtures are already generated. A late entrant plays everyone else in new rounds added at the end (hidden until you release them) - existing fixtures stay as they are. Just a name, no account needed.'
+                  : division.fixturesGenerated
                   ? `Fixtures are already generated, but ${openReservedSlots.length} reserved bracket slot${openReservedSlots.length === 1 ? ' is' : 's are'} still open for a day-of arrival - just a name, no account needed.`
                   : 'For someone who\'s never used CueSense before - just a name, no account needed.'}
               </p>
@@ -944,7 +962,9 @@ function SinglesRoster({ division, registeredPlayers, onChange, setError, isAdmi
         <>
           <p className="muted">
             Fixtures generated - the roster is locked, no further additions or removals
-            {canQuickAddLateEntrant && canAddLateEntrant
+            {canLateRoundRobin
+              ? ' (aside from adding a late entrant above - their games are added as new rounds at the end).'
+              : canQuickAddLateEntrant && canAddLateEntrant
               ? ' (aside from Quick Add or Add a late entrant, above).'
               : canQuickAddLateEntrant
                 ? ' (aside from Quick Add above, while a reserved slot is still open).'
