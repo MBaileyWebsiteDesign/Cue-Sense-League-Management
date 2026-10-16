@@ -290,7 +290,9 @@ function AppShell() {
   const location = useLocation();
   const isVenueHeader = location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') || location.pathname === '/bar-staff' || location.pathname.startsWith('/bar-staff/');
   // /login has its own CueSense logo and motto (Matt, 2026-10-15)
-  const isLoginHeader = location.pathname === '/login';
+  // The Admin Portal (/admin and every /admin/... page) uses the same logo and motto as /login (Matt, 2026-10-16)
+  const isAdminHeader = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
+  const isLoginHeader = location.pathname === '/login' || isAdminHeader;
   // /account and the player profile pages (/players/:id) use the Player Analytics logo and heading (Matt, 2026-10-16)
   const isPlayerHeader = location.pathname === '/account' || location.pathname.startsWith('/players/');
   return (
