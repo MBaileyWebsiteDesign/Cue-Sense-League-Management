@@ -1819,7 +1819,7 @@ export default function VenueManagerPortal() {
       ) : venues.length === 0 ? (
         <p className="muted">
           You haven't been assigned to a venue yet - an Overall Admin assigns Venue Manager access
-          from the Membership Management page.
+          from the Venue Management page.
         </p>
       ) : (
         <MembershipOnContext.Provider value={membershipOn}>

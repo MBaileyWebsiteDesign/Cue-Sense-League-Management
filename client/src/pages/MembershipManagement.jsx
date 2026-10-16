@@ -359,7 +359,7 @@ export default function MembershipManagement() {
   const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
 
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Membership Management' }]);
+  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Venue Management' }]);
 
   const load = () => {
     Promise.all([api.getVenues(), api.adminListUsers('')])
@@ -380,7 +380,7 @@ export default function MembershipManagement() {
         <Link to="/admin" className="msg-icon-btn" aria-label="Back to Admin Portal">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
         </Link>
-        <h1>Membership</h1>
+        <h1>Venue Management</h1>
         {venues && <span className="muted au-total">{venues.length} venue{venues.length === 1 ? '' : 's'}</span>}
       </div>
       <p className="muted mm-intro">
