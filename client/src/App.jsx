@@ -291,13 +291,15 @@ function AppShell() {
   const isVenueHeader = location.pathname === '/venue-manager' || location.pathname.startsWith('/venue-manager/') || location.pathname === '/bar-staff' || location.pathname.startsWith('/bar-staff/');
   // /login has its own CueSense logo and motto (Matt, 2026-10-15)
   const isLoginHeader = location.pathname === '/login';
+  // /account and the player profile pages (/players/:id) use the Player Analytics logo and heading (Matt, 2026-10-16)
+  const isPlayerHeader = location.pathname === '/account' || location.pathname.startsWith('/players/');
   return (
     <div className="app-shell">
       <header className="app-header">
         <Link to={playerPortalDisabled ? (staffPortalPath || '/venue-manager') : '/account'} className="brand">
           {/* Venue Manager Portal pages use the Venue Management logo (2026-10-15); same .brand-logo box, so same size */}
           <img
-            src={`${import.meta.env.BASE_URL}${isLoginHeader ? 'logo-login.png' : isVenueHeader ? 'logo-venue.png' : 'logo.png'}`}
+            src={`${import.meta.env.BASE_URL}${isLoginHeader ? 'logo-login.png' : isVenueHeader ? 'logo-venue.png' : isPlayerHeader ? 'logo-analytics.png' : 'logo.png'}`}
             alt=""
             className="brand-logo"
           />
@@ -305,7 +307,7 @@ function AppShell() {
             <span className="brand-name">Cue Sense</span>
             <span className={isLoginHeader ? 'brand-tagline brand-tagline-motto' : 'brand-tagline'}>
               {/* Venue Manager and Bar Staff portals (and their member pages) say "Venue Management" (2026-10-15) */}
-              {isLoginHeader ? 'Play - Compete - Improve - Win' : isVenueHeader ? 'Venue Management' : 'League Management'}
+              {isLoginHeader ? 'Play - Compete - Improve - Win' : isVenueHeader ? 'Venue Management' : isPlayerHeader ? 'Player Analytics' : 'League Management'}
             </span>
           </span>
         </Link>
