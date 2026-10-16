@@ -5251,6 +5251,47 @@ function assertCanEditRoster(req, db, division) {
   if (!isOwnAdHocGame) assertLeagueAccess(req, league);
 }
 
+// Late entrants for a Standard League (round_robin_single / round_robin_double,
+// singles only), added 2026-10-16. Once fixtures are drawn, a player (or a
+// walk-in via Quick Add) can still be added: every existing fixture is left
+// exactly as it is, and the newcomer's games against everyone already in the
+// division are appended as NEW rounds after the current last round (one game
+// per round; double leg adds the return games too, home/away swapped). The new
+// rounds are NOT added to visibleRounds, so they stay hidden from players until
+// released in Manage Fixtures. If the division has a gap between rounds and the
+// last round has a date, the new rounds continue that spacing.
+function isRoundRobinLateEntryOpen(division) {
+  return !!division &&
+    !!division.fixturesGenerated &&
+    division.entryType === 'singles' &&
+    (division.scheduling === 'round_robin_single' || division.scheduling === 'round_robin_double') &&
+    division.status !== 'completed';
+}
+
+function appendRoundRobinLateEntrantFixtures(db, league, division, newPlayerId, opponentIds) {
+  const existing = db.fixtures.filter((f) => f.divisionId === division.id);
+  const lastRound = existing.reduce((m, f) => Math.max(m, f.round || 0), 0);
+  const dated = existing.find((f) => f.round === lastRound && f.scheduledDate);
+  const gap = Number(division.gapDays) || 0;
+  const legs = division.scheduling === 'round_robin_double' ? 2 : 1;
+  let round = lastRound;
+  for (let leg = 1; leg <= legs; leg += 1) {
+    for (const opponentId of opponentIds) {
+      round += 1;
+      const fixture = makeSinglesFixture({ league, division, round });
+      fixture.homePlayerId = leg === 1 ? newPlayerId : opponentId;
+      fixture.awayPlayerId = leg === 1 ? opponentId : newPlayerId;
+      if (dated && gap) {
+        const date = new Date(`${dated.scheduledDate}T00:00:00`);
+        date.setDate(date.getDate() + (round - lastRound) * gap);
+        fixture.scheduledDate = date.toISOString().slice(0, 10);
+      }
+      db.fixtures.push(fixture);
+    }
+  }
+  return { firstRound: lastRound + 1, lastRound: round, fixtureCount: opponentIds.length * legs };
+}
+
 app.post('/api/divisions/:id/players', requireAuth, asyncRoute((req, res) => {
   const { playerId } = req.body;
   if (!playerId) throw new ApiError(400, 'playerId is required');
@@ -5262,7 +5303,8 @@ app.post('/api/divisions/:id/players', requireAuth, asyncRoute((req, res) => {
   if (division.entryType !== 'singles') {
     throw new ApiError(400, `This is a ${division.entryType} division - add players to a ${division.entryType === 'teams' ? 'team' : 'pairing'} instead`);
   }
-  if (division.fixturesGenerated) {
+  const lateRoundRobin = isRoundRobinLateEntryOpen(division);
+  if (division.fixturesGenerated && !lateRoundRobin) {
     throw new ApiError(400, 'Cannot add players after fixtures have been generated for this division');
   }
   if (division.scheduling === FREE_PLAY && division.playerIds.length >= 2) {
@@ -5272,11 +5314,25 @@ app.post('/api/divisions/:id/players', requireAuth, asyncRoute((req, res) => {
   const player = registeredPlayers(db).find((p) => p.id === playerId);
   if (!player) throw new ApiError(400, 'Only registered, active users can be added as players - pick a name from the list');
   assertPaymentCleared(db, division, player.id);
+  let lateEntry = null;
   if (!division.playerIds.includes(player.id)) {
+    const opponentIds = [...division.playerIds];
     division.playerIds.push(player.id);
+    if (lateRoundRobin) {
+      const league = db.leagues.find((l) => l.id === division.leagueId);
+      lateEntry = appendRoundRobinLateEntrantFixtures(db, league, division, player.id, opponentIds);
+      recordAudit(db, {
+        actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+        action: 'division.late_entrant_round_robin',
+        targetType: 'division',
+        targetId: division.id,
+        details: `Added late entrant ${player.name} to "${division.name}" - ${lateEntry.fixtureCount} new fixture(s) in rounds ${lateEntry.firstRound}-${lateEntry.lastRound}, hidden until released`,
+      });
+    }
   }
   writeDb(db);
-  res.status(201).json(hydrateDivision(db, division));
+  const hydrated = hydrateDivision(db, division);
+  res.status(201).json(lateEntry ? { ...hydrated, lateEntry } : hydrated);
 }));
 
 app.delete('/api/divisions/:id/players/:playerId', requireAuth, asyncRoute((req, res) => {
@@ -5720,7 +5776,8 @@ app.post('/api/divisions/:id/quick-add-player', requireAuth, asyncRoute((req, re
   }
   const isKnockout = division.scheduling === 'knockout_single_elim' || DOUBLE_ELIM_TYPES.includes(division.scheduling);
   let reservedFixture = null;
-  if (division.fixturesGenerated) {
+  const lateRoundRobin = isRoundRobinLateEntryOpen(division);
+  if (division.fixturesGenerated && !lateRoundRobin) {
     if (isKnockout) {
       reservedFixture = db.fixtures.find((f) => f.divisionId === division.id && f.reserved && f.status !== 'completed');
     }
@@ -5746,8 +5803,12 @@ app.post('/api/divisions/:id/quick-add-player', requireAuth, asyncRoute((req, re
   });
   const newPlayerId = user.playerId;
 
+  const lateOpponentIds = [...division.playerIds];
   if (!division.playerIds.includes(newPlayerId)) division.playerIds.push(newPlayerId);
   if (reservedFixture) claimReservedFixtureSlot(division, reservedFixture, newPlayerId);
+  const lateEntry = lateRoundRobin
+    ? appendRoundRobinLateEntrantFixtures(db, league, division, newPlayerId, lateOpponentIds)
+    : null;
 
   // Same "don't hard-block, just flag it" approach as the season wizard's
   // CSV import (see POST /api/admin/seasons/:leagueId/import-players) - a
@@ -5772,19 +5833,21 @@ app.post('/api/divisions/:id/quick-add-player', requireAuth, asyncRoute((req, re
 
   recordAudit(db, {
     actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
-    action: reservedFixture ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
+    action: reservedFixture || lateEntry ? 'division.quick_add_late_entrant' : 'division.quick_add_player',
     targetType: 'division',
     targetId: division.id,
     details: reservedFixture
       ? `Quick-added late entrant ${user.firstName} ${user.lastName} to "${division.name}" - claimed a reserved bracket slot`
-      : `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
+      : lateEntry
+        ? `Quick-added late entrant ${user.firstName} ${user.lastName} to "${division.name}" - ${lateEntry.fixtureCount} new fixture(s) in rounds ${lateEntry.firstRound}-${lateEntry.lastRound}, hidden until released`
+        : `Quick-added ${user.firstName} ${user.lastName} to "${division.name}"`,
   });
 
   writeDb(db);
   res.status(201).json({
     division: hydrateDivision(db, division),
     player: { id: newPlayerId, name: `${user.firstName} ${user.lastName}` },
-    outcome: { method: reservedFixture ? 'reserved-slot' : 'added' },
+    outcome: { method: reservedFixture ? 'reserved-slot' : lateEntry ? 'late-round-robin' : 'added', ...(lateEntry || {}) },
   });
 }));
 
