@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import '../pages/loginPage.css';
 
 // "Create Link" (Matt, 2026-10-17): lets someone put the app on their desktop
@@ -11,6 +12,12 @@ import '../pages/loginPage.css';
 //    manifest + icons from vite.config.js).
 //  - iPhone / iPad (Safari): no install prompt exists for websites, so short
 //    step-by-step instructions are shown instead.
+//  - Phones (iPhone/iPad/Android): a slim "Install app" bar pinned to the bottom of
+//    the screen instead of the in-page button. It is hidden once the app is
+//    installed (opened from the home-screen icon, or - Android Chrome - reported
+//    installed / no install prompt offered) and can be closed with an x, which is
+//    remembered on that phone. iPhone/iPad cannot report an install from inside
+//    Safari, so there the bar still shows in a Safari tab until it is closed.
 //  - Desktop fallback: a small shortcut file to download - .url (Windows),
 //    .webloc (Mac), .desktop (Linux) - that opens the site in the browser.
 
@@ -52,6 +59,11 @@ function isInstalledApp() {
 }
 
 const APP_NAME = 'Cue Sense';
+const DISMISS_KEY = 'csInstallBarDismissed';
+
+function readDismissed() {
+  try { return window.localStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
+}
 
 function shortcutFile(kind) {
   const url = `${window.location.origin}/`;
@@ -103,8 +115,17 @@ export default function CreateLink({ variant = 'link' }) {
   const [open, setOpen] = useState(false);
   const [canPrompt, setCanPrompt] = useState(!!deferredPrompt);
   const [installed, setInstalled] = useState(isInstalledApp());
+  // Android Chrome only: null = unknown, true/false = the browser's answer.
+  const [relatedInstalled, setRelatedInstalled] = useState(null);
+  const [dismissed, setDismissed] = useState(readDismissed());
   const platform = detectPlatform();
   const isDesktop = platform === 'windows' || platform === 'mac' || platform === 'linux';
+  const isMobile = platform === 'ios' || platform === 'android';
+  const isInstalled = installed || relatedInstalled === true;
+  // iPhone/iPad: always offer (an install can't be detected). Android: offer when
+  // the browser has an install prompt ready, or confirms the app is not installed.
+  const barEligible = platform === 'ios' || (platform === 'android' && (canPrompt || relatedInstalled === false));
+  const showBar = isMobile && !isInstalled && !dismissed && barEligible;
 
   useEffect(() => {
     const update = () => {
@@ -117,6 +138,20 @@ export default function CreateLink({ variant = 'link' }) {
   }, []);
 
   useEffect(() => {
+    if (platform !== 'android' || typeof navigator.getInstalledRelatedApps !== 'function') return;
+    navigator.getInstalledRelatedApps()
+      .then((apps) => setRelatedInstalled(Array.isArray(apps) && apps.length > 0))
+      .catch(() => {});
+  }, [platform]);
+
+  // Keep page content clear of the fixed bar.
+  useEffect(() => {
+    if (!showBar) return undefined;
+    document.body.classList.add('has-install-bar');
+    return () => document.body.classList.remove('has-install-bar');
+  }, [showBar]);
+
+  useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     window.addEventListener('keydown', onKey);
@@ -124,7 +159,7 @@ export default function CreateLink({ variant = 'link' }) {
   }, [open]);
 
   // Already running as the installed app - nothing to create.
-  if (installed) return null;
+  if (isInstalled) return null;
 
   const install = async () => {
     if (!deferredPrompt) return;
@@ -140,16 +175,32 @@ export default function CreateLink({ variant = 'link' }) {
     }
   };
 
+  const dismiss = () => {
+    try { window.localStorage.setItem(DISMISS_KEY, '1'); } catch { /* ignore */ }
+    setDismissed(true);
+  };
+  const onBarTap = () => {
+    if (platform === 'android' && deferredPrompt) install();
+    else setOpen(true);
+  };
+
   return (
     <>
-      {variant === 'button' ? (
+      {showBar && createPortal(
+        <div className="lg-install-bar" role="region" aria-label="Install app">
+          <button type="button" className="lg-install-bar-main" onClick={onBarTap}>Install app</button>
+          <button type="button" className="lg-install-bar-close" onClick={dismiss} aria-label="Close">&times;</button>
+        </div>,
+        document.body,
+      )}
+      {isMobile && variant === 'button' ? null : variant === 'button' ? (
         <button type="button" className="lg-create-btn" onClick={() => setOpen(true)}>Create Link</button>
       ) : (
         <p className="lg-create-link">
           <button type="button" className="lg-link-btn" onClick={() => setOpen(true)}>Create Link</button>
         </p>
       )}
-      {open && (
+      {open && createPortal(
         <div className="lg-modal-back" onClick={() => setOpen(false)}>
           <div
             className="lg-modal"
@@ -221,7 +272,8 @@ export default function CreateLink({ variant = 'link' }) {
 
             <button type="button" className="btn lg-modal-close" onClick={() => setOpen(false)}>Close</button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

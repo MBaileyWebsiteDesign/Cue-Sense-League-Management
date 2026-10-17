@@ -37,6 +37,8 @@ export default defineConfig({
           display: 'standalone',
           background_color: '#ffffff',
           theme_color: '#ffffff',
+          // Lets Android Chrome report whether the app is installed (Create Link bar).
+          related_applications: [{ platform: 'webapp', url: '/manifest.webmanifest' }],
           icons: [
             { src: 'favicon.png', sizes: '64x64', type: 'image/png' },
             { src: 'logo.png', sizes: '88x88', type: 'image/png' },
