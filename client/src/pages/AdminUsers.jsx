@@ -500,6 +500,9 @@ export default function AdminUsers() {
   // 'first' | 'last' | null: the First duplicates / Last duplicates buttons (Matt, 2026-10-15) list
   // everyone whose first (or last) name is shared with at least one other account.
   const [dupMode, setDupMode] = useState(null);
+  // Column sort: which column (null = default order) and which way ('asc' | 'desc').
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState('asc');
 
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin', to: '/admin' }, { label: 'Users' }]);
 
@@ -550,10 +553,68 @@ export default function AdminUsers() {
     return !!u[roleFilter];
   });
   // With a duplicates button on, matching names sit together (by the shared name, then the other name).
-  const shown = dupMode
+  const shownOrdered = dupMode
     ? shownBase.filter(isDup).sort((a, b) => dupKeyOf(a).localeCompare(dupKeyOf(b))
       || normName(dupMode === 'last' ? a.firstName : a.lastName).localeCompare(normName(dupMode === 'last' ? b.firstName : b.lastName)))
     : shownBase;
+
+  // Column sort (Matt, 2026-10-17): the up / down arrows in each column heading. null = the default order
+  // (or the duplicate-names grouping). Blank values always sit at the bottom, whichever way it is sorted.
+  const earliest = (usr, field) => membershipsOf(usr).map((m) => m[field] || '').filter(Boolean).sort()[0] || '';
+  const SORT_VALUE = {
+    name: (usr) => `${usr.firstName || ''} ${usr.lastName || ''}`.trim().toLowerCase(),
+    email: (usr) => (isWalkIn(usr) ? '' : String(usr.email || '').toLowerCase()),
+    created: (usr) => usr.createdAt || '',
+    team: (usr) => String(realTeam(usr) || '').toLowerCase(),
+    venue: (usr) => venueNames(usr).toLowerCase(),
+    start: (usr) => earliest(usr, 'startDate'),
+    end: (usr) => earliest(usr, 'renewalDate'),
+    class: (usr) => String(usr.classification || '').toLowerCase(),
+    admin: (usr) => (usr.isAdmin ? 1 : 0),
+    captain: (usr) => (usr.isCaptain ? 1 : 0),
+    leagueManager: (usr) => (usr.isLeagueManager ? 1 : 0),
+    venueManager: (usr) => (usr.isVenueManager ? 1 : 0),
+    status: (usr) => String(usr.status || '').toLowerCase(),
+  };
+  const SORT_COLS = [
+    ['name', 'Name'], ['email', 'Email'], ['created', 'Created'], ['team', 'Team'], ['venue', 'Venue'],
+    ['start', 'Start'], ['end', 'End'], ['class', 'Class'], ['admin', 'Admin'], ['captain', 'Captain'],
+    ['leagueManager', 'League Manager'], ['venueManager', 'Venue Manager'], ['status', 'Status'],
+  ];
+  const shown = sortKey && SORT_VALUE[sortKey]
+    ? [...shownOrdered].sort((a, b) => {
+      const va = SORT_VALUE[sortKey](a);
+      const vb = SORT_VALUE[sortKey](b);
+      const blankA = va === '' || va === null;
+      const blankB = vb === '' || vb === null;
+      if (blankA && blankB) return 0;
+      if (blankA) return 1;
+      if (blankB) return -1;
+      const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true });
+      return sortDir === 'desc' ? -c : c;
+    })
+    : shownOrdered;
+  // Clicking the arrow that is already lit turns the sort off again.
+  const toggleSort = (key, dir) => {
+    if (sortKey === key && sortDir === dir) { setSortKey(null); return; }
+    setSortKey(key);
+    setSortDir(dir);
+  };
+  const sortArrow = (key, dir, label) => {
+    const on = sortKey === key && sortDir === dir;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(key, dir)}
+        aria-pressed={on}
+        aria-label={`Sort ${label} ${dir === 'asc' ? 'A to Z' : 'Z to A'}`}
+        title={`${label}: ${dir === 'asc' ? 'A to Z' : 'Z to A'}`}
+        style={{ background: 'none', border: 0, padding: '0 3px', margin: 0, cursor: 'pointer', color: 'inherit', fontSize: 10, lineHeight: 1.1, opacity: on ? 1 : 0.3, fontWeight: on ? 700 : 400 }}
+      >
+        {dir === 'asc' ? '\u25B2' : '\u25BC'}
+      </button>
+    );
+  };
   const countFor = (key) => (users || []).filter(inVenue).filter((u) => (
     key === 'all' ? true : key === 'suspended' ? u.status === 'suspended' : key === 'walkin' ? isWalkIn(u) : !!u[key]
   )).length;
@@ -763,7 +824,17 @@ export default function AdminUsers() {
                       aria-label="Select all users shown"
                     />
                   </th>
-                  <th>Name</th><th>Email</th><th>Created</th><th>Team</th><th>Venue</th><th>Start</th><th>End</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
+                  {SORT_COLS.map(([key, label]) => (
+                    <th key={key}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                        <span>{label}</span>
+                        <span style={{ display: 'inline-flex', flexDirection: 'column' }}>
+                          {sortArrow(key, 'asc', label)}
+                          {sortArrow(key, 'desc', label)}
+                        </span>
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
