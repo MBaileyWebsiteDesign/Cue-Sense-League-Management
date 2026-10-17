@@ -12,7 +12,10 @@ client/dist-*
 # data survives deploys/restarts; shipping a stale local copy inside the
 # image would silently overwrite live data on first boot if a volume ever
 # mounted over an existing directory unexpectedly.
-server/src/data
+# Ignore the folder's contents, but keep the committed source file that
+# routes/marketingReview.js imports (it is code, not data).
+server/src/data/*
+!server/src/data/marketingSeeds.js
 
 # Everything else that has no business being inside the runtime image
 .git
