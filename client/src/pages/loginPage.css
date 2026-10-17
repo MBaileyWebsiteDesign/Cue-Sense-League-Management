@@ -40,3 +40,26 @@
 .lg-modal-note { margin: 8px 0 0; font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
 .lg-modal-btn { display: block; width: 100%; min-height: 46px; font-size: 1rem; }
 .lg-modal-close { display: block; width: 100%; min-height: 44px; margin-top: 6px; }
+
+/* "Create Link" as a button (Matt, 2026-10-17): same faded green as the
+   "Welcome back" banner (.rg-banner). Used under Sign In and at the bottom of
+   the Player Portal. */
+.lg-create-btn {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 4px 12px rgba(10, 38, 23, 0.22);
+}
+.lg-create-btn:hover { filter: brightness(1.12); }
+.cs-create-link { margin: 18px 0 24px; }
+.cs-create-link .lg-create-btn { max-width: 420px; margin-left: auto; margin-right: auto; }
