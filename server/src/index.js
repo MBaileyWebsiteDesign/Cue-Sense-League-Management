@@ -387,6 +387,13 @@ app.post('/api/users/register', asyncRoute((req, res) => {
     signupVenue = db.venues.find((v) => String(v.name || '').trim().toLowerCase() === 'aura technology');
     if (!signupVenue) throw new ApiError(400, 'The Aura Technology venue could not be found');
     directJoin = true;
+  } else if (joinVia === 'topspin') {
+    // Dedicated /RegisterTopSpin page (Matt, 2026-10-17): same idea as 'aura' above - venue
+    // preset to Top Spin (matched by name, like topSpinVenueForTagToken / wixSiteIdForVenue)
+    // and the account joins straight away even when the join policy is 'approval'.
+    signupVenue = db.venues.find((v) => /^\s*top\s*spin\b/i.test(v.name || ''));
+    if (!signupVenue) throw new ApiError(400, 'The Top Spin venue could not be found');
+    directJoin = true;
   } else if (checkinToken && topSpinVenueForTagToken(db, checkinToken)) {
     signupVenue = topSpinVenueForTagToken(db, checkinToken);
     directJoin = true;

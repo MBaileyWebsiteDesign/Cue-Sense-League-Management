@@ -12,6 +12,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import RegisterWix from './pages/RegisterWix.jsx';
 import RegisterAura from './pages/RegisterAura.jsx';
+import RegisterTopSpin from './pages/RegisterTopSpin.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
@@ -532,6 +533,18 @@ export default function App() {
         element={
           <AuthProvider>
             <RegisterAura />
+          </AuthProvider>
+        }
+      />
+      {/* Dedicated Top Spin player registration (Matt, 2026-10-17): same form as /register,
+          venue preset to Top Spin and joined straight away. Own route/component
+          (RegisterTopSpin.jsx) so /register is unaffected. Needs AuthProvider (not
+          AppShell) since it calls useAuth().login(). */}
+      <Route
+        path="/RegisterTopSpin"
+        element={
+          <AuthProvider>
+            <RegisterTopSpin />
           </AuthProvider>
         }
       />
