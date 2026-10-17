@@ -1,0 +1,62 @@
+/* Admin > Server Performance (2026-10-17). Reuses the shared .card / .sx-card /
+   .status looks; only what the page adds is here. Green and gold palette. */
+.sp-verdict { border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; border: 2px solid var(--primary); background: #fff; }
+.sp-verdict-ok { border-color: #2f7d39; background: #f0f9f1; }
+.sp-verdict-watch { border-color: #a67d1f; background: #fff8e6; }
+.sp-verdict-increase { border-color: #b42318; background: #fff1f0; }
+.sp-verdict-collecting { border-color: #9ca3af; background: #f3f4f6; }
+.sp-verdict-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.sp-verdict-head { font-size: 1.05rem; line-height: 1.35; flex: 1 1 220px; min-width: 0; }
+.sp-verdict-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
+.sp-verdict-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.9rem; }
+.sp-verdict-note { margin: 0; font-size: 0.82rem; color: var(--muted); }
+
+.sp-controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; }
+.sp-range { display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-range-btn { min-height: 40px; }
+.sp-range-btn.is-active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.sp-small { font-size: 0.82rem; }
+
+.sp-gauges { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.sp-page .sp-gauges .card, .sp-page .sp-chart { margin-bottom: 0; }
+.sp-big { font-size: 2rem; font-weight: 800; line-height: 1.1; color: var(--primary); }
+.sp-big-sub { font-size: 0.85rem; font-weight: 500; color: var(--muted); }
+.sp-bar { height: 12px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+.sp-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--secondary); }
+.sp-bar-watch { background: var(--cta); }
+.sp-bar-increase { background: #c0392b; }
+.sp-bar-collecting { background: #9ca3af; }
+.sp-line-text { margin: 0; font-size: 0.9rem; line-height: 1.4; }
+.sp-detail { color: #92400e; }
+.sp-fix { border-top: 1px dashed var(--border); padding-top: 8px; font-size: 0.88rem; display: flex; flex-direction: column; gap: 4px; }
+.sp-fix p { margin: 0; line-height: 1.5; }
+.sp-cmd { display: inline-block; max-width: 100%; overflow-wrap: anywhere; background: #f3f4f6; border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 0.82rem; }
+
+.sp-svg { width: 100%; height: 150px; display: block; background: #fbfaf6; border: 1px solid var(--border); border-radius: 8px; }
+.sp-grid { stroke: #e5e7eb; stroke-width: 1; }
+.sp-guide { stroke-width: 1.5; stroke-dasharray: 6 4; }
+.sp-guide-watch { stroke: #a67d1f; }
+.sp-guide-increase { stroke: #c0392b; }
+.sp-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.sp-line-green { stroke: var(--secondary-dark); }
+.sp-line-gold { stroke: var(--cta); }
+.sp-axis { display: flex; justify-content: space-between; font-size: 0.78rem; }
+.sp-scale { font-size: 0.8rem; }
+.sp-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--muted); }
+.sp-legend li { display: flex; align-items: center; gap: 6px; }
+.sp-swatch { width: 18px; height: 0; border-top: 3px solid; display: inline-block; }
+.sp-swatch-green { border-color: var(--secondary-dark); }
+.sp-swatch-gold { border-color: var(--cta); }
+.sp-swatch-watch { border-color: #a67d1f; border-top-style: dashed; }
+.sp-swatch-increase { border-color: #c0392b; border-top-style: dashed; }
+
+.sp-files, .sp-boots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sp-files li { display: flex; justify-content: space-between; gap: 10px; font-size: 0.9rem; border-top: 1px solid var(--border); padding-top: 6px; }
+.sp-boots li { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 6px; }
+.sp-details summary { cursor: pointer; font-weight: 600; min-height: 32px; }
+.sp-notes { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; line-height: 1.5; }
+
+@media (min-width: 700px) {
+  .sp-gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sp-verdict-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

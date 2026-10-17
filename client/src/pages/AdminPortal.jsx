@@ -40,6 +40,7 @@ const ICONS = {
   email: ['M3 5h18v14H3z', 'M3 6l9 7 9-7'],
   keys: ['M15 7a4 4 0 1 1-3.9 5H3v3h3v3h3v-3h2.1A4 4 0 0 1 15 7z'],
   backup: ['M4 7h16v13H4z', 'M4 7l2-3h12l2 3', 'M12 11v6', 'M9 14l3 3 3-3'],
+  server: ['M3 4h18v6H3z', 'M3 14h18v6H3z', 'M7 7h0', 'M7 17h0'],
 };
 
 const SECTIONS = [
@@ -75,6 +76,7 @@ const SECTIONS = [
     tools: [
       { to: '/admin/audit-log', icon: 'audit', title: 'Audit Log', desc: 'Who changed what, and when.' },
       { to: '/admin/email', icon: 'email', title: 'Email', desc: 'Check sending works and see recent results.' },
+      { to: '/admin/server-performance', icon: 'server', title: 'Server Performance', desc: 'Is the Fly.io machine short of memory, CPU or disk?' },
       { to: '/admin/api-keys', icon: 'keys', title: 'API Keys', desc: 'Keys for StreamDeck and other integrations.' },
       { to: '/admin/backup', icon: 'backup', title: 'Backup & Restore', desc: 'Export, restore or wipe all data - use with care.', danger: true },
     ],

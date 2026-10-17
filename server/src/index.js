@@ -43,6 +43,7 @@ import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
 import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt, expiredEmailSentAt } from './venueEmails.js';
 import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
 import { registerMarketingReviewRoutes } from './routes/marketingReview.js';
+import { registerServerPerformanceRoutes } from './routes/serverPerformance.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -2986,6 +2987,7 @@ registerBookAllTablesRoute(app, {
 });
 
 registerMarketingReviewRoutes(app, { requireAdmin, requireVenueManager, assertVenueAccess, ApiError, asyncRoute, readDb, writeDb });
+registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute });
 
 // Quick-renew buttons (Search players, Registered players, the check-in
 // result and the member page reached from Today's check-ins) - 1, 6 or 12

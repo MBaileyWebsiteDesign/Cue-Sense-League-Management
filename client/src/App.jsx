@@ -55,6 +55,7 @@ const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
 const AdminEmail = lazy(() => import('./pages/AdminEmail.jsx'));
+const AdminServerPerformance = lazy(() => import('./pages/AdminServerPerformance.jsx'));
 const Help = lazy(() => import('./pages/Help.jsx'));
 const Messages = lazy(() => import('./pages/Messages.jsx'));
 const MessageReports = lazy(() => import('./pages/MessageReports.jsx'));
@@ -293,7 +294,7 @@ function adminThemeClass(pathname) {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/admin') return ' admin-theme admin-theme-home';
   if (path === '/admin/users' || path === '/admin/membership') return ' admin-theme admin-theme-people';
-  if (['/admin/audit-log', '/admin/email', '/admin/api-keys', '/admin/backup'].includes(path)) {
+  if (['/admin/audit-log', '/admin/email', '/admin/server-performance', '/admin/api-keys', '/admin/backup'].includes(path)) {
     return ' admin-theme admin-theme-system';
   }
   return '';
@@ -387,6 +388,7 @@ function AppShell() {
             <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
             <Route path="/admin/backup" element={<RequireAdmin><AdminBackup /></RequireAdmin>} />
             <Route path="/admin/email" element={<RequireAdmin><AdminEmail /></RequireAdmin>} />
+            <Route path="/admin/server-performance" element={<RequireAdmin><AdminServerPerformance /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAnyAdmin><GameAdjustments /></RequireAnyAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
             <Route path="/admin/manage-fixtures" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />
