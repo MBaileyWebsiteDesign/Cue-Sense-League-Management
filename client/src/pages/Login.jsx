@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
+import CreateLink from '../components/CreateLink.jsx';
 import './registerPages.css';
 import './loginPage.css';
 
@@ -75,6 +76,7 @@ export default function Login() {
       <p className="rg-foot">
         No account yet? <Link to="/register" state={location.state}>Create one</Link>
       </p>
+      <CreateLink />
     </div>
   );
 }
