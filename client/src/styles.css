@@ -2869,3 +2869,27 @@ button.vm-tile { cursor: pointer; }
 @media (max-width: 640px) {
   .brand-text .brand-tagline-motto { font-size: 0.6rem; letter-spacing: 0.02em; }
 }
+
+
+/* Marketing review (Matt, 2026-10-17) - Venue Manager sub-page */
+.mk-banner { border-left: 4px solid var(--cta); }
+.mk-banner p { margin: 0 0 6px; }
+.mk-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.mk-filter { border: 1px solid var(--border); background: #fff; color: var(--primary); border-radius: 999px; padding: 8px 14px; min-height: 40px; font-weight: 600; cursor: pointer; }
+.mk-filter.is-on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.mk-count { opacity: 0.75; margin-left: 4px; }
+.mk-day h2 { font-size: 1.05rem; margin: 18px 0 8px; color: var(--primary); }
+.mk-item { margin-bottom: 10px; }
+.mk-item.mk-approved { border-left: 4px solid var(--secondary); }
+.mk-item.mk-dismissed { opacity: 0.7; }
+.mk-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.mk-time { color: var(--muted); font-size: 0.85rem; }
+.mk-pill { margin-left: auto; border-radius: 999px; padding: 3px 10px; font-size: 0.78rem; font-weight: 700; }
+.mk-pill-pending { background: #fff6dc; color: #6b4e00; }
+.mk-pill-approved { background: #e3f3e5; color: #1d5a2a; }
+.mk-pill-dismissed { background: #eceff1; color: #55606b; }
+.mk-title { margin: 0 0 6px; font-size: 1rem; }
+.mk-body { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mk-actions { display: flex; gap: 8px; margin-top: 8px; }
+.mk-actions .btn { flex: 1 1 0; min-height: 44px; }
+.mk-link { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-decoration: none; color: var(--primary); font-weight: 700; border-left: 4px solid var(--cta); }

@@ -1780,6 +1780,8 @@ export default function VenueManagerPortal() {
   const membershipOn = !selectedVenue || selectedVenue.membershipEnabled !== false;
   // Locked (30 days after Paid was unticked): the cards are hidden for non-admins.
   const locked = !!(selectedVenue && selectedVenue.subscription && selectedVenue.subscription.locked) && !isAdmin;
+  // Marketing review link: the venue's own Venue Manager only, for venues with it switched on.
+  const showMarketing = !!(selectedVenue && selectedVenue.marketingReviewEnabled === true && user?.isVenueManager && !isAdmin);
 
   useEffect(() => {
     api.getMyManagedVenues()
@@ -1860,6 +1862,12 @@ export default function VenueManagerPortal() {
           <SubscriptionNotice venue={selectedVenue} isAdmin={isAdmin} />
           {locked ? null : (
             <>
+              {showMarketing && (
+                <Link to={`/venue-manager/marketing?venueId=${encodeURIComponent(selectedVenue.id)}`} className="card mk-link">
+                  <span>Marketing review</span>
+                  <span aria-hidden="true">›</span>
+                </Link>
+              )}
               <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
               {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
               {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}

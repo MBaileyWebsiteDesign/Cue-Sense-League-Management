@@ -42,6 +42,7 @@ import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
 import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt, expiredEmailSentAt } from './venueEmails.js';
 import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
+import { registerMarketingReviewRoutes } from './routes/marketingReview.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -2983,6 +2984,8 @@ registerBookAllTablesRoute(app, {
   BLOCK_MAX_AHEAD_MS,
   londonWallTimeToUtc,
 });
+
+registerMarketingReviewRoutes(app, { requireAdmin, requireVenueManager, assertVenueAccess, ApiError, asyncRoute, readDb, writeDb });
 
 // Quick-renew buttons (Search players, Registered players, the check-in
 // result and the member page reached from Today's check-ins) - 1, 6 or 12

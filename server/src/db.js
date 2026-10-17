@@ -57,6 +57,8 @@ const EMPTY_STATE = {
   // Bar check-ins (NFC card or bar tag) - see "NFC cards and bar check-in"
   // in index.js: { id, venueId, userId, source, cardUid, membershipStatus, at, by }.
   venueVisits: [],
+  // Marketing review items copied from Wix - see routes/marketingReview.js.
+  marketingItems: [],
   passwordResets: [],
   tours: [],
   rollOfHonour: [],
@@ -137,6 +139,7 @@ export function readDb() {
   if (!state.userBlocks) state.userBlocks = [];
   if (!state.messageReports) state.messageReports = [];
   if (!state.venueVisits) state.venueVisits = [];
+  if (!state.marketingItems) state.marketingItems = [];
   if (!state.passwordResets) state.passwordResets = [];
   if (!state.divisions) state.divisions = [];
   if (!state.fixtures) state.fixtures = [];

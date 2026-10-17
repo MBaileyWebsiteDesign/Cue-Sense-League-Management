@@ -36,6 +36,7 @@ const LeagueManagerPortal = lazy(() => import('./pages/LeagueManagerPortal.jsx')
 const AdminPortal = lazy(() => import('./pages/AdminPortal.jsx'));
 const MembershipManagement = lazy(() => import('./pages/MembershipManagement.jsx'));
 const VenueManagerPortal = lazy(() => import('./pages/VenueManagerPortal.jsx'));
+const MarketingReview = lazy(() => import('./pages/MarketingReview.jsx'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers.jsx'));
 const AdminUserEdit = lazy(() => import('./pages/AdminUserEdit.jsx'));
 const AdminAuditLog = lazy(() => import('./pages/AdminAuditLog.jsx'));
@@ -122,6 +123,18 @@ function RequireVenueManager({ children }) {
   const location = useLocation();
 
   if (!isVenueManager && !isAdmin) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return children;
+}
+
+// Marketing review gate: the venue's Venue Manager only. Overall Admins and Bar Staff
+// are sent home (the server refuses them too).
+function RequireVenueManagerOnly({ children }) {
+  const { isVenueManager, isAdmin } = useAuth();
+  const location = useLocation();
+
+  if (!isVenueManager || isAdmin) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   return children;
@@ -354,6 +367,7 @@ function AppShell() {
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
             <Route path="/venue-manager" element={<RequireVenueManager><VenueManagerPortal /></RequireVenueManager>} />
             <Route path="/venue-manager/players/:userId" element={<RequireVenueManager><VenueMember /></RequireVenueManager>} />
+            <Route path="/venue-manager/marketing" element={<RequireVenueManagerOnly><MarketingReview /></RequireVenueManagerOnly>} />
             <Route path="/bar-staff" element={<RequireBarStaff><BarStaffPortal /></RequireBarStaff>} />
             <Route path="/bar-staff/players/:userId" element={<RequireBarStaff><BarStaffMember /></RequireBarStaff>} />
             {/* Bar NFC tag link - checks the logged-in player in at that venue. */}
