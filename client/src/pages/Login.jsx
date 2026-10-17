@@ -71,12 +71,12 @@ export default function Login() {
         <button className="btn btn-primary rg-submit" type="submit" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Sign In'}
         </button>
+        <CreateLink variant="button" />
         <p className="lg-login-forgot"><Link to="/forgot-password">Forgot your password?</Link></p>
       </form>
       <p className="rg-foot">
         No account yet? <Link to="/register" state={location.state}>Create one</Link>
       </p>
-      <CreateLink />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import '../pages/loginPage.css';
 
 // "Create Link" (Matt, 2026-10-17): lets someone put the app on their desktop
 // or phone home screen from the login page.
@@ -97,7 +98,8 @@ const SHORTCUT_LABEL = {
   linux: 'Linux shortcut (.desktop)',
 };
 
-export default function CreateLink() {
+// variant 'link' = text link; 'button' = green button (login page, Player Portal).
+export default function CreateLink({ variant = 'link' }) {
   const [open, setOpen] = useState(false);
   const [canPrompt, setCanPrompt] = useState(!!deferredPrompt);
   const [installed, setInstalled] = useState(isInstalledApp());
@@ -140,9 +142,13 @@ export default function CreateLink() {
 
   return (
     <>
-      <p className="lg-create-link">
-        <button type="button" className="lg-link-btn" onClick={() => setOpen(true)}>Create Link</button>
-      </p>
+      {variant === 'button' ? (
+        <button type="button" className="lg-create-btn" onClick={() => setOpen(true)}>Create Link</button>
+      ) : (
+        <p className="lg-create-link">
+          <button type="button" className="lg-link-btn" onClick={() => setOpen(true)}>Create Link</button>
+        </p>
+      )}
       {open && (
         <div className="lg-modal-back" onClick={() => setOpen(false)}>
           <div

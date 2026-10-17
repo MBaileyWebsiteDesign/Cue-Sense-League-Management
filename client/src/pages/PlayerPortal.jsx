@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { FormStrip, WinRing, ResultBadge, Chevron, formatFixtureDate } from '../components/StatsUI.jsx';
+import CreateLink from '../components/CreateLink.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
@@ -1204,6 +1205,10 @@ export default function PlayerPortal() {
           <ChangePasswordForm />
         </SettingsSection>
       </section>
+
+      <div className="cs-create-link">
+        <CreateLink variant="button" />
+      </div>
     </div>
   );
 }
