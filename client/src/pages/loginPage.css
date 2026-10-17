@@ -63,3 +63,42 @@
 .lg-create-btn:hover { filter: brightness(1.12); }
 .cs-create-link { margin: 18px 0 24px; }
 .cs-create-link .lg-create-btn { max-width: 420px; margin-left: auto; margin-right: auto; }
+
+/* Phones: "Install app" bar pinned to the bottom of the screen (Matt, 2026-10-17).
+   Same faded green as the "Welcome back" banner. Hidden once installed or closed. */
+.lg-install-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 52%, var(--secondary-dark) 100%);
+  box-shadow: 0 -4px 14px rgba(10, 38, 23, 0.28);
+}
+.lg-install-bar-main {
+  flex: 1;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lg-install-bar-close {
+  width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+body.has-install-bar { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
