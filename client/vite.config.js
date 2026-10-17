@@ -40,6 +40,10 @@ export default defineConfig({
           icons: [
             { src: 'favicon.png', sizes: '64x64', type: 'image/png' },
             { src: 'logo.png', sizes: '88x88', type: 'image/png' },
+            // 192 and 512 px icons are what Chrome/Edge/Android need before they
+            // offer "Install app" (Create Link on the login page, 2026-10-17).
+            { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
           ],
         },
         workbox: {
