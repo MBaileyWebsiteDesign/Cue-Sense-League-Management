@@ -22,4 +22,6 @@ ENV NODE_ENV=production
 ENV PORT=4000
 EXPOSE 4000
 
-CMD ["npm", "start"]
+# Run node directly (not via `npm start`) so Fly's stop signal reaches the app and a deliberate
+# stop can be told apart from a crash - see server/src/routes/serverPerformance.js.
+CMD ["node", "src/index.js"]
