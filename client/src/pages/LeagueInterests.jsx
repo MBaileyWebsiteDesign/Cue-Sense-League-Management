@@ -14,8 +14,9 @@ import LeaguePaymentEmailCard from './LeaguePaymentEmailCard.jsx';
 // Decline controls, plus bulk "add selected to a division". Same endpoints as
 // before (GET /api/leagues/:id/league-interests, POST .../payments/:playerId,
 // POST /api/league-interests/:id/decline, POST /api/league-interests/bulk-assign).
-// Deliberately pending-only: bulk-assign already calls assertPaymentCleared
-// before adding anyone, so an assigned player's payment is cleared by definition.
+// Shows pending interests plus 'assigned' ones (2026-10-17): a player already in a
+// division is labelled and can't be selected; one marked assigned but in no
+// division (added, then removed) can be selected and added again.
 // The public, unauthenticated embeddable board
 // (/public/leagues/:id/interests) is unchanged and linked from here.
 const STATUS_LABEL = { confirmed: 'Paid', waived: 'Waived', unpaid: 'Unpaid' };
@@ -105,6 +106,7 @@ export default function LeagueInterests() {
 
   const paywall = !!league.payment?.required;
   const list = interests || [];
+  const isPlaced = (r) => r.status === 'assigned' && r.inDivision;
   const count = (s) => list.filter((r) => r.paymentStatus === s).length;
   const visible = paywall && filter !== 'all' ? list.filter((r) => r.paymentStatus === filter) : list;
   const divisions = sortDivisionsPremierFirst(
@@ -155,7 +157,7 @@ export default function LeagueInterests() {
       ) : (
         <>
           <div className="li-bulk">
-            <button type="button" className="btn-link" disabled={busy} onClick={() => setSelected(visible.map((r) => r.id))}>Select all{paywall && filter !== 'all' ? ' shown' : ''}</button>
+            <button type="button" className="btn-link" disabled={busy} onClick={() => setSelected(visible.filter((r) => !isPlaced(r)).map((r) => r.id))}>Select all{paywall && filter !== 'all' ? ' shown' : ''}</button>
             <button type="button" className="btn-link" disabled={busy || selected.length === 0} onClick={() => setSelected([])}>Clear</button>
             <span className="muted">{selected.length} selected</span>
           </div>
@@ -163,11 +165,13 @@ export default function LeagueInterests() {
             {visible.map((r) => (
               <li key={r.id} className={`li-row${paywall ? ` li-row-${r.paymentStatus}` : ''}`}>
                 <label className="li-who">
-                  <input type="checkbox" checked={selected.includes(r.id)} disabled={busy} onChange={() => toggle(r.id)} />
+                  <input type="checkbox" checked={selected.includes(r.id)} disabled={busy || isPlaced(r)} onChange={() => toggle(r.id)} />
                   <span className="li-name">{r.playerName}</span>
                   {paywall && <span className={`li-chip li-chip-${r.paymentStatus}`}>{STATUS_LABEL[r.paymentStatus] || r.paymentStatus}</span>}
+                  {isPlaced(r) && <span className="li-chip">In {r.divisionName}</span>}
+                  {r.status === 'assigned' && !r.inDivision && <span className="li-chip">Added earlier, not in a division</span>}
                 </label>
-                <div className="li-actions">
+                <div className="li-actions" style={isPlaced(r) ? { display: 'none' } : undefined}>
                   {paywall && r.paymentStatus !== 'confirmed' && (
                     <button type="button" className="btn btn-primary li-btn" disabled={busy} onClick={() => setPayment(r.playerId, 'confirmed')}>Mark paid</button>
                   )}

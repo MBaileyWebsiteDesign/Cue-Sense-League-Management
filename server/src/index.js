@@ -5356,6 +5356,20 @@ app.delete('/api/divisions/:id/players/:playerId', requireAuth, asyncRoute((req,
     throw new ApiError(400, 'Cannot remove players after fixtures have been generated for this division');
   }
   division.playerIds = division.playerIds.filter((id) => id !== req.params.playerId);
+  // League Interests (Matt, 2026-10-17): accepting an interest marks it 'assigned'.
+  // If the player is then taken out of their division and is in no other division
+  // of this league, put the interest back to 'pending' so it shows on the League
+  // Interests page again (it used to stay 'assigned' and vanish from that page).
+  const stillInLeague = db.divisions.some((d) => d.leagueId === division.leagueId && d.playerIds.includes(req.params.playerId));
+  if (!stillInLeague) {
+    for (const interest of db.leagueInterests) {
+      if (interest.leagueId === division.leagueId && interest.playerId === req.params.playerId && interest.status === 'assigned') {
+        interest.status = 'pending';
+        interest.decidedAt = null;
+        interest.decidedBy = null;
+      }
+    }
+  }
   writeDb(db);
   res.json(hydrateDivision(db, division));
 }));
@@ -5621,9 +5635,12 @@ app.get('/api/leagues/:id/league-interests', requireAnyAdmin, asyncRoute((req, r
   if (!league) throw new ApiError(404, 'League not found');
   assertLeagueAccess(req, league);
   const result = db.leagueInterests
-    .filter((r) => r.status === 'pending' && r.leagueId === league.id)
+    // Pending ones, plus 'assigned' ones so players already added (or added and
+    // since removed) still show here with a label (Matt, 2026-10-17).
+    .filter((r) => (r.status === 'pending' || r.status === 'assigned') && r.leagueId === league.id)
     .map((r) => {
       const player = db.players.find((p) => p.id === r.playerId);
+      const inDiv = db.divisions.find((d) => d.leagueId === league.id && d.playerIds.includes(r.playerId));
       let paymentStatus = null;
       if (league.payment?.required) {
         const paymentRecord = db.leaguePayments.find((p) => p.leagueId === league.id && p.playerId === r.playerId);
@@ -5636,6 +5653,9 @@ app.get('/api/leagues/:id/league-interests', requireAnyAdmin, asyncRoute((req, r
         playerName: player?.name || 'Unknown player',
         createdAt: r.createdAt,
         paymentStatus,
+        status: r.status,
+        inDivision: !!inDiv,
+        divisionName: inDiv ? inDiv.name : null,
       };
     });
   res.json(result);
@@ -5709,7 +5729,11 @@ app.post('/api/league-interests/bulk-assign', requireAnyAdmin, asyncRoute((req, 
       results.push({ interestId, ok: false, error: 'This interest registration is for a different league' });
       continue;
     }
-    if (request.status !== 'pending') {
+    // An 'assigned' interest whose player is in no division of this league any
+    // more (removed since) can be added again.
+    const reAddable = request.status === 'assigned'
+      && !db.divisions.some((d) => d.leagueId === league.id && d.playerIds.includes(request.playerId));
+    if (request.status !== 'pending' && !reAddable) {
       results.push({ interestId, ok: false, error: 'This registration has already been decided' });
       continue;
     }
