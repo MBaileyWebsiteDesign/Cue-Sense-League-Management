@@ -2987,7 +2987,7 @@ registerBookAllTablesRoute(app, {
 });
 
 registerMarketingReviewRoutes(app, { requireAdmin, requireVenueManager, assertVenueAccess, ApiError, asyncRoute, readDb, writeDb });
-registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute });
+registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute, sendMail, emailHtml, escapeHtml, mailSettings });
 
 // Quick-renew buttons (Search players, Registered players, the check-in
 // result and the member page reached from Today's check-ins) - 1, 6 or 12

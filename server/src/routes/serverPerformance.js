@@ -11,6 +11,18 @@
 // Readings only exist while the machine is running - the Fly config lets the
 // machine stop when idle, so there are gaps while it is stopped.
 //
+// EMAIL ALERTS (added 2026-10-17) go to ALERT_EMAIL through the app's normal
+// MailerSend mailer (the same one the membership-expiry emails use):
+//   - memory, CPU or disk at 70% or more for 10 readings (10 minutes) in a row
+//     -> one email, a reminder every 24 hours while it stays high, and an
+//        all-clear after 5 readings back under 70%;
+//   - the app starting after its previous run ended without a clean shutdown
+//     (crash, out-of-memory kill, host failure) -> one "restarted unexpectedly"
+//     email. Normal stops (idle stop, deploys) are clean and send nothing.
+// An email cannot be sent while the server is down, so the restart email
+// arrives once the machine is back. Unsent emails are kept in DATA_DIR and
+// retried.
+//
 // The rules of thumb used for the "increase / watch / ok" verdicts are in
 // THRESHOLDS below and are returned to the page so they are shown to the admin.
 // They are sensible defaults chosen here, not figures published by Fly.io.
@@ -29,6 +41,15 @@ const BOOTS_KEEP = 50;
 const LAG_TICK_MS = 100;
 const HISTORY_FILE = path.join(DATA_DIR, 'server-metrics.json');
 const LAST_FILE = path.join(DATA_DIR, 'server-metrics-last.json');
+const ALERTS_FILE = path.join(DATA_DIR, 'server-alerts.json');
+const RUN_FILE = path.join(DATA_DIR, 'server-run.json');
+const DEFAULT_ALERT_EMAIL = 'matt.bailey1985@gmail.com';
+const ALERT_PCT = 70;
+const SUSTAIN_READINGS = 10; // consecutive 1-minute readings at or above ALERT_PCT
+const CLEAR_READINGS = 5; // consecutive readings below ALERT_PCT to send the all-clear
+const REMIND_MS = 24 * 60 * 60 * 1000;
+const RETRY_MS = 15 * 60 * 1000;
+const MAX_TRIES = 6;
 
 export const THRESHOLDS = {
   memory: { watchP95: 70, increaseP95: 85, watchPeak: 85, increasePeak: 95, watchSwapMb: 20, increaseSwapMb: 100 },
@@ -53,6 +74,13 @@ const state = {
   lastTick: Date.now(),
   ticks: 0,
   persistError: null,
+  alerts: {
+    memory: { consec: 0, clearConsec: 0, active: false, activeSince: null, alertedAt: null, lastT: null },
+    cpu: { consec: 0, clearConsec: 0, active: false, activeSince: null, alertedAt: null, lastT: null },
+    disk: { consec: 0, clearConsec: 0, active: false, activeSince: null, alertedAt: null, lastT: null },
+  },
+  outbox: [],
+  sending: false,
 };
 
 // ---- raw readings ----------------------------------------------------------
@@ -262,6 +290,8 @@ function tick() {
   }
   try { writeFileSync(LAST_FILE, JSON.stringify({ t: s.t, memPct: s.memPct, cpu: s.cpu, diskPct: s.diskPct })); } catch (e) { state.persistError = e.message; }
   if (state.ticks % SAVE_EVERY === 0) save();
+  evaluateAlerts(s);
+  processOutbox();
 }
 
 function loadHistory() {
@@ -279,20 +309,204 @@ function loadHistory() {
     const l = state.fine[state.fine.length - 1];
     prev = { t: l.t, memPct: l.memPctMax, cpu: l.cpu, diskPct: l.diskPct };
   }
+  const prevRun = readJson(RUN_FILE);
+  const unexpected = !!(prevRun && prevRun.clean === false);
   state.boots.push({
     at: Date.now(),
+    unexpected,
     prev: prev ? { at: prev.t, memPct: prev.memPct ?? null, cpu: prev.cpu ?? null, diskPct: prev.diskPct ?? null } : null,
   });
   state.boots = state.boots.slice(-BOOTS_KEEP);
+  if (unexpected) queueRestartAlert(prev);
 }
 
 export function startServerMetricsSampler() {
-  loadHistory();
+  loadAlertState();
+  loadHistory(); // also notices an unclean end to the previous run (reads RUN_FILE)
+  writeJson(RUN_FILE, { startedAt: state.startedAt, clean: false });
+  installShutdownHandlers();
   startLagTimer();
   tick(); // first reading now (CPU needs two readings, so it fills in a minute later)
   save();
   const t = setInterval(tick, SAMPLE_MS);
   t.unref();
+}
+
+// ---- email alerts ----------------------------------------------------------
+
+let mail = null; // { sendMail, emailHtml, escapeHtml, mailSettings } handed over by index.js
+const RESOURCES = {
+  memory: { label: 'Memory (RAM)', read: (s) => s.memPct, advice: 'Add RAM with "fly scale memory 2048" (use -a <app>), and update memory in the [[vm]] section of fly.toml to match.' },
+  cpu: { label: 'CPU', read: (s) => s.cpu, advice: 'Move to a bigger CPU with "fly scale vm shared-cpu-2x" or "fly scale vm performance-1x" (use -a <app>).' },
+  disk: { label: 'Disk (data volume)', read: (s) => s.diskPct, advice: 'Grow the volume: "fly volumes list" to find its ID, then "fly volumes extend <volume-id> -s <new size in GB>".' },
+};
+
+function readJson(p) { try { return JSON.parse(readText(p) || 'null'); } catch { return null; } }
+function writeJson(p, v) {
+  try { mkdirSync(DATA_DIR, { recursive: true }); writeFileSync(p, JSON.stringify(v)); } catch (e) { state.persistError = e.message; }
+}
+const alertRecipient = () => process.env.SERVER_ALERT_EMAIL || DEFAULT_ALERT_EMAIL;
+const appLabel = () => process.env.FLY_APP_NAME || 'Cue Sense server';
+function pageUrl() {
+  const base = process.env.APP_BASE_URL ? process.env.APP_BASE_URL.replace(/\/+$/, '') : process.env.FLY_APP_NAME ? `https://${process.env.FLY_APP_NAME}.fly.dev` : null;
+  return base ? `${base}/admin/server-performance` : null;
+}
+const whenText = (t) => new Date(t).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+function loadAlertState() {
+  const j = readJson(ALERTS_FILE);
+  if (!j) return;
+  for (const k of Object.keys(RESOURCES)) {
+    const a = j.alerts && j.alerts[k];
+    if (a) state.alerts[k] = { ...state.alerts[k], active: !!a.active, activeSince: a.activeSince ?? null, alertedAt: a.alertedAt ?? null };
+  }
+  state.outbox = Array.isArray(j.outbox) ? j.outbox.slice(-20) : [];
+}
+function saveAlertState() { writeJson(ALERTS_FILE, { alerts: state.alerts, outbox: state.outbox }); }
+
+function composeAlert(heading, paragraphs, advice) {
+  const esc = mail.escapeHtml;
+  const link = pageUrl();
+  const html = mail.emailHtml(
+    heading,
+    paragraphs.map((p) => `<p style="margin:0 0 10px">${esc(p)}</p>`).join('')
+      + (advice ? `<p style="margin:0 0 10px"><strong>What to do</strong><br>${esc(advice)}</p>` : '')
+      + (link ? `<p style="margin:0"><a href="${esc(link)}">Open Server Performance</a></p>` : '<p style="margin:0">Open Admin Portal &gt; Server Performance for the charts.</p>'),
+  );
+  const text = [heading, '', ...paragraphs, ...(advice ? ['', `What to do: ${advice}`] : []), '', link || 'Open Admin Portal > Server Performance for the charts.'].join('\n');
+  return { html, text };
+}
+
+function enqueue(kind, subject, heading, paragraphs, advice) {
+  if (!mail) return;
+  const { html, text } = composeAlert(heading, paragraphs, advice);
+  state.outbox.push({ id: `${Date.now()}-${kind}`, kind, to: alertRecipient(), subject, text, html, tries: 0, lastTryAt: 0, createdAt: Date.now() });
+  if (state.outbox.length > 20) state.outbox.shift();
+  saveAlertState();
+}
+
+function queueResourceAlert(key, kind, s) {
+  const r = RESOURCES[key];
+  const v = r.read(s);
+  const detail = key === 'memory' ? ` (${s.memUsedMb} MB used)` : key === 'disk' ? ` (${s.diskUsedMb} MB used, ${s.diskAvailMb} MB free)` : '';
+  const app = appLabel();
+  if (kind === 'clear') {
+    enqueue('clear', `[Cue Sense] ${app}: ${r.label} back to normal`, `${r.label} back below ${ALERT_PCT}%`,
+      [`${r.label} on ${app} is now ${v}%${detail}, below the ${ALERT_PCT}% alert level. No action needed.`], null);
+    return;
+  }
+  const again = kind === 'reminder';
+  enqueue(kind, `[Cue Sense] ${app}: ${r.label} at ${v}%${again ? ' (still high)' : ''}`, `${r.label} at ${v}%`,
+    [
+      `${r.label} on ${app} is at ${v}%${detail} at ${whenText(s.t)}, and has been ${ALERT_PCT}% or more for ${again ? 'over 24 hours' : `${SUSTAIN_READINGS} minutes`}.`,
+      again ? 'This is the daily reminder while it stays high. You will get one email when it drops back under the level.' : `Reminders are sent once a day while it stays high, and an all-clear when it drops under ${ALERT_PCT}%.`,
+    ], r.advice);
+}
+
+function queueRestartAlert(prev) {
+  const app = appLabel();
+  const lines = [`${app} has just started after its previous run ended without a normal shutdown. A normal stop (idle, or a deploy) does not trigger this email.`];
+  if (prev && prev.t) {
+    lines.push(`The last reading before it stopped was at ${whenText(prev.t)}: memory ${prev.memPct ?? 'n/a'}%, CPU ${prev.cpu ?? 'n/a'}%, disk ${prev.diskPct ?? 'n/a'}%.`);
+    lines.push(`It was back at ${whenText(Date.now())}, so it was unavailable for roughly ${Math.max(0, Math.round((Date.now() - prev.t) / 60000))} minutes at most.`);
+    if (typeof prev.memPct === 'number' && prev.memPct >= THRESHOLDS.highMemoryRestartPct) lines.push('Memory was very high at the last reading, which can mean the machine ran out of memory.');
+  }
+  lines.push('The cause cannot be confirmed from inside the app. Fly.io logs (fly logs, or the Monitoring page) will show why.');
+  enqueue('restart', `[Cue Sense] ${app}: restarted unexpectedly`, 'Server restarted unexpectedly', lines, 'If memory was high, consider more RAM (see Server Performance). Otherwise check the Fly.io logs around that time.');
+}
+
+function evaluateAlerts(s) {
+  let changed = false;
+  for (const key of Object.keys(RESOURCES)) {
+    const v = RESOURCES[key].read(s);
+    if (typeof v !== 'number') continue;
+    const a = state.alerts[key];
+    const contiguous = a.lastT !== null && s.t - a.lastT <= 150000;
+    a.lastT = s.t;
+    if (v >= ALERT_PCT) {
+      a.consec = contiguous ? a.consec + 1 : 1;
+      a.clearConsec = 0;
+      if (!a.active && a.consec >= SUSTAIN_READINGS) {
+        a.active = true; a.activeSince = s.t; a.alertedAt = s.t; changed = true;
+        queueResourceAlert(key, 'high', s);
+      } else if (a.active && s.t - a.alertedAt >= REMIND_MS) {
+        a.alertedAt = s.t; changed = true;
+        queueResourceAlert(key, 'reminder', s);
+      }
+    } else {
+      a.consec = 0;
+      if (a.active) {
+        a.clearConsec = contiguous ? a.clearConsec + 1 : 1;
+        if (a.clearConsec >= CLEAR_READINGS) {
+          a.active = false; a.activeSince = null; a.alertedAt = null; a.clearConsec = 0; changed = true;
+          queueResourceAlert(key, 'clear', s);
+        }
+      }
+    }
+  }
+  if (changed) saveAlertState();
+}
+
+// Sends whatever is waiting in the outbox. A failed send is retried every 15
+// minutes, up to 6 tries; if the mailer has no API key set there is nothing to
+// retry, so the email is dropped (and logged).
+function processOutbox() {
+  if (!mail || state.sending || !state.outbox.length) return;
+  state.sending = true;
+  (async () => {
+    try {
+      for (const m of state.outbox.slice()) {
+        if (Date.now() - m.lastTryAt < RETRY_MS) continue;
+        m.lastTryAt = Date.now();
+        m.tries += 1;
+        const r = await mail.sendMail({ to: m.to, subject: m.subject, text: m.text, html: m.html });
+        if (r.sent) state.outbox = state.outbox.filter((x) => x.id !== m.id);
+        else if (r.skipped || m.tries >= MAX_TRIES) {
+          console.error(`[server-alerts] dropped "${m.subject}": ${r.error || 'not sent'}`);
+          state.outbox = state.outbox.filter((x) => x.id !== m.id);
+        } else console.warn(`[server-alerts] "${m.subject}" not sent (try ${m.tries}): ${r.error || 'unknown error'}`);
+      }
+    } catch (e) {
+      console.error('[server-alerts] outbox error:', e && e.message);
+    } finally {
+      state.sending = false;
+      saveAlertState();
+    }
+  })();
+}
+
+// Records that a stop is deliberate. Fly stops the app with SIGINT (or
+// SIGTERM) on idle stops and deploys; a crash or out-of-memory kill never gets
+// here, which is how the next start knows the last run ended unexpectedly.
+let handlersInstalled = false;
+function installShutdownHandlers() {
+  if (handlersInstalled) return;
+  handlersInstalled = true;
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.once(sig, () => {
+      writeJson(RUN_FILE, { startedAt: state.startedAt, clean: true, endedAt: Date.now(), signal: sig });
+      process.exit(0);
+    });
+  }
+}
+
+function alertsView() {
+  return {
+    recipient: alertRecipient(),
+    thresholdPct: ALERT_PCT,
+    sustainMinutes: SUSTAIN_READINGS,
+    clearMinutes: CLEAR_READINGS,
+    reminderHours: REMIND_MS / 3600000,
+    mailConfigured: mail ? !!mail.mailSettings().configured : false,
+    waitingToSend: state.outbox.length,
+    resources: Object.keys(RESOURCES).map((k) => ({
+      key: k,
+      label: RESOURCES[k].label,
+      active: state.alerts[k].active,
+      since: state.alerts[k].activeSince,
+      minutesHigh: state.alerts[k].consec,
+    })),
+  };
 }
 
 // ---- verdicts --------------------------------------------------------------
@@ -451,7 +665,8 @@ function vmInfo() {
   };
 }
 
-export function registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute }) {
+export function registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute, sendMail, emailHtml, escapeHtml, mailSettings }) {
+  mail = { sendMail, emailHtml, escapeHtml, mailSettings };
   startServerMetricsSampler();
   app.get('/api/admin/server/metrics', requireAdmin, asyncRoute((req, res) => {
     const range = RANGES[req.query.range] ? req.query.range : '24h';
@@ -480,6 +695,22 @@ export function registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute 
       readingCount: state.fine.length + state.coarse.length,
       persistError: state.persistError,
       stealReported: cpuNow.hasSteal,
+      alerts: alertsView(),
     });
   }));
+
+  // Sends a sample alert so the admin can see the email arrives. Test only.
+  app.post('/api/admin/server/alert-test', requireAdmin, async (req, res) => {
+    try {
+      const to = alertRecipient();
+      const { html, text } = composeAlert('TEST: server alert email', [
+        `This is a test of the server alert emails for ${appLabel()}. Nothing is wrong.`,
+        `Real alerts are sent when memory, CPU or disk stays at ${ALERT_PCT}% or more for ${SUSTAIN_READINGS} minutes, and when the server restarts unexpectedly.`,
+      ], null);
+      const result = await mail.sendMail({ to, subject: `[Cue Sense] ${appLabel()}: TEST server alert`, text, html });
+      res.json({ ...result, sentTo: to });
+    } catch (e) {
+      res.status(500).json({ error: e && e.message ? e.message : 'Could not send the test alert' });
+    }
+  });
 }

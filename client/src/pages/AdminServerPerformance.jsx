@@ -130,6 +130,8 @@ export default function AdminServerPerformance() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [alertTesting, setAlertTesting] = useState(false);
+  const [alertResult, setAlertResult] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -144,6 +146,18 @@ export default function AdminServerPerformance() {
     const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 30000);
     return () => clearInterval(id);
   }, [load]);
+
+  const sendAlertTest = async () => {
+    setAlertTesting(true);
+    setAlertResult(null);
+    try {
+      setAlertResult(await api.sendServerAlertTest());
+    } catch (e) {
+      setAlertResult({ sent: false, error: e.message });
+    } finally {
+      setAlertTesting(false);
+    }
+  };
 
   const appFlag = data && data.vm.fly.app ? ` -a ${data.vm.fly.app}` : '';
   const v = data ? data.verdict : null;
@@ -267,6 +281,37 @@ export default function AdminServerPerformance() {
             guides={[{ value: T.disk.watchPct, kind: 'watch', label: `Watch ${T.disk.watchPct}%` }, { value: T.disk.increasePct, kind: 'increase', label: `Increase ${T.disk.increasePct}%` }]} />
 
           <section className="card sx-card">
+            <div className="sx-card-head">
+              <h2>Email alerts</h2>
+              <span className={`status ${data.alerts.mailConfigured ? 'status-completed' : 'status-disputed'}`}>{data.alerts.mailConfigured ? 'On' : 'Email not set up'}</span>
+            </div>
+            <p className="sx-kv"><span className="muted">Sent to</span><strong>{data.alerts.recipient}</strong></p>
+            <p className="sp-line-text">
+              You get an email when memory, CPU or disk stays at {data.alerts.thresholdPct}% or more for {data.alerts.sustainMinutes} minutes in a row, a reminder every {data.alerts.reminderHours} hours while it stays high, and an all-clear when it drops back. You also get one if the server restarts unexpectedly (a crash or running out of memory). Normal idle stops and deploys send nothing.
+            </p>
+            <ul className="sp-files">
+              {data.alerts.resources.map((r) => (
+                <li key={r.key}>
+                  <span>{r.label}</span>
+                  <span className={`status ${r.active ? 'status-disputed' : 'status-completed'}`}>{r.active ? `Alerting since ${timeText(r.since, true)}` : 'No alert'}</span>
+                </li>
+              ))}
+            </ul>
+            {data.alerts.waitingToSend > 0 && <p className="banner banner-warning">{data.alerts.waitingToSend} alert email(s) waiting to be sent; the server retries every 15 minutes.</p>}
+            <button type="button" className="btn btn-primary cs-btn-block" onClick={sendAlertTest} disabled={alertTesting}>
+              {alertTesting ? 'Sending…' : 'Send a test alert email'}
+            </button>
+            {alertResult && (
+              <p className={alertResult.sent ? 'banner banner-success' : 'error'} style={{ margin: 0 }}>
+                {alertResult.sent ? `Accepted by MailerSend for ${alertResult.sentTo}. Check that inbox (and spam).` : `Not sent: ${alertResult.error || 'unknown error'}`}
+              </p>
+            )}
+            <p className="muted sp-small" style={{ margin: 0 }}>
+              An email can’t be sent while the server is down, so a restart alert arrives once it is back. It can’t tell you the moment an outage starts; that needs a monitor running outside the server.
+            </p>
+          </section>
+
+          <section className="card sx-card">
             <div className="sx-card-head"><h2>This machine</h2></div>
             <p className="sx-kv"><span className="muted">Memory (RAM)</span><strong>{mbText(now.memTotalMb)}</strong></p>
             <p className="sx-kv"><span className="muted">CPUs</span><strong>{data.vm.cpuCount}{data.vm.cpuModel ? ` · ${data.vm.cpuModel}` : ''}</strong></p>
@@ -295,7 +340,7 @@ export default function AdminServerPerformance() {
               <ul className="sp-boots">
                 {data.boots.map((b) => (
                   <li key={b.at}>
-                    <strong>{timeText(b.at, true)}</strong>
+                    <strong>{timeText(b.at, true)}{b.unexpected ? ' · previous run stopped unexpectedly' : ''}</strong>
                     <span className="muted sp-small">
                       {b.prev
                         ? `Before it: last reading ${timeText(b.prev.at, true)} · memory ${pctText(b.prev.memPct)}${b.prev.cpu !== null ? ` · CPU ${pctText(b.prev.cpu)}` : ''}${b.prev.memPct !== null && b.prev.memPct >= T.highMemoryRestartPct ? ' · memory was very high' : ''}`
