@@ -286,6 +286,8 @@ function VenueCard({ venue, users, onChange, setError }) {
   const [savingMembership, setSavingMembership] = useState(false);
   const [sub, setSub] = useState(venue.subscription || { paid: true });
   const [savingPaid, setSavingPaid] = useState(false);
+  const [marketingOn, setMarketingOn] = useState(venue.marketingReviewEnabled === true);
+  const [savingMarketing, setSavingMarketing] = useState(false);
   const registeredCount = users.filter((u) => (u.venueMemberships || []).some((m) => m.venueId === venue.id)).length;
 
   const changeMembership = async (next) => {
@@ -311,6 +313,19 @@ function VenueCard({ venue, users, onChange, setError }) {
       setError(err.message);
     } finally {
       setSavingPaid(false);
+    }
+  };
+
+  const changeMarketing = async (next) => {
+    setSavingMarketing(true);
+    setError('');
+    try {
+      const r = await api.setVenueMarketingReview(venue.id, next);
+      setMarketingOn(r.marketingReviewEnabled === true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingMarketing(false);
     }
   };
 
@@ -379,6 +394,19 @@ function VenueCard({ venue, users, onChange, setError }) {
                 : sub.locked
                   ? 'Portals locked. Tick Paid to unlock them straight away.'
                   : `Unpaid since ${new Date(sub.unpaidSince).toLocaleDateString('en-GB')} - portals lock in ${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'}.`}
+            </p>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, margin: '0 0 6px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={marketingOn}
+                disabled={savingMarketing}
+                onChange={(e) => changeMarketing(e.target.checked)}
+                style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }}
+              />
+              <span>Marketing review</span>
+            </label>
+            <p className="muted vm-small" style={{ margin: '0 0 12px' }}>
+              Shows a Marketing review page to this venue's Venue Manager only. Overall Admins and Bar Staff never see it.
             </p>
             <RenameVenueForm venue={venue} onSaved={onChange} setError={setError} />
             <button className="btn btn-danger cs-btn-block" type="button" disabled={deleting} onClick={onDelete}>

@@ -176,6 +176,11 @@ const networkApi = {
 
   // Venue Manager Portal (client/src/pages/VenueManagerPortal.jsx).
   getMyManagedVenues: () => request('/venue-manager/venues'),
+  // Marketing review (Venue Manager only - not in the Bar Staff api below).
+  getMarketingReview: (venueId) => request(`/venue-manager/marketing-review?venueId=${encodeURIComponent(venueId)}`),
+  decideMarketingItem: (id, decision) =>
+    request(`/venue-manager/marketing-review/items/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify({ decision }) }),
+  setVenueMarketingReview: (id, enabled) => request(`/venues/${id}/marketing-review`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   streamVenueCheckins: (venueId, opts) => streamCheckins('/venue-manager', venueId, opts),
   getVenueManagerStatus: (venueId) => request(`/venue-manager/status?venueId=${encodeURIComponent(venueId)}`),
   // Today's and future table bookings from the venue's Wix site (read-only;
