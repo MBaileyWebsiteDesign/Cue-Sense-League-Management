@@ -693,6 +693,8 @@ const networkApi = {
     request(`/messages/with/${userId}`, { method: 'POST', body: JSON.stringify({ body }) }),
   getMessageBlocks: () => request('/messages/blocks'),
   getMailStatus: () => request('/admin/mail/status'),
+  // Admin > Server Performance: GET /api/admin/server/metrics?range=1h|6h|24h|7d.
+  getServerMetrics: (range = '24h') => request(`/admin/server/metrics?range=${encodeURIComponent(range)}`),
   sendTestEmail: () => request('/admin/mail/test', { method: 'POST' }),
   sendTestMembershipExpiryEmail: () => request('/admin/mail/test-membership-expiry', { method: 'POST' }),
   sendTestMembershipExpiredEmail: () => request('/admin/mail/test-membership-expired', { method: 'POST' }),
