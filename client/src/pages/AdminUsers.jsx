@@ -763,7 +763,7 @@ export default function AdminUsers() {
                       aria-label="Select all users shown"
                     />
                   </th>
-                  <th>Name</th><th>Email</th><th>Team</th><th>Venue</th><th>Start</th><th>End</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
+                  <th>Name</th><th>Email</th><th>Created</th><th>Team</th><th>Venue</th><th>Start</th><th>End</th><th>Class</th><th>Admin</th><th>Captain</th><th>League Manager</th><th>Venue Manager</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -782,6 +782,7 @@ export default function AdminUsers() {
                       <Link to={`/admin/users/${u.id}`}>{u.firstName} {u.lastName}</Link>
                     </td>
                     <td style={{ textAlign: 'left' }}>{isWalkIn(u) ? <span className="au-walkin">Walk-in · no login</span> : u.email}</td>
+                    <td style={{ textAlign: 'left' }}>{fmtDate(u.createdAt)}</td>
                     <td style={{ textAlign: 'left' }}>{realTeam(u)}</td>
                     <td style={{ textAlign: 'left' }}>
                       {membershipsOf(u).length === 0 ? '—' : membershipsOf(u).map((m) => <div key={m.venueId}>{venueNameById[m.venueId]}</div>)}
@@ -803,7 +804,7 @@ export default function AdminUsers() {
                   </tr>
                 ))}
                 {shown.length === 0 && (
-                  <tr><td colSpan={13} className="muted">No users match that search.</td></tr>
+                  <tr><td colSpan={14} className="muted">No users match that search.</td></tr>
                 )}
               </tbody>
             </table>
