@@ -127,6 +127,17 @@ function formatMinutes(mins) {
 // backend validation/gating - most importantly, it 400s once
 // division.fixturesGenerated is true, which is also why this whole button
 // (and therefore this form) is only ever rendered pre-fixtures to begin with.
+// Wording for the points key under the standings table, from the scoring the
+// server says this division is using (division.scoring - set by its league).
+function pointsLegend(division) {
+  const s = division.scoring || { win: 3, draw: 2, loss: 0, framesToPoints: !!division.addFramesToPoints, bndPoints: 0, rndPoints: 0 };
+  let text = `win ${s.win}, draw ${s.draw}, loss ${s.loss}`;
+  if (s.framesToPoints) text += ', plus every frame won';
+  if (Number(s.bndPoints)) text += `, plus ${s.bndPoints} per BND frame`;
+  if (Number(s.rndPoints)) text += `, plus ${s.rndPoints} per RND frame`;
+  return text;
+}
+
 function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
   const [entryType, setEntryType] = useState(division.entryType);
   const [legsPerMatch, setLegsPerMatch] = useState(division.legsPerMatch || 5);
@@ -135,12 +146,10 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
   const [formatMode, setFormatMode] = useState('raceTo');
   const [formatValue, setFormatValue] = useState(division.raceTo || 6);
   const [startingLives, setStartingLives] = useState(division.startingLives || 3);
-  const [addFramesToPoints, setAddFramesToPoints] = useState(!!division.addFramesToPoints);
   const [saving, setSaving] = useState(false);
 
   const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
   const isFreePlay = scheduling === 'free_play';
-  const showFramesToPoints = scheduling.startsWith('round_robin') && entryType !== 'teams';
   const onSchedulingChange = (value) => {
     setScheduling(value);
     if (value === 'killer_classic' || value === 'cards_killer' || value === 'free_play') setEntryType('singles');
@@ -177,7 +186,6 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
         ...(isKiller ? { startingLives: Number(startingLives) } : { raceTo }),
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
-        addFramesToPoints: showFramesToPoints && addFramesToPoints,
       });
       onChange();
       onDone();
@@ -265,17 +273,6 @@ function ChangeGameTypeForm({ division, onChange, setError, onDone }) {
               required
             />
           </label>
-          {showFramesToPoints && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                style={{ width: 'auto' }}
-                checked={addFramesToPoints}
-                onChange={(e) => setAddFramesToPoints(e.target.checked)}
-              />
-              Add frames to points
-            </label>
-          )}
         </>
       )}
       <div style={{ display: 'flex', gap: 8 }}>
@@ -2075,7 +2072,7 @@ export default function DivisionDetail() {
         <p className="standings-legend cs-standings-desktop">
           {isTeams
             ? 'P = Played · W = Won · D = Drawn · L = Lost · LF = Legs For · LA = Legs Against · +/- = Leg Difference · Pts = Points'
-            : `P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · BND = Break and Dish · RND = Reverse Break and Dish · NS = No-shows (authorised) · Pts = Points (win 3, draw 2, loss 0${division.addFramesToPoints ? ', plus every frame won' : ''})`}
+            : `P = Played · W = Won · L = Lost · F = Frames For · A = Frames Against · +/- = Frame Difference · BND = Break and Dish · RND = Reverse Break and Dish · NS = No-shows (authorised) · Pts = Points (${pointsLegend(division)})`}
         </p>
       </section>
 

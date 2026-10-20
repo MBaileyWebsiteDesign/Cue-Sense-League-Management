@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
+import LeagueScoringFields, { DEFAULT_SCORING_FORM, validateScoringForm, scoringFormToPayload } from '../components/LeagueScoringFields.jsx';
 
 // No breadcrumb here - this is the home page, so there's nothing useful to
 // show as a trail (the shared Breadcrumbs component renders nothing when no
@@ -32,6 +33,9 @@ export default function LeagueList() {
   // register interest. '' = open to everyone.
   const [venues, setVenues] = useState([]);
   const [venueId, setVenueId] = useState('');
+  // League scoring (win/draw/loss, frames, BND/RND) - used by every division
+  // in the league; the League Manager can change it later on the league page.
+  const [scoring, setScoring] = useState({ ...DEFAULT_SCORING_FORM });
 
   const load = () => api.getLeagues().then(setLeagues).catch((e) => setError(e.message));
 
@@ -53,9 +57,15 @@ export default function LeagueList() {
       setError('Entry fee must be a number greater than 0');
       return;
     }
+    const scoringError = validateScoringForm(scoring);
+    if (scoringError) {
+      setError(scoringError);
+      return;
+    }
     try {
       await api.createLeague({
         name: form.name,
+        scoring: scoringFormToPayload(scoring),
         payment: paymentRequired
           ? {
               required: true,
@@ -70,6 +80,7 @@ export default function LeagueList() {
         venueId: venueId || null,
       });
       setVenueId('');
+      setScoring({ ...DEFAULT_SCORING_FORM });
       setForm({ name: '' });
       setPaymentRequired(false);
       setPaymentAmount('');
@@ -118,6 +129,15 @@ export default function LeagueList() {
             />
           </label>
           <p className="muted ll-note">Match format (race to / best of) is set per division once divisions are added.</p>
+
+          <fieldset className="ll-managers">
+            <legend>Scoring</legend>
+            <LeagueScoringFields value={scoring} onChange={setScoring} fieldClass="ll-field" />
+            <p className="muted ll-note">
+              Every division in this league uses these. The League Manager can change them later, which recalculates
+              the division tables.
+            </p>
+          </fieldset>
 
           <div className="dv-switch-row ll-switch">
             <span className="dv-switch-text">

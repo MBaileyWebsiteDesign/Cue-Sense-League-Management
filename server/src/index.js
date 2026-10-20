@@ -12,7 +12,7 @@ import { sendMail, baseUrlFor, escapeHtml, emailHtml, getMailLog, mailSettings }
 import { generateRoundRobin, generateRoundRobinDouble } from './services/roundRobin.js';
 import { buildBracketRounds, buildDoubleElimBracket, RESERVED_SLOT } from './services/bracket.js';
 import { nextRound as adaptiveNextRound } from './services/adaptiveDoubleElim.js';
-import { computeStandings } from './services/standings.js';
+import { computeStandings, parseScoring, resolveScoring, describeLeagueScoring, DEFAULT_SCORING } from './services/standings.js';
 import { computeTeamStandings } from './services/teamStandings.js';
 import { computeTourStandings } from './services/tours.js';
 import { buildPlayerProfile } from './services/playerProfile.js';
@@ -1039,6 +1039,15 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
   const { name, sport = 'English 8-Ball Pool', scheduling = 'round_robin_single', payment, managerUserIds, venueId } = req.body;
   if (!name || !name.trim()) throw new ApiError(400, 'League name is required');
 
+  // League scoring (win/draw/loss, frames, BND/RND) - every division in the
+  // league uses it. See services/standings.js. Defaults when omitted.
+  let leagueScoring = { ...DEFAULT_SCORING };
+  if (req.body.scoring !== undefined) {
+    const parsed = parseScoring(req.body.scoring);
+    if (parsed.error) throw new ApiError(400, parsed.error);
+    leagueScoring = parsed.value;
+  }
+
   const db = readDb();
 
   // Optional venue restriction - see canJoinLeagueVenue above.
@@ -1085,6 +1094,7 @@ app.post('/api/leagues', requireAdmin, asyncRoute((req, res) => {
     isOpenForRegistration: !!req.body.isOpenForRegistration,
     // Only players registered at this venue can register interest (null = anyone).
     venueId: venueId || null,
+    scoring: leagueScoring,
   };
   db.leagues.push(league);
 
@@ -1149,7 +1159,17 @@ app.get('/api/leagues/:id', requireAuth, asyncRoute((req, res) => {
   const divisions = db.divisions
     .filter((d) => d.leagueId === league.id)
     .sort((a, b) => a.order - b.order);
-  res.json({ ...league, divisions, venueName: venueNameOf(db, league.venueId) });
+  const scoringView = describeLeagueScoring(league, divisions);
+  res.json({
+    ...league,
+    divisions,
+    venueName: venueNameOf(db, league.venueId),
+    // What the Scoring panel shows. scoringSaved is false for a league created
+    // before league scoring existed (its divisions still use their own settings).
+    scoringSettings: scoringView.settings,
+    scoringSaved: scoringView.saved,
+    scoringMixed: scoringView.mixed,
+  });
 }));
 
 // Leagues could previously only be created or deleted, never edited - this
@@ -1174,6 +1194,25 @@ app.patch('/api/leagues/:id', requireAnyAdmin, asyncRoute((req, res) => {
     const newVenueId = req.body.venueId || null;
     if (newVenueId && !db.venues.some((v) => v.id === newVenueId)) throw new ApiError(400, 'Venue not found');
     league.venueId = newVenueId;
+  }
+  // League scoring. Standings are calculated live from the fixtures every time
+  // a division is loaded (hydrateDivision), so saving new scoring here changes
+  // every division's table in this league immediately - nothing stored needs
+  // rewriting. A roll-of-honour entry already recorded for a finished division
+  // is a historic record and is left as it was.
+  if (req.body.scoring !== undefined) {
+    const parsed = parseScoring(req.body.scoring);
+    if (parsed.error) throw new ApiError(400, parsed.error);
+    const before = describeLeagueScoring(league, db.divisions.filter((d) => d.leagueId === league.id)).settings;
+    league.scoring = parsed.value;
+    const fmt = (s) => `win ${s.win}, draw ${s.draw}, loss ${s.loss}, frames ${s.framesToPoints ? 'added' : 'not added'}, BND +${s.bndPoints}, RND +${s.rndPoints}`;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'league.scoring',
+      targetType: 'league',
+      targetId: league.id,
+      details: `Changed scoring for "${league.name}" (tables recalculated) - was: ${fmt(before)}; now: ${fmt(league.scoring)}`,
+    });
   }
 
   recordAudit(db, {
@@ -3963,13 +4002,16 @@ function hydrateDivision(db, division) {
     // a matching list of { id, name } entrants to label rows with - a Pairing
     // already has both fields, so this reuses the singles standings
     // calculation unmodified rather than needing its own version.
-    const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings);
+    const standings = computeStandings({ ...division, playerIds: division.pairingIds }, fixtures, pairings, resolveScoring(division, league));
     hydrated = { ...division, leagueName, pairings, fixtures: displayFixtures, standings };
   } else {
     const players = db.players.filter((p) => division.playerIds.includes(p.id));
-    const standings = computeStandings(division, fixtures, db.players);
+    const standings = computeStandings(division, fixtures, db.players, resolveScoring(division, league));
     hydrated = { ...division, leagueName, players, fixtures: displayFixtures, standings };
   }
+  // The scoring this division's table is using (from its league) - shown
+  // under the table so everyone can see how Pts are made up.
+  hydrated.scoring = resolveScoring(division, league);
   hydrated.totalRounds = totalRounds;
   hydrated.leaguePayment = league ? league.payment : null;
   // So DivisionDetail.jsx can compute canManageLeague(...) for a League
@@ -10576,6 +10618,8 @@ app.post('/api/admin/seasons', requireAdmin, asyncRoute((req, res) => {
     createdAt: new Date().toISOString(),
     // Payment wall - see normalizePaymentConfig/assertPaymentCleared above.
     payment: normalizePaymentConfig(payment),
+    // Default league scoring - see services/standings.js; editable on the league page.
+    scoring: { ...DEFAULT_SCORING },
   };
   db.leagues.push(league);
 

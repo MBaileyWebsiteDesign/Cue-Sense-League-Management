@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { divisionFormat, sortDivisionsPremierFirst } from '../divisionDisplay.js';
+import LeagueScoringFields, { scoringToForm, validateScoringForm, scoringFormToPayload, scoringSummary } from '../components/LeagueScoringFields.jsx';
 
 // Named physical tables for this league - see server/src/index.js's
 // POST /api/leagues/:id/tables and the Arena display, which shows what's
@@ -60,6 +61,90 @@ function TablesPanel({ league, onChange, setError }) {
           Add Table
         </button>
       </form>
+    </section>
+  );
+}
+
+// League scoring (win / draw / loss points, frames added to points, BND / RND
+// bonus points). Every division in the league uses these, so saving a change
+// here recalculates all of the league's division tables - they are worked out
+// from the fixtures each time a division loads (see hydrateDivision in
+// server/src/index.js). Shown to anyone who can manage the league.
+function ScoringPanel({ league, onChange, setError }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => scoringToForm(league.scoringSettings));
+  const [saving, setSaving] = useState(false);
+
+  // Re-populate from the saved league every time the editor opens.
+  useEffect(() => {
+    if (editing) setForm(scoringToForm(league.scoringSettings));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const onSave = async (e) => {
+    e.preventDefault();
+    const problem = validateScoringForm(form);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    const started = (league.divisions || []).filter((d) => d.fixturesGenerated).length;
+    if (
+      started > 0 &&
+      !window.confirm(
+        `Changing the scoring recalculates the table of every division in this league (${started} already ${started === 1 ? 'has' : 'have'} fixtures). Continue?`
+      )
+    ) {
+      return;
+    }
+    setError('');
+    setSaving(true);
+    try {
+      await api.updateLeague(league.id, { scoring: scoringFormToPayload(form) });
+      setEditing(false);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="page-header">
+        <h2 style={{ margin: 0 }}>Scoring</h2>
+        <button className="btn" type="button" onClick={() => setEditing((v) => !v)}>
+          {editing ? 'Cancel' : 'Edit'}
+        </button>
+      </div>
+
+      {!editing && (
+        <>
+          <p className="muted">{scoringSummary(league.scoringSettings)}</p>
+          <p className="muted" style={{ fontSize: '0.8rem' }}>
+            Used by every Standard League (round robin) singles and doubles division in this league. Changing it
+            recalculates their tables.
+          </p>
+          {league.scoringSaved === false && (
+            <p className="muted" style={{ fontSize: '0.8rem' }}>
+              {league.scoringMixed
+                ? 'This league was created before league scoring existed and its divisions currently differ on "add frames to points". '
+                : 'This league was created before league scoring existed, so its divisions are still using their own earlier settings. '}
+              Saving here applies one set of scoring to all of them.
+            </p>
+          )}
+        </>
+      )}
+
+      {editing && (
+        <form className="form" onSubmit={onSave}>
+          <LeagueScoringFields value={form} onChange={setForm} />
+          <button className="btn btn-primary" type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+      )}
     </section>
   );
 }
@@ -542,13 +627,11 @@ export default function LeagueDetail() {
   // which don't apply to a lives-based free-for-all game. See
   // server/src/services/killer.js.
   const [startingLives, setStartingLives] = useState(3);
-  // Standard League singles/doubles only - see server/src/services/standings.js.
-  const [addFramesToPoints, setAddFramesToPoints] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
   const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
   const isFreePlay = scheduling === 'free_play';
-  const showFramesToPoints = scheduling.startsWith('round_robin') && entryType !== 'teams';
+  const showScoringNote = scheduling.startsWith('round_robin') && entryType !== 'teams';
 
   const onSchedulingChange = (value) => {
     setScheduling(value);
@@ -628,7 +711,6 @@ export default function LeagueDetail() {
         ...(isKiller ? { startingLives: Number(startingLives) } : { raceTo }),
         ...(entryType === 'teams' ? { legsPerMatch: Number(legsPerMatch) } : {}),
         ...(entryType === 'doubles' ? { pairingSize: Number(pairingSize) } : {}),
-        ...(showFramesToPoints && addFramesToPoints ? { addFramesToPoints: true } : {}),
       });
       setName('');
       setEntryType('singles');
@@ -638,7 +720,6 @@ export default function LeagueDetail() {
       setFormatMode('raceTo');
       setFormatValue(6);
       setStartingLives(3);
-      setAddFramesToPoints(false);
       setShowForm(false);
       load();
     } catch (err) {
@@ -809,21 +890,9 @@ export default function LeagueDetail() {
                   );
                 })()}
               </label>
-              {showFramesToPoints && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    style={{ width: 'auto' }}
-                    checked={addFramesToPoints}
-                    onChange={(e) => setAddFramesToPoints(e.target.checked)}
-                  />
-                  Add frames to points
-                </label>
-              )}
-              {showFramesToPoints && (
+              {showScoringNote && (
                 <span className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-                  Win = 3 points, draw = 2, loss = 0. When ticked, every frame a player wins is also added to their
-                  points - e.g. a 2-1 result gives the winner 3 + 2 = 5 and the loser 0 + 1 = 1.
+                  Points (win / draw / loss, frames won, BND / RND) follow this league's Scoring settings below.
                 </span>
               )}
             </>
@@ -867,6 +936,8 @@ export default function LeagueDetail() {
       <DivisionsCard divisions={league.divisions} />
 
       {canManage && <TablesPanel league={league} onChange={load} setError={setError} />}
+
+      {canManage && <ScoringPanel league={league} onChange={load} setError={setError} />}
 
       {canManage && <PaymentsPanel league={league} onChange={load} setError={setError} />}
 
