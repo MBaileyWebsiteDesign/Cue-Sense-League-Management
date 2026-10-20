@@ -1,8 +1,85 @@
-// Standings table for a division: 3 points for a match win, 2 for a draw, 0 for
-// a loss (normal race-to-N frame play can't end level, so a draw only arises
-// from a genuinely level completed fixture). When division.addFramesToPoints
-// is ticked, every frame a player wins is also added to their points, so a
-// 2-1 result is worth 3 + 2 = 5 to the winner and 0 + 1 = 1 to the loser.
+// League scoring. Each league carries a `scoring` object (set when the league is
+// created, editable by its League Manager) that every division in it uses:
+//   win / draw / loss  - points for the match result (defaults 3 / 2 / 0)
+//   framesToPoints     - when ticked, every frame a player wins is also added
+//                        to their points, so a 2-1 result with the defaults is
+//                        3 + 2 = 5 to the winner and 0 + 1 = 1 to the loser
+//   bndPoints/rndPoints - extra points for each FRAME won by Break and Dish /
+//                        Reverse Break and Dish (not a match win). Default 0.
+// Applies to Standard League (round robin) singles/doubles divisions. Anything
+// else (knockout, killer, free play, teams) keeps the fixed defaults. A league
+// created before this existed has no `scoring` object; its divisions carry on
+// with the defaults plus their own old division.addFramesToPoints tickbox until
+// a manager saves league scoring.
+export const DEFAULT_SCORING = {
+  win: 3,
+  draw: 2,
+  loss: 0,
+  framesToPoints: false,
+  bndPoints: 0,
+  rndPoints: 0,
+};
+
+const SCORING_NUMBER_FIELDS = [
+  ['win', 'Win points'],
+  ['draw', 'Draw points'],
+  ['loss', 'Loss points'],
+  ['bndPoints', 'BND points'],
+  ['rndPoints', 'RND points'],
+];
+
+// Validates a scoring object coming from the client. Returns { value } or
+// { error } (index.js turns an error into a 400).
+export function parseScoring(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'Scoring settings must be an object' };
+  }
+  const value = { ...DEFAULT_SCORING };
+  for (const [key, label] of SCORING_NUMBER_FIELDS) {
+    if (input[key] === undefined || input[key] === null || input[key] === '') continue;
+    const n = Number(input[key]);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      return { error: `${label} must be a number from 0 to 100` };
+    }
+    value[key] = Math.round(n * 100) / 100;
+  }
+  value.framesToPoints = !!input.framesToPoints;
+  return { value };
+}
+
+// True for the division types the league scoring applies to.
+export function usesLeagueScoring(division) {
+  return !!division && String(division.scheduling || '').startsWith('round_robin') && division.entryType !== 'teams';
+}
+
+// The scoring actually used for a division's table.
+export function resolveScoring(division, league) {
+  if (!usesLeagueScoring(division)) return { ...DEFAULT_SCORING };
+  if (league && league.scoring && typeof league.scoring === 'object') {
+    return { ...DEFAULT_SCORING, ...league.scoring, framesToPoints: !!league.scoring.framesToPoints };
+  }
+  return { ...DEFAULT_SCORING, framesToPoints: !!(division && division.addFramesToPoints) };
+}
+
+// What the league's Scoring panel shows. For a league with no saved scoring
+// yet, reports what its divisions are using now and flags it.
+export function describeLeagueScoring(league, divisions) {
+  if (league && league.scoring && typeof league.scoring === 'object') {
+    return { settings: resolveScoring({ scheduling: 'round_robin_single', entryType: 'singles' }, league), saved: true, mixed: false };
+  }
+  const applicable = (divisions || []).filter(usesLeagueScoring);
+  const ticked = applicable.filter((d) => d.addFramesToPoints).length;
+  return {
+    settings: { ...DEFAULT_SCORING, framesToPoints: applicable.length > 0 && ticked === applicable.length },
+    saved: false,
+    mixed: ticked > 0 && ticked < applicable.length,
+  };
+}
+
+// Standings table for a division, using the scoring above (default: 3 points
+// for a match win, 2 for a draw, 0 for a loss; normal race-to-N frame play
+// can't end level, so a draw only arises from a genuinely level completed
+// fixture).
 // Ranked by points then by
 // frame difference then by frames won, head-to-head is left as a manual
 // tie-break for the admin since it's rarely needed in a single round-robin.
@@ -10,8 +87,9 @@
 // admin closing the division/league early (fixture.closedEarly) - see the
 // winnerPlayerId === null branch below - which counts as played but awards no
 // points either way (it is NOT a draw).
-export function computeStandings(division, fixtures, players) {
-  const addFrames = !!division.addFramesToPoints;
+export function computeStandings(division, fixtures, players, scoring) {
+  const sc = scoring || resolveScoring(division, null);
+  const addFrames = !!sc.framesToPoints;
   // Index once by id instead of Array.find()-ing `players` for every entrant
   // (was O(entrants * players) - a real cost once `players` is the whole
   // app's player pool, not just this division's roster).
@@ -32,7 +110,7 @@ export function computeStandings(division, fixtures, players) {
       points: 0,
       // BND (Break and Dish) / RND (Reverse Break and Dish) - count of
       // frames won that way, tallied from each frame's `method` tag below.
-      // Informational only - doesn't affect points/ranking.
+      // Each also earns the league's BND/RND bonus points (default 0).
       bnd: 0,
       rnd: 0,
       // Authorised no-shows against this entrant - see the noShowClaim block
@@ -72,29 +150,36 @@ export function computeStandings(division, fixtures, players) {
     for (const frame of fixture.frames || []) {
       const winner = table.get(frame.winnerPlayerId);
       if (!winner) continue;
-      if (frame.method === 'bnd') winner.bnd += 1;
-      else if (frame.method === 'rnd') winner.rnd += 1;
+      if (frame.method === 'bnd') {
+        winner.bnd += 1;
+        winner.points += sc.bndPoints;
+      } else if (frame.method === 'rnd') {
+        winner.rnd += 1;
+        winner.points += sc.rndPoints;
+      }
     }
 
     if (fixture.winnerPlayerId === null) {
       if (!fixture.closedEarly && fixture.homeFrameScore === fixture.awayFrameScore) {
-        // Genuinely level completed fixture - 2 points each.
+        // Genuinely level completed fixture - draw points each.
         home.drawn += 1;
         away.drawn += 1;
-        home.points += 2;
-        away.points += 2;
+        home.points += sc.draw;
+        away.points += sc.draw;
       }
       // else: force-completed 0-0 by an admin closing the division/league
       // early (see closeOutstandingFixtures in server/src/index.js) - counts
       // as played, no win/loss/points either way.
     } else if (fixture.winnerPlayerId === fixture.homePlayerId) {
       home.won += 1;
-      home.points += 3;
+      home.points += sc.win;
       away.lost += 1;
+      away.points += sc.loss;
     } else {
       away.won += 1;
-      away.points += 3;
+      away.points += sc.win;
       home.lost += 1;
+      home.points += sc.loss;
     }
 
     if (addFrames) {
