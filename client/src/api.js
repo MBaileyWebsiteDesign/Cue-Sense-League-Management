@@ -453,9 +453,13 @@ const networkApi = {
   getLeaguePaymentEmail: (leagueId) => request(`/leagues/${leagueId}/payment-email`),
   saveLeaguePaymentEmail: (leagueId, data) =>
     request(`/leagues/${leagueId}/payment-email`, { method: 'PUT', body: JSON.stringify(data) }),
-  testLeaguePaymentEmail: (leagueId) => request(`/leagues/${leagueId}/payment-email/test`, { method: 'POST' }),
+  testLeaguePaymentEmail: (leagueId, reminder) =>
+    request(`/leagues/${leagueId}/payment-email/test`, { method: 'POST', body: JSON.stringify({ reminder: !!reminder }) }),
   sendLeaguePaymentEmails: (leagueId) =>
     request(`/leagues/${leagueId}/payment-email/send`, { method: 'POST', body: JSON.stringify({ confirm: true }) }),
+  // Reminder email to unpaid players already emailed: { interestIds: [...] } or { all: true }.
+  chaseLeaguePaymentEmails: (leagueId, data) =>
+    request(`/leagues/${leagueId}/payment-email/chase`, { method: 'POST', body: JSON.stringify({ confirm: true, ...data }) }),
   setLeagueOpen: (id, isOpenForRegistration) =>
     request(`/leagues/${id}/set-open`, { method: 'POST', body: JSON.stringify({ isOpenForRegistration }) }),
   // Admin-only: force-completes every outstanding fixture in a division (or,

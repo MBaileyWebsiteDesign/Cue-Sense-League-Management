@@ -8,6 +8,9 @@ import { api } from '../api.js';
 // server's own list, not on the league, so they are never part of a league lookup.
 // Real sending is blocked on the server until a test has been sent with the
 // current details, and only works on the live app.
+// Chasing (2026-10-24): a second block sends a REMINDER version to unpaid players who
+// were already emailed - the ticked players on the page, or everyone due. A player
+// emailed in the last 24 hours is skipped. Needs its own reminder test first.
 
 function fmtWhen(iso) {
   try {
@@ -28,7 +31,7 @@ function fmtMoney(amount, currency) {
 const fieldStyle = { width: '100%', boxSizing: 'border-box' };
 const labelStyle = { display: 'block', fontSize: '0.85rem', fontWeight: 600, margin: '10px 0 4px' };
 
-export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
+export default function LeaguePaymentEmailCard({ leagueId, refreshKey, selectedIds = [], onChased }) {
   const [st, setSt] = useState(null);
   const [form, setForm] = useState({ accountName: '', accountNumber: '', sortCode: '' });
   const formInit = useRef(false);
@@ -36,6 +39,7 @@ export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [armed, setArmed] = useState(false);
+  const [chaseArmed, setChaseArmed] = useState(null);
   const wasRunning = useRef(false);
 
   const load = () => api.getLeaguePaymentEmail(leagueId)
@@ -56,6 +60,8 @@ export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
   const running = !!st?.job?.running;
   useEffect(() => {
     if (!running) {
+      // A run just finished: let the page reload so the 'last chased' notes update.
+      if (wasRunning.current && onChased) onChased();
       wasRunning.current = false;
       return undefined;
     }
@@ -70,6 +76,12 @@ export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
     const t = setTimeout(() => setArmed(false), 6000);
     return () => clearTimeout(t);
   }, [armed]);
+
+  useEffect(() => {
+    if (!chaseArmed) return undefined;
+    const t = setTimeout(() => setChaseArmed(null), 6000);
+    return () => clearTimeout(t);
+  }, [chaseArmed]);
 
   if (!st) return error ? <p className="error">{error}</p> : null;
 
@@ -106,12 +118,23 @@ export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
     setNote('Bank details saved.');
   });
 
-  const sendTest = () => run(async () => {
-    const r = await api.testLeaguePaymentEmail(leagueId);
+  const sendTest = (reminder) => run(async () => {
+    const r = await api.testLeaguePaymentEmail(leagueId, reminder);
     if (r.status) setSt(r.status);
-    if (r.sent) setNote(`Test email sent to ${r.sentTo}. Check it, then you can email the players.`);
+    if (r.sent) setNote(`${reminder ? 'Reminder test' : 'Test'} email sent to ${r.sentTo}. Check it, then you can ${reminder ? 'chase' : 'email'} the players.`);
     else setError(`The test email was not sent: ${r.error || 'unknown error'}`);
   });
+
+  const chase = (mode) => {
+    if (chaseArmed !== mode) { setChaseArmed(mode); return undefined; }
+    setChaseArmed(null);
+    return run(async () => {
+      const r = await api.chaseLeaguePaymentEmails(leagueId, mode === 'all' ? { all: true } : { interestIds: selectedIds });
+      const skipNote = r.skipped && r.skipped.length > 0 ? ` Skipped: ${r.skipped.map((s) => `${s.name} ${s.reason}`).join('; ')}.` : '';
+      setNote(`Chasing ${r.total} ${r.total === 1 ? 'player' : 'players'}...${skipNote}`);
+      await load();
+    });
+  };
 
   const sendAll = () => {
     if (!armed) { setArmed(true); return undefined; }
@@ -131,7 +154,14 @@ export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
   else if (!st.canSendHere) blocker = 'Emails to players only go out from the live app; on this site only the test works.';
   else if (c.toEmail === 0) blocker = 'Nobody left to email.';
 
+  let chaseBlocker = '';
+  if (dirty) chaseBlocker = 'Save the bank details first.';
+  else if (!st.bank.saved) chaseBlocker = 'Enter and save the bank details first.';
+  else if (!st.reminderTestSentAt) chaseBlocker = 'Send the reminder test email first.';
+  else if (!st.canSendHere) chaseBlocker = 'Emails to players only go out from the live app; on this site only the tests work.';
+
   const job = st.job;
+  const sentWord = job && job.reminder ? 'chased' : 'sent';
 
   return (
     <section className="card" style={{ marginBottom: 12 }}>
@@ -149,10 +179,14 @@ export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
         <button type="button" className="btn" disabled={busy || !dirty} onClick={save}>Save details</button>
-        <button type="button" className="btn" disabled={busy || running || dirty || !st.bank.saved} onClick={sendTest}>Send test to {st.testRecipient}</button>
+        <button type="button" className="btn" disabled={busy || running || dirty || !st.bank.saved} onClick={() => sendTest(false)}>Send test to {st.testRecipient}</button>
+        <button type="button" className="btn" disabled={busy || running || dirty || !st.bank.saved} onClick={() => sendTest(true)}>Send reminder test</button>
       </div>
       <p className="muted" style={{ margin: '8px 0 0' }}>
-        {st.testSentAt ? `Test sent ${fmtWhen(st.testSentAt)}. Changing the bank details means testing again.` : 'Test not sent yet.'}
+        {st.testSentAt ? `Test sent ${fmtWhen(st.testSentAt)}.` : 'Test not sent yet.'}
+        {' '}
+        {st.reminderTestSentAt ? `Reminder test sent ${fmtWhen(st.reminderTestSentAt)}.` : 'Reminder test not sent yet.'}
+        {' '}Changing the bank details means testing again.
       </p>
 
       <hr style={{ margin: '14px 0', border: 0, borderTop: '1px solid #e5e7eb' }} />
@@ -176,10 +210,42 @@ export default function LeaguePaymentEmailCard({ leagueId, refreshKey }) {
       </button>
       {blocker && <p className="muted" style={{ margin: '8px 0 0' }}>{blocker}</p>}
 
-      {running && job && <p style={{ margin: '10px 0 0' }}>Sending... {job.sent + job.failed.length} of {job.total}</p>}
+      {c.alreadyEmailed > 0 && (
+        <>
+          <hr style={{ margin: '14px 0', border: 0, borderTop: '1px solid #e5e7eb' }} />
+          <p style={{ margin: '0 0 6px' }}>
+            <strong>Chase</strong>: {c.chaseable} can be chased now &middot; {c.chasedRecently} emailed in the last {st.chaseGapHours} hours
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy || running || !!chaseBlocker || selectedIds.length === 0}
+              onClick={() => chase('ticked')}
+            >
+              {chaseArmed === 'ticked'
+                ? `Tap again to chase ${selectedIds.length} ${selectedIds.length === 1 ? 'player' : 'players'}`
+                : `Chase ticked players (${selectedIds.length})`}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || running || !!chaseBlocker || c.chaseable === 0}
+              onClick={() => chase('all')}
+            >
+              {chaseArmed === 'all' ? `Tap again to email ${c.chaseable} again` : `Email all unpaid again (${c.chaseable})`}
+            </button>
+          </div>
+          <p className="muted" style={{ margin: '8px 0 0' }}>
+            {chaseBlocker || 'Tick players in the list below to chase them, or email everyone who is due. Sends the reminder version of the email.'}
+          </p>
+        </>
+      )}
+
+      {running && job && <p style={{ margin: '10px 0 0' }}>{job.reminder ? 'Chasing' : 'Sending'}... {job.sent + job.failed.length} of {job.total}</p>}
       {!running && job && job.finishedAt && (
         <p style={{ margin: '10px 0 0' }}>
-          Last run {fmtWhen(job.finishedAt)}: {job.sent} of {job.total} sent{job.failed.length > 0 ? `, ${job.failed.length} failed` : ''}.
+          Last run {fmtWhen(job.finishedAt)}: {job.sent} of {job.total} {sentWord}{job.failed.length > 0 ? `, ${job.failed.length} failed` : ''}.
         </p>
       )}
       {!running && job && job.failed.length > 0 && (

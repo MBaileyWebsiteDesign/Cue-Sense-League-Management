@@ -21,6 +21,16 @@ import LeaguePaymentEmailCard from './LeaguePaymentEmailCard.jsx';
 // (/public/leagues/:id/interests) is unchanged and linked from here.
 const STATUS_LABEL = { confirmed: 'Paid', waived: 'Waived', unpaid: 'Unpaid' };
 
+// Payment-email note under an unpaid player's name (2026-10-24): when the last chase
+// went out and how many times they've been emailed.
+function fmtWhen(iso) {
+  try {
+    return new Date(iso).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
 export default function LeagueInterests() {
   const { leagueId } = useParams();
   const { canManageLeague } = useAuth();
@@ -133,7 +143,7 @@ export default function LeagueInterests() {
 
       {error && <p className="error">{error}</p>}
 
-      {paywall && api.getLeaguePaymentEmail && <LeaguePaymentEmailCard leagueId={leagueId} refreshKey={interests} />}
+      {paywall && api.getLeaguePaymentEmail && <LeaguePaymentEmailCard leagueId={leagueId} refreshKey={interests} selectedIds={selected} onChased={loadInterests} />}
 
       {paywall && (
         <div className="li-filters" role="tablist" aria-label="Filter by payment">
@@ -170,6 +180,13 @@ export default function LeagueInterests() {
                   {paywall && <span className={`li-chip li-chip-${r.paymentStatus}`}>{STATUS_LABEL[r.paymentStatus] || r.paymentStatus}</span>}
                   {isPlaced(r) && <span className="li-chip">In {r.divisionName}</span>}
                   {r.status === 'assigned' && !r.inDivision && <span className="li-chip">Added earlier, not in a division</span>}
+                  {paywall && r.paymentStatus === 'unpaid' && r.paymentEmailSentAt && (
+                    <span className="muted" style={{ flexBasis: '100%', fontSize: '0.85rem' }}>
+                      {r.paymentEmailCount > 1
+                        ? `Last chased ${fmtWhen(r.paymentEmailSentAt)} \u00b7 emailed ${r.paymentEmailCount} times`
+                        : `Payment email sent ${fmtWhen(r.paymentEmailSentAt)}`}
+                    </span>
+                  )}
                 </label>
                 <div className="li-actions" style={isPlaced(r) ? { display: 'none' } : undefined}>
                   {paywall && r.paymentStatus !== 'confirmed' && (

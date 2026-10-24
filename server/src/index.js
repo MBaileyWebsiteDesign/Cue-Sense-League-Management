@@ -5698,6 +5698,10 @@ app.get('/api/leagues/:id/league-interests', requireAnyAdmin, asyncRoute((req, r
         status: r.status,
         inDivision: !!inDiv,
         divisionName: inDiv ? inDiv.name : null,
+        // Payment-email history (Matt, 2026-10-24): latest send, how many sent, first send.
+        paymentEmailSentAt: r.paymentEmailSentAt || null,
+        paymentEmailCount: r.paymentEmailCount || (r.paymentEmailSentAt ? 1 : 0),
+        paymentEmailFirstSentAt: r.paymentEmailFirstSentAt || r.paymentEmailSentAt || null,
       };
     });
   res.json(result);
