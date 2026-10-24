@@ -443,6 +443,32 @@ app.post('/api/users/register', asyncRoute((req, res) => {
         : `${userDisplayName(user)} chose "${signupVenue.name}" as their venue while creating their account`,
     });
   }
+  // /RegisterAura also registers interest in the Inter Aura League (Matt, 2026-10-25), so new
+  // Aura sign-ups appear as pending on that league's League Interests page and a manager
+  // adds them to a division. Looked up by name like the venue; skipped if the league isn't
+  // open for registration, or the player already has an interest that wasn't declined.
+  if (joinVia === 'aura') {
+    const auraLeague = db.leagues.find((l) => String(l.name || '').trim().toLowerCase() === 'inter aura league' && l.isOpenForRegistration);
+    if (auraLeague && !db.leagueInterests.some((r) => r.leagueId === auraLeague.id && r.playerId === user.playerId && r.status !== 'declined')) {
+      db.leagueInterests.push({
+        id: uuid(),
+        leagueId: auraLeague.id,
+        playerId: user.playerId,
+        userId: user.id,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        decidedAt: null,
+        decidedBy: null,
+      });
+      recordAudit(db, {
+        actor: userDisplayName(user),
+        action: 'league_interest.auto_register',
+        targetType: 'league',
+        targetId: auraLeague.id,
+        details: `${userDisplayName(user)} registered interest in \"${auraLeague.name}\" while creating their account on /RegisterAura`,
+      });
+    }
+  }
   writeDb(db);
 
   const { token, expiresAt } = createSessionToken(user.id);

@@ -13,7 +13,8 @@ import './registerPages.css';
 // venue up by name and adds the membership straight away, even though the
 // venue's normal join policy is 'approval' (Matt, 2026-10-12: anyone using
 // this link is let straight in). Afterwards the player lands on My Account,
-// as with the standard /register page. Look (green banner, gold chip, card,
+// as with the standard /register page. Since 2026-10-25 the server also registers
+// the new player's interest in the Inter Aura League (pending; a manager adds them to a division). Look (green banner, gold chip, card,
 // 16px inputs) shared with /register via registerPages.css (2026-10-12).
 export default function RegisterAura() {
   const { login } = useAuth();
@@ -43,7 +44,7 @@ export default function RegisterAura() {
     <div className="rg-page">
       <div className="rg-banner">
         <h1>Create your account</h1>
-        <p>Register to join your venue and see your leagues, fixtures and results.</p>
+        <p>Register to join your venue, register your interest in the Inter Aura League, and see your fixtures and results.</p>
         <span className="rg-chip">Aura Technology</span>
       </div>
       <form className="card form rg-form" onSubmit={onSubmit}>
