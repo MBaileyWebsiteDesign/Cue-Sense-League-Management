@@ -10,8 +10,14 @@
 //    Interests row shows the red Unpaid chip (pending interest, payment wall on,
 //    no Paid / Waived record). It is blocked until a test has been sent with the
 //    current bank details (saving different details clears the test).
-//  - Each interest is emailed once (interest.paymentEmailSentAt), so pressing the
-//    button again only reaches anyone new or anyone whose send failed.
+//  - "Email unpaid players" emails each interest once (interest.paymentEmailSentAt), so
+//    pressing it again only reaches anyone new or anyone whose send failed.
+//  - Chasing (Matt, 2026-10-24): "Chase ticked players" / "Email all unpaid again" send a
+//    REMINDER version of the email to unpaid players who were already emailed. A player
+//    emailed in the last 24 hours is skipped. Needs the reminder test to have been sent
+//    with the current bank details. Every send updates interest.paymentEmailSentAt (latest),
+//    paymentEmailCount and paymentEmailFirstSentAt, which the League Interests page shows
+//    as the 'last chased' note on each player.
 //  - Players on placeholder @cuesense.co.uk addresses, suspended accounts and
 //    no-login accounts are skipped and listed so they can be chased by hand.
 //  - Real sends only happen on the live Fly.io app (never on staging or locally);
@@ -22,6 +28,9 @@
 
 import { escapeHtml } from './mailer.js';
 import { TEST_RECIPIENT, isPlaceholderEmail, venueBranding } from './venueEmails.js';
+
+const CHASE_GAP_MS = 24 * 60 * 60 * 1000;
+const emailCountOf = (r) => r.paymentEmailCount || (r.paymentEmailSentAt ? 1 : 0);
 
 function sendingAllowedHere() {
   const app = process.env.FLY_APP_NAME;
@@ -38,18 +47,21 @@ function formatAmount(amount, currency) {
 }
 
 // Builds { subject, text, html }. bank = { accountName, accountNumber, sortCode }.
-export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, currency, bank }) {
+export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, currency, bank, reminder = false }) {
   const b = venueBranding(venueName || leagueName);
   const name = escapeHtml(firstName || 'there');
   const league = leagueName || 'the league';
-  const subject = `${league} - Payments`;
+  const subject = reminder ? `Reminder: ${league} - Payments` : `${league} - Payments`;
+  const introText = reminder
+    ? `This is a reminder that we have not yet received your payment for the ${league}. Please use the details below to make payment. If you have already paid, thank you, and please ignore this email.`
+    : `We are now ready to accept payments for the ${league}. Please use the details below to make payments.`;
   const amountText = formatAmount(amount, currency);
   const leagueShort = String(league).replace(/\s+League$/i, '');
 
   const text = [
     `Hi ${firstName || 'there'},`,
     '',
-    `We are now ready to accept payments for the ${league}. Please use the details below to make payments.`,
+    introText,
     '',
     'Bank details:',
     `Account name: ${bank.accountName}`,
@@ -79,7 +91,7 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
 <title>${escapeHtml(subject)}</title>
 </head>
 <body style="margin:0;padding:0;background:#eef1f6;">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#eef1f6;">Time to start making payments for ${escapeHtml(league)}.</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#eef1f6;">${reminder ? 'A reminder to pay' : 'Time to start making payments for'} ${escapeHtml(league)}.</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f6;">
 <tr><td align="center" style="padding:24px 12px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;color:#111827;">
@@ -91,7 +103,7 @@ export function leaguePaymentEmail({ firstName, leagueName, venueName, amount, c
     </td></tr>
     <tr><td style="padding:28px 28px 8px 28px;font-size:16px;line-height:1.55;">
       <p style="margin:0 0 14px 0;">Hi ${name},</p>
-      <p style="margin:0 0 6px 0;">We are now ready to accept payments for the ${escapeHtml(league)}. Please use the details below to make payments.</p>
+      <p style="margin:0 0 6px 0;">${escapeHtml(introText)}</p>
     </td></tr>
     <tr><td style="padding:8px 28px 4px 28px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -154,7 +166,7 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
   // Everyone with the red Unpaid chip on the League Interests page, split into
   // who can be emailed and who can't.
   function unpaidSplit(db, league) {
-    const result = { unpaid: 0, toEmail: [], alreadyEmailed: 0, skipped: [] };
+    const result = { unpaid: 0, toEmail: [], alreadyEmailed: 0, chaseable: [], chasedRecently: [], skipped: [] };
     if (!league.payment?.required) return result;
     const pending = db.leagueInterests.filter((r) => r.leagueId === league.id && r.status === 'pending');
     for (const r of pending) {
@@ -168,14 +180,21 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
         result.skipped.push(playerName);
         continue;
       }
-      if (r.paymentEmailSentAt) { result.alreadyEmailed += 1; continue; }
-      result.toEmail.push({
+      const entry = {
         interestId: r.id,
         userId: user.id,
         email: user.email,
         playerName,
         firstName: user.firstName || String(playerName).split(' ')[0],
-      });
+      };
+      if (r.paymentEmailSentAt) {
+        result.alreadyEmailed += 1;
+        const age = Date.now() - new Date(r.paymentEmailSentAt).getTime();
+        if (age < CHASE_GAP_MS) result.chasedRecently.push(entry);
+        else result.chaseable.push(entry);
+        continue;
+      }
+      result.toEmail.push(entry);
     }
     return result;
   }
@@ -199,15 +218,19 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
       },
       testRecipient: TEST_RECIPIENT,
       testSentAt: rec?.testSentAt || null,
+      reminderTestSentAt: rec?.reminderTestSentAt || null,
+      chaseGapHours: CHASE_GAP_MS / 3600000,
       canSendHere: sendingAllowedHere(),
       counts: {
         unpaid: split.unpaid,
         toEmail: split.toEmail.length,
         alreadyEmailed: split.alreadyEmailed,
+        chaseable: split.chaseable.length,
+        chasedRecently: split.chasedRecently.length,
         skipped: split.skipped.length,
       },
       skippedNames: split.skipped,
-      job: job ? { running: job.running, total: job.total, sent: job.sent, failed: job.failed, finishedAt: job.finishedAt } : null,
+      job: job ? { running: job.running, total: job.total, sent: job.sent, failed: job.failed, finishedAt: job.finishedAt, reminder: !!job.reminder } : null,
     };
   }
 
@@ -236,7 +259,7 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
     rec.accountNumber = accountNumber;
     rec.sortCode = sortCode;
     // Different details => test again before anything goes to players.
-    if (changed) rec.testSentAt = null;
+    if (changed) { rec.testSentAt = null; rec.reminderTestSentAt = null; }
     recordAudit(db, {
       actor: req.adminSession.label,
       action: 'league.paymentEmailSettings',
@@ -256,7 +279,9 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
     if (!league.payment?.required || !(league.payment.amount > 0)) {
       throw new ApiError(400, "Turn on this league's payment wall with an amount first - the email quotes that amount");
     }
+    const reminder = !!(req.body && req.body.reminder);
     const msg = leaguePaymentEmail({
+      reminder,
       firstName: 'Sam',
       leagueName: league.name,
       venueName: venueNameOf(db, league),
@@ -271,7 +296,8 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
         const db2 = readDb();
         const rec2 = recordFor(db2, leagueId);
         if (sent && rec2) {
-          rec2.testSentAt = new Date().toISOString();
+          if (reminder) rec2.reminderTestSentAt = new Date().toISOString();
+          else rec2.testSentAt = new Date().toISOString();
           writeDb(db2);
         }
         const league2 = db2.leagues.find((l) => l.id === leagueId) || league;
@@ -281,6 +307,58 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
         res.status(500).json({ sent: false, error: (err && err.message) || 'send failed' });
       });
   }));
+
+  // Shared by "Email unpaid players" (first email) and the chase buttons (reminder).
+  // targets = entries from unpaidSplit(). Runs in the background, one run per league.
+  function startRun(db, league, bank, targets, { reminder, actor }) {
+    const job = { running: true, total: targets.length, sent: 0, failed: [], startedAt: new Date().toISOString(), finishedAt: null, reminder: !!reminder };
+    jobs.set(league.id, job);
+    const venueName = venueNameOf(db, league);
+    const { amount, currency } = league.payment;
+    const leagueId = league.id;
+    const leagueName = league.name;
+
+    (async () => {
+      try {
+        for (const t of targets) {
+          const msg = leaguePaymentEmail({ firstName: t.firstName, leagueName, venueName, amount, currency, bank, reminder });
+          let result;
+          try {
+            result = await sendMail({ to: t.email, toName: t.playerName, subject: msg.subject, text: msg.text, html: msg.html });
+          } catch (err) {
+            result = { sent: false, error: err && err.message };
+          }
+          if (result && result.sent) {
+            job.sent += 1;
+            const db2 = readDb();
+            const r2 = db2.leagueInterests.find((x) => x.id === t.interestId);
+            if (r2) {
+              const now = new Date().toISOString();
+              if (!r2.paymentEmailFirstSentAt) r2.paymentEmailFirstSentAt = r2.paymentEmailSentAt || now;
+              r2.paymentEmailCount = emailCountOf(r2) + 1;
+              r2.paymentEmailSentAt = now;
+            }
+            try {
+              recordAudit(db2, {
+                actor,
+                action: reminder ? 'league.paymentEmailChased' : 'league.paymentEmailSent',
+                targetType: 'user',
+                targetId: t.userId,
+                details: `Sent ${reminder ? 'reminder ' : ''}"${msg.subject}" to ${t.playerName} (unpaid, ${leagueName})`,
+              });
+            } catch (e) { /* audit is best-effort */ }
+            writeDb(db2);
+          } else {
+            job.failed.push({ name: t.playerName, error: (result && result.error) || 'send failed' });
+          }
+        }
+      } finally {
+        job.running = false;
+        job.finishedAt = new Date().toISOString();
+        console.log(`League payment ${reminder ? 'chase' : 'emails'} (${leagueId}): ${job.sent} sent, ${job.failed.length} failed`);
+      }
+    })().catch((err) => console.warn('League payment email run error:', err && err.message));
+  }
 
   app.post('/api/leagues/:id/payment-email/send', requireAnyAdmin, asyncRoute((req, res) => {
     const db = readDb();
@@ -298,50 +376,55 @@ export function registerLeaguePaymentEmailRoutes(app, deps) {
     const targets = unpaidSplit(db, league).toEmail;
     if (targets.length === 0) throw new ApiError(400, 'Nobody to email: every unpaid player has already been emailed or has no usable email address');
 
-    const job = { running: true, total: targets.length, sent: 0, failed: [], startedAt: new Date().toISOString(), finishedAt: null };
-    jobs.set(league.id, job);
-    const actor = req.adminSession.label;
-    const venueName = venueNameOf(db, league);
-    const { amount, currency } = league.payment;
-    const leagueId = league.id;
-    const leagueName = league.name;
-
-    (async () => {
-      try {
-        for (const t of targets) {
-          const msg = leaguePaymentEmail({ firstName: t.firstName, leagueName, venueName, amount, currency, bank });
-          let result;
-          try {
-            result = await sendMail({ to: t.email, toName: t.playerName, subject: msg.subject, text: msg.text, html: msg.html });
-          } catch (err) {
-            result = { sent: false, error: err && err.message };
-          }
-          if (result && result.sent) {
-            job.sent += 1;
-            const db2 = readDb();
-            const r2 = db2.leagueInterests.find((x) => x.id === t.interestId);
-            if (r2) r2.paymentEmailSentAt = new Date().toISOString();
-            try {
-              recordAudit(db2, {
-                actor,
-                action: 'league.paymentEmailSent',
-                targetType: 'user',
-                targetId: t.userId,
-                details: `Sent "${msg.subject}" to ${t.playerName} (unpaid, ${leagueName})`,
-              });
-            } catch (e) { /* audit is best-effort */ }
-            writeDb(db2);
-          } else {
-            job.failed.push({ name: t.playerName, error: (result && result.error) || 'send failed' });
-          }
-        }
-      } finally {
-        job.running = false;
-        job.finishedAt = new Date().toISOString();
-        console.log(`League payment emails (${leagueId}): ${job.sent} sent, ${job.failed.length} failed`);
-      }
-    })().catch((err) => console.warn('League payment email run error:', err && err.message));
-
+    startRun(db, league, bank, targets, { reminder: false, actor: req.adminSession.label });
     res.status(202).json({ started: true, total: targets.length });
+  }));
+
+  // Chase: send the REMINDER email to unpaid players who were already emailed.
+  // Body: { confirm: true, interestIds: [...] } for ticked players, or { confirm: true, all: true }
+  // for everyone due. Anyone emailed in the last 24 hours is skipped.
+  app.post('/api/leagues/:id/payment-email/chase', requireAnyAdmin, asyncRoute((req, res) => {
+    const db = readDb();
+    const league = findLeague(db, req);
+    const body = req.body || {};
+    if (body.confirm !== true) throw new ApiError(400, 'Confirmation required');
+    if (!sendingAllowedHere()) throw new ApiError(400, 'Emails to players only go out from the live app. Use the test button here.');
+    const rec = recordFor(db, league.id);
+    const bank = bankOf(rec);
+    if (!bank) throw new ApiError(400, 'Save the bank details first');
+    if (!rec.reminderTestSentAt) throw new ApiError(400, 'Send the reminder test email and check it first');
+    if (!league.payment?.required || !(league.payment.amount > 0)) throw new ApiError(400, "This league's payment wall is not on");
+    const existing = jobs.get(league.id);
+    if (existing && existing.running) throw new ApiError(409, 'Emails are already being sent for this league');
+
+    const split = unpaidSplit(db, league);
+    const skipped = [];
+    let targets;
+    if (body.all === true) {
+      targets = split.chaseable;
+    } else {
+      const ids = Array.isArray(body.interestIds) ? [...new Set(body.interestIds.map(String))] : [];
+      if (ids.length === 0) throw new ApiError(400, 'Tick the players to chase first');
+      targets = [];
+      for (const id of ids) {
+        const hit = split.chaseable.find((t) => t.interestId === id);
+        if (hit) { targets.push(hit); continue; }
+        const interest = db.leagueInterests.find((x) => x.id === id && x.leagueId === league.id);
+        const player = interest ? db.players.find((p) => p.id === interest.playerId) : null;
+        const name = player?.name || 'Unknown player';
+        let reason = 'is not unpaid, or has no usable email address';
+        if (split.chasedRecently.some((t) => t.interestId === id)) reason = `was emailed in the last ${CHASE_GAP_MS / 3600000} hours`;
+        else if (split.toEmail.some((t) => t.interestId === id)) reason = "hasn't had the first payment email yet (use Email unpaid players)";
+        skipped.push({ name, reason });
+      }
+    }
+    if (targets.length === 0) {
+      throw new ApiError(400, skipped.length
+        ? `Nobody chased: ${skipped.map((s) => `${s.name} ${s.reason}`).join('; ')}`
+        : 'Nobody to chase right now: everyone unpaid was emailed in the last 24 hours, or has not been emailed yet');
+    }
+
+    startRun(db, league, bank, targets, { reminder: true, actor: req.adminSession.label });
+    res.status(202).json({ started: true, total: targets.length, skipped });
   }));
 }
