@@ -44,6 +44,7 @@ import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmail
 import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
 import { registerMarketingReviewRoutes } from './routes/marketingReview.js';
 import { registerServerPerformanceRoutes } from './routes/serverPerformance.js';
+import { registerVirtualTrainingRoutes } from './routes/virtualTraining.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -3053,6 +3054,10 @@ registerBookAllTablesRoute(app, {
 
 registerMarketingReviewRoutes(app, { requireAdmin, requireVenueManager, assertVenueAccess, ApiError, asyncRoute, readDb, writeDb });
 registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute, sendMail, emailHtml, escapeHtml, mailSettings });
+
+// Virtual Training profile (2026-10-25): the separate 3D training app records a
+// player's results on their own account - see routes/virtualTraining.js.
+registerVirtualTrainingRoutes(app, { requireAuth, requireAdmin, asyncRoute, ApiError, readDb, writeDb, DATA_DIR });
 
 // Quick-renew buttons (Search players, Registered players, the check-in
 // result and the member page reached from Today's check-ins) - 1, 6 or 12
