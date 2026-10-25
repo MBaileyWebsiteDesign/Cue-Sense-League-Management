@@ -84,7 +84,10 @@ export function verifySessionToken(token) {
 
 export function publicUser(user) {
   if (!user) return null;
-  const { passwordHash, ...rest } = user;
+  // virtualTraining (the stats block) is never sent with the account: it has its
+  // own paywalled endpoint (GET /api/users/me/virtual-training). The paid flag,
+  // virtualTrainingAccess, does travel with the account.
+  const { passwordHash, virtualTraining, ...rest } = user;
   return rest;
 }
 

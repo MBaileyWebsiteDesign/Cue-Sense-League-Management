@@ -13,3 +13,6 @@
 .vt-list li { margin: 4px 0; }
 .vt-note { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
 @media (min-width: 640px) { .vt-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.vt-locked { text-align: center; }
+.vt-lock-line { font-size: 1.05rem; font-weight: 700; color: var(--primary); margin: 6px 0; }

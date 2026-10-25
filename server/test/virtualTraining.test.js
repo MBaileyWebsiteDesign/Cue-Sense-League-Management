@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  applyEvent, defaultVirtualTraining, ensureVirtualTraining, rebuildFromEvents, validateEvent, LADDER_LEVELS,
+  applyEvent, defaultVirtualTraining, ensureVirtualTraining, ensureVtAccess, rebuildFromEvents, validateEvent, vtPaid, LADDER_LEVELS,
 } from '../src/services/virtualTraining.js';
 import { registerVirtualTrainingRoutes } from '../src/routes/virtualTraining.js';
 
@@ -162,13 +162,22 @@ function makeHarness() {
     get: (p, ...fns) => { handlers[`GET ${p}`] = fns[fns.length - 1]; },
     post: (p, ...fns) => { handlers[`POST ${p}`] = fns[fns.length - 1]; },
   };
-  let db = { users: [{ id: 'u1', firstName: 'A', lastName: 'B' }, { id: 'u2', firstName: 'C', lastName: 'D' }] };
+  const paid = { paid: true, since: '2026-10-01T00:00:00.000Z', changedAt: null, changedBy: null };
+  let db = {
+    users: [
+      { id: 'u1', firstName: 'A', lastName: 'B', email: 'a@x.test', virtualTrainingAccess: { ...paid } },
+      { id: 'u2', firstName: 'C', lastName: 'D', email: 'c@x.test', virtualTrainingAccess: { ...paid } },
+      { id: 'u3', firstName: 'E', lastName: 'F', email: 'e@x.test' },
+    ],
+    auditLog: [],
+  };
   class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } }
   const dir = mkdtempSync(path.join(tmpdir(), 'vt-'));
   registerVirtualTrainingRoutes(app, {
     requireAuth: () => {}, requireAdmin: () => {},
     asyncRoute: (fn) => (req, res, next) => { try { fn(req, res); } catch (e) { next(e); } },
     ApiError,
+    recordAudit: (d, entry) => d.auditLog.push(entry),
     readDb: () => structuredClone(db),
     writeDb: (s) => { db = structuredClone(s); },
     DATA_DIR: dir,
@@ -236,4 +245,72 @@ test('routes: limits and non-player sessions', () => {
   assert.equal(key.error.status, 403);
   const missing = h.call('GET /api/users/me/virtual-training', { auth: { userId: 'nobody' } });
   assert.equal(missing.error.status, 404);
+});
+
+test('access flag: off by default, kept when filling gaps, never inside the stats block', () => {
+  const user = {};
+  assert.equal(vtPaid(user), false);
+  assert.deepEqual(ensureVtAccess(user), { paid: false, since: null, changedAt: null, changedBy: null });
+  const kept = { virtualTrainingAccess: { paid: true, since: '2026-10-01T00:00:00.000Z' } };
+  assert.equal(ensureVtAccess(kept).paid, true);
+  assert.equal(ensureVtAccess(kept).changedBy, null);
+  assert.equal(vtPaid(kept), true);
+  assert.equal(vtPaid({ virtualTrainingAccess: { paid: 'yes' } }), false);
+  assert.equal(ensureVirtualTraining({}).paid, undefined);
+});
+
+test('paywall: unpaid accounts get nothing and cannot record', () => {
+  const h = makeHarness();
+  const as3 = { auth: { userId: 'u3' } };
+  assert.deepEqual(h.call('GET /api/users/me/virtual-training', as3).out, { locked: true });
+  const post = h.call('POST /api/users/me/virtual-training/events', {
+    ...as3, body: { events: [ev('training.round', { score: 1, maxScore: 2 })] },
+  });
+  assert.equal(post.error.status, 403);
+  assert.equal(h.call('GET /api/users/me/virtual-training/events', as3).error.status, 403);
+  assert.equal(h.getDb().users[2].virtualTraining, undefined);
+  assert.equal(h.call('GET /api/users/me/virtual-training', { auth: { userId: 'u1' } }).out.locked, false);
+});
+
+test('paywall: admin list and switch on/off, with audit entries', () => {
+  const h = makeHarness();
+  const admin = { auth: { userId: 'admin', user: { firstName: 'Matt', lastName: 'Bailey', email: 'm@x.test' } } };
+  const list = h.call('GET /api/admin/virtual-training/users', admin).out;
+  assert.equal(list.total, 3);
+  assert.equal(list.paid, 2);
+  assert.deepEqual(list.users.map((u) => [u.id, u.paid]), [['u1', true], ['u2', true], ['u3', false]]);
+
+  const bad = h.call('POST /api/admin/users/:id/virtual-training-access', { ...admin, params: { id: 'u3' }, body: { paid: 'yes' } });
+  assert.equal(bad.error.status, 400);
+  const missing = h.call('POST /api/admin/users/:id/virtual-training-access', { ...admin, params: { id: 'nobody' }, body: { paid: true } });
+  assert.equal(missing.error.status, 404);
+
+  const on = h.call('POST /api/admin/users/:id/virtual-training-access', { ...admin, params: { id: 'u3' }, body: { paid: true } }).out;
+  assert.equal(on.paid, true);
+  assert.equal(on.changedBy, 'Matt Bailey');
+  assert.ok(on.since);
+  assert.equal(h.getDb().auditLog.length, 1);
+  assert.equal(h.getDb().auditLog[0].action, 'user.virtualTrainingAccess');
+
+  // now u3 can record
+  const sent = h.call('POST /api/users/me/virtual-training/events', {
+    auth: { userId: 'u3' }, body: { events: [ev('training.round', { score: 1, maxScore: 2 })] },
+  });
+  assert.equal(sent.out.results[0].status, 'applied');
+
+  // setting the same value again changes nothing and writes no second audit entry
+  h.call('POST /api/admin/users/:id/virtual-training-access', { ...admin, params: { id: 'u3' }, body: { paid: true } });
+  assert.equal(h.getDb().auditLog.length, 1);
+
+  // switching off locks it again but keeps the stored stats
+  const off = h.call('POST /api/admin/users/:id/virtual-training-access', { ...admin, params: { id: 'u3' }, body: { paid: false } }).out;
+  assert.equal(off.paid, false);
+  assert.equal(off.eventCount, 1);
+  assert.deepEqual(h.call('GET /api/users/me/virtual-training', { auth: { userId: 'u3' } }).out, { locked: true });
+  assert.equal(h.getDb().users[2].virtualTraining.eventCount, 1);
+  assert.equal(h.getDb().auditLog.length, 2);
+
+  // rebuilding the stats does not touch the paid flag
+  h.call('POST /api/admin/users/:id/virtual-training/rebuild', { params: { id: 'u3' } });
+  assert.equal(h.getDb().users[2].virtualTrainingAccess.paid, false);
 });

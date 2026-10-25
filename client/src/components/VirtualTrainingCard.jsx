@@ -39,16 +39,26 @@ function Group({ title, children }) {
 export default function VirtualTrainingCard() {
   const [vt, setVt] = useState(null);
   const [failed, setFailed] = useState(false);
+  const [locked, setLocked] = useState(false);
 
   useEffect(() => {
     // The static demo build has no such call: show nothing there.
     if (typeof api.getMyVirtualTraining !== 'function') return;
     api.getMyVirtualTraining()
-      .then((r) => setVt(r.virtualTraining))
+      .then((r) => (r.locked ? setLocked(true) : setVt(r.virtualTraining)))
       .catch(() => setFailed(true));
   }, []);
 
   if (typeof api.getMyVirtualTraining !== 'function') return null;
+  if (locked) {
+    return (
+      <section className="card vt-locked">
+        <h2>Virtual Training</h2>
+        <p className="vt-lock-line"><span aria-hidden="true">🔒</span> Virtual Training is a paid feature.</p>
+        <p className="muted">It is not switched on for your account. Contact Cue Sense to have it added.</p>
+      </section>
+    );
+  }
   if (failed) {
     return (
       <section className="card">

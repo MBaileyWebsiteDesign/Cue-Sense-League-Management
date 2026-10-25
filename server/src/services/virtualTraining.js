@@ -32,6 +32,25 @@ const CHALLENGE_KINDS = ['daily', 'ladder', 'run', 'timed', 'streak'];
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const TWO_YEARS_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 
+// Paywall (2026-10-25): whether this account has paid for Virtual Training. It
+// lives beside the stats block, NOT inside it, so rebuilding the stats from the
+// event log can never switch someone's access on or off. Off by default for
+// everyone; only an Overall Admin changes it (Admin Portal > Virtual Training).
+export function defaultVtAccess() {
+  return { paid: false, since: null, changedAt: null, changedBy: null };
+}
+
+export function ensureVtAccess(user) {
+  if (!user.virtualTrainingAccess || typeof user.virtualTrainingAccess !== 'object') user.virtualTrainingAccess = {};
+  const defaults = defaultVtAccess();
+  for (const key of Object.keys(defaults)) {
+    if (user.virtualTrainingAccess[key] === undefined) user.virtualTrainingAccess[key] = defaults[key];
+  }
+  return user.virtualTrainingAccess;
+}
+
+export const vtPaid = (user) => !!(user && user.virtualTrainingAccess && user.virtualTrainingAccess.paid === true);
+
 export function defaultVirtualTraining() {
   return {
     schemaVersion: VT_SCHEMA_VERSION,

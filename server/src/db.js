@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { ensureVirtualTraining } from './services/virtualTraining.js';
+import { ensureVirtualTraining, ensureVtAccess } from './services/virtualTraining.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // On a host with a persistent volume mounted (e.g. Fly.io at /data), set
@@ -320,6 +320,8 @@ export function readDb() {
     // totals; the full history is kept in a separate file (see
     // routes/virtualTraining.js), not in this one.
     ensureVirtualTraining(user);
+    // Paywall flag (off for everyone until an Overall Admin switches it on).
+    ensureVtAccess(user);
     if (!Array.isArray(user.venueMemberships)) {
       user.venueMemberships = user.venueId
         ? [{

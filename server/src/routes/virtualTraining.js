@@ -14,11 +14,13 @@ import {
   MAX_BATCH,
   applyEvent,
   ensureVirtualTraining,
+  ensureVtAccess,
   rebuildFromEvents,
   validateEvent,
+  vtPaid,
 } from '../services/virtualTraining.js';
 
-export function registerVirtualTrainingRoutes(app, { requireAuth, requireAdmin, asyncRoute, ApiError, readDb, writeDb, DATA_DIR }) {
+export function registerVirtualTrainingRoutes(app, { requireAuth, requireAdmin, asyncRoute, ApiError, readDb, writeDb, recordAudit, DATA_DIR }) {
   const EVENTS_FILE = path.join(DATA_DIR, 'virtual-training-events.jsonl');
 
   // userId -> Set of event ids already stored, built from the file on first use.
@@ -54,15 +56,23 @@ export function registerVirtualTrainingRoutes(app, { requireAuth, requireAdmin, 
     }
   }
 
+  // Paywall: an account that has not been switched on gets nothing back, and
+  // nothing can be recorded for it. Stored data is kept, just not served.
+  function requirePaid(user) {
+    if (!vtPaid(user)) throw new ApiError(403, 'Virtual Training is not switched on for this account');
+  }
+
   app.get('/api/users/me/virtual-training', requireAuth, asyncRoute((req, res) => {
     requireRealAccount(req);
     const user = readDb().users.find((u) => u.id === req.auth.userId);
     if (!user) throw new ApiError(404, 'Account not found');
-    res.json({ virtualTraining: ensureVirtualTraining(user) });
+    if (!vtPaid(user)) { res.json({ locked: true }); return; }
+    res.json({ locked: false, virtualTraining: ensureVirtualTraining(user) });
   }));
 
   app.get('/api/users/me/virtual-training/events', requireAuth, asyncRoute((req, res) => {
     requireRealAccount(req);
+    requirePaid(readDb().users.find((u) => u.id === req.auth.userId));
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
     const type = typeof req.query.type === 'string' ? req.query.type : null;
     const before = typeof req.query.before === 'string' ? req.query.before : null;
@@ -85,6 +95,7 @@ export function registerVirtualTrainingRoutes(app, { requireAuth, requireAdmin, 
     const db = readDb();
     const user = db.users.find((u) => u.id === req.auth.userId);
     if (!user) throw new ApiError(404, 'Account not found');
+    requirePaid(user);
     const vt = ensureVirtualTraining(user);
     const seen = index();
     if (!seen.has(user.id)) seen.set(user.id, new Set());
@@ -117,6 +128,56 @@ export function registerVirtualTrainingRoutes(app, { requireAuth, requireAdmin, 
       writeDb(db);
     }
     res.json({ results, virtualTraining: vt });
+  }));
+
+  // ---------- Admin: who has paid (Admin Portal > Virtual Training) ----------
+  const adminName = (u) => `${u.firstName || ''} ${u.lastName || ''}`.replace(/\s+/g, ' ').trim() || u.email;
+  const accessRow = (u) => {
+    const access = ensureVtAccess(u);
+    return {
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      status: u.status,
+      paid: access.paid,
+      since: access.since,
+      changedAt: access.changedAt,
+      changedBy: access.changedBy,
+      eventCount: (u.virtualTraining && u.virtualTraining.eventCount) || 0,
+      lastPlayedAt: (u.virtualTraining && u.virtualTraining.lastPlayedAt) || null,
+    };
+  };
+
+  app.get('/api/admin/virtual-training/users', requireAdmin, asyncRoute((req, res) => {
+    const rows = readDb().users.map(accessRow)
+      .sort((a, b) => adminName(a).localeCompare(adminName(b)));
+    res.json({ total: rows.length, paid: rows.filter((r) => r.paid).length, users: rows });
+  }));
+
+  app.post('/api/admin/users/:id/virtual-training-access', requireAdmin, asyncRoute((req, res) => {
+    const paid = req.body && req.body.paid;
+    if (typeof paid !== 'boolean') throw new ApiError(400, 'paid must be true or false');
+    const db = readDb();
+    const user = db.users.find((u) => u.id === req.params.id);
+    if (!user) throw new ApiError(404, 'User not found');
+    const access = ensureVtAccess(user);
+    if (access.paid !== paid) {
+      const now = new Date().toISOString();
+      if (paid) access.since = now;
+      access.paid = paid;
+      access.changedAt = now;
+      access.changedBy = adminName(req.auth.user);
+      recordAudit(db, {
+        actor: adminName(req.auth.user),
+        action: 'user.virtualTrainingAccess',
+        targetType: 'user',
+        targetId: user.id,
+        details: `Virtual Training switched ${paid ? 'on' : 'off'} for ${adminName(user)}`,
+      });
+      writeDb(db);
+    }
+    res.json(accessRow(user));
   }));
 
   // Admin recovery: recompute a player's totals from their stored events.

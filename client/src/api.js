@@ -86,6 +86,9 @@ const networkApi = {
     request(`/auth/reset-password/${token}`, { method: 'POST', body: JSON.stringify({ newPassword }) }),
   getMe: () => request('/users/me'),
   getMyVirtualTraining: () => request('/users/me/virtual-training'),
+  adminListVirtualTraining: () => request('/admin/virtual-training/users'),
+  adminSetVirtualTrainingAccess: (id, paid) =>
+    request(`/admin/users/${id}/virtual-training-access`, { method: 'POST', body: JSON.stringify({ paid }) }),
   updateMe: (data) => request('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
   changePassword: (currentPassword, newPassword) =>
     request('/users/me/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
