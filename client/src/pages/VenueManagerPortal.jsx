@@ -1448,6 +1448,10 @@ function CheckinCard({ venueId }) {
   const [popupOn, setPopupOn] = useState(readPopupPref);
   const popupOnRef = useRef(popupOn);
   popupOnRef.current = popupOn;
+  // userId -> when they last popped up. A new player signs up and is then checked in
+  // straight away (/RegisterTopSpin forwards to the check-in link), so a second arrival
+  // for the same player within a few minutes doesn't pop them up again.
+  const poppedRef = useRef(new Map());
   const togglePopup = () => {
     const next = !popupOn;
     setPopupOn(next);
@@ -1459,6 +1463,10 @@ function CheckinCard({ venueId }) {
     loadToday();
     if (!info || !info.userId || (info.kind !== 'checkin' && info.kind !== 'registered')) return;
     if (!popupOnRef.current) return;
+    const now = Date.now();
+    const last = poppedRef.current.get(info.userId);
+    if (last && now - last < 5 * 60 * 1000) return;
+    poppedRef.current.set(info.userId, now);
     setArrivals((q) => (q.some((a) => a.userId === info.userId)
       ? q
       : [...q, { kind: info.kind, userId: info.userId, at: info.at || new Date().toISOString() }]));
