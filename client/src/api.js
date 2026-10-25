@@ -64,7 +64,14 @@ async function streamCheckins(base, venueId, { onUpdate, onOpen, signal } = {}) 
     while ((cut = buffer.indexOf('\n\n')) >= 0) {
       const chunk = buffer.slice(0, cut);
       buffer = buffer.slice(cut + 2);
-      if (/^event: checkins$/m.test(chunk) && onUpdate) onUpdate();
+      if (/^event: checkins$/m.test(chunk) && onUpdate) {
+        // data carries { kind: 'checkin' | 'registered', userId } when a player
+        // checked in or signed up (empty for clear/delete) - see notifyCheckinStreams.
+        let info = {};
+        const line = /^data: (.*)$/m.exec(chunk);
+        if (line) { try { info = JSON.parse(line[1]) || {}; } catch { info = {}; } }
+        onUpdate(info);
+      }
     }
   }
 }

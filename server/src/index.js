@@ -485,6 +485,11 @@ app.post('/api/users/register', asyncRoute((req, res) => {
   const { token, expiresAt } = createSessionToken(user.id);
   res.status(201).json({ token, expiresAt, user: publicUser(user) });
 
+  // Signed up from a venue's code (/RegisterTopSpin, /RegisterAura or the bar tag) - the
+  // player is at the venue, so the Venue Manager Portal pops their screen up (Matt, 2026-10-25).
+  // No visit is logged; if they then check in, that shows on Today's check-ins as normal.
+  if (signupVenue && directJoin) notifyCheckinStreams(signupVenue.id, { kind: 'registered', userId: user.id });
+
   // Tell the venue's managers about the request, as the in-app request does.
   if (venueNeedsApproval) {
     const link = `${baseUrlFor(req)}/venue-manager`;
@@ -3358,7 +3363,7 @@ app.post('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, re
   const user = findUserByCard(db, uid);
   if (!user) return res.json({ found: false, uid });
   const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'card', cardUid: uid, by: req.adminSession.label });
-  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id); }
+  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id, { kind: 'checkin', userId: user.id }); }
   res.json({ found: true, uid, repeat, visit, player: checkinPlayerView(db, user, venue.id) });
 }));
 
@@ -3369,10 +3374,13 @@ app.post('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, re
 // Same shape as the Table bookings stream (GET /bookings/stream above): the
 // page disconnects while its tab is hidden and keeps its 30s refresh as a backstop.
 const checkinStreams = new Map(); // venueId -> Set<res>
-function notifyCheckinStreams(venueId) {
+// `info` (Matt, 2026-10-25) says who triggered it - { kind: 'checkin' | 'registered', userId } -
+// so the Venue Manager Portal can pop that player's membership screen up straight away.
+// Clear/delete send no info (the list just reloads).
+function notifyCheckinStreams(venueId, info = null) {
   const set = checkinStreams.get(venueId);
   if (!set || set.size === 0) return;
-  const msg = `event: checkins\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`;
+  const msg = `event: checkins\ndata: ${JSON.stringify({ at: new Date().toISOString(), ...(info || {}) })}\n\n`;
   for (const res of set) {
     try {
       res.write(msg);
@@ -3622,7 +3630,7 @@ app.post('/api/checkin/:token', requireAuth, asyncRoute((req, res) => {
   const user = db.users.find((u) => u.id === req.auth.user.id);
   if (!user) throw new ApiError(404, 'Account not found');
   const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'tag' });
-  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id); }
+  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id, { kind: 'checkin', userId: user.id }); }
   const m = membershipAt(user, venue.id);
   res.json({
     venueName: venue.name,
