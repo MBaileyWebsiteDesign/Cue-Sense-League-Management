@@ -313,6 +313,8 @@ const networkApi = {
   // Sign-up page, when the player came from a tag: the venue it registers them at (Top Spin tags only).
   checkinSignupVenue: (token) =>
     request(`/checkin/${encodeURIComponent(token)}/signup-venue`),
+  // /RegisterTopSpin (the Top Spin poster's QR link): Top Spin's current check-in tag token, or null.
+  topSpinCheckinLink: () => request('/checkin/topspin-link'),
 
   // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
   // - visible to every logged-in account, not just admins.

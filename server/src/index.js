@@ -355,6 +355,17 @@ app.get('/api/checkin/:token/signup-venue', asyncRoute((req, res) => {
   res.json({ venueName: venue ? venue.name : null });
 }));
 
+// /RegisterTopSpin is on the printed Top Spin check-in poster's QR code (Matt, 2026-10-25), so
+// that page now forwards players to Top Spin's bar check-in link (/checkin/<token>): sign in
+// (or "Create one", which joins Top Spin straight away via the token), get checked in, see
+// their membership status. Public because the player isn't logged in yet; it only returns
+// the token already printed on the venue's tag/poster. Looked up live, so rotating the tag
+// keeps the poster working. Null if Top Spin has no tag yet - the page then shows its form.
+app.get('/api/checkin/topspin-link', asyncRoute((req, res) => {
+  const venue = readDb().venues.find((v) => /^\s*top\s*spin\b/i.test(v.name || ''));
+  res.json({ token: venue && venue.checkinTagToken ? venue.checkinTagToken : null });
+}));
+
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
     firstName, lastName, email, password,
