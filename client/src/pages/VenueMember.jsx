@@ -33,6 +33,15 @@ export default function VenueMember() {
   const { userId } = useParams();
   const [params] = useSearchParams();
   const venueId = params.get('venueId') || '';
+  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal', to: '/venue-manager' }, { label: 'Membership' }]);
+  return <VenueMemberView userId={userId} venueId={venueId} />;
+}
+
+// The screen itself, also shown as a pop-up over the Venue Manager Portal when
+// a player checks in or signs up from the venue's code (Matt, 2026-10-25) -
+// then `onClose` is given and the back arrow becomes a close button.
+// `badge` is an optional line above the name ("Just checked in", etc.).
+export function VenueMemberView({ userId, venueId, onClose = null, badge = '' }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(0); // months being added
@@ -42,7 +51,6 @@ export default function VenueMember() {
   const [startVal, setStartVal] = useState('');
   const [endVal, setEndVal] = useState('');
   const [saving, setSaving] = useState(false);
-  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal', to: '/venue-manager' }, { label: 'Membership' }]);
 
   const load = () => api.getVenueMember(venueId, userId).then(setData).catch((e) => setError(e.message));
   useEffect(() => {
@@ -101,12 +109,19 @@ export default function VenueMember() {
   const memberOn = !data || data.membershipEnabled !== false;
 
   return (
-    <div className="sx-page">
+    <div className={onClose ? 'vmm-pop-body' : 'sx-page'}>
       <div className="au-head">
-        <Link to="/venue-manager" className="msg-icon-btn" aria-label="Back to the Venue Manager Portal">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
-        </Link>
+        {onClose ? (
+          <button type="button" className="msg-icon-btn" onClick={onClose} aria-label="Close">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        ) : (
+          <Link to="/venue-manager" className="msg-icon-btn" aria-label="Back to the Venue Manager Portal">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+          </Link>
+        )}
         <span className="vm-title">
+          {badge && <span className="vmm-pop-badge">{badge}</span>}
           <h1>{p ? `${p.firstName} ${p.lastName}` : 'Membership'}</h1>
           {data && <span className="muted">{data.venueName}</span>}
         </span>

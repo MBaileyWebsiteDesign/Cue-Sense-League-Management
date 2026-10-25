@@ -1,8 +1,9 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { api } from '../api.js';
+import { VenueMemberView } from './VenueMember.jsx';
 
 // Whether the selected venue runs memberships (venue.membershipEnabled is only
 // ever switched off with an explicit false). When off, every membership
@@ -1408,9 +1409,60 @@ function CheckinStatusChip({ status, renewalDate, small = false }) {
   return <span className={`ci-chip ${s.cls}${small ? ' ci-chip-small' : ''}`}>{small ? CHECKIN_SHORT[key] : s.text(renewalDate)}</span>;
 }
 
+// Pop-up (Matt, 2026-10-25): when a player checks in (bar tag / card) or signs up
+// from the venue's code, the live stream says who, and their membership screen
+// opens over the portal - the same screen as tapping their name in the list.
+// Several arrivals queue up; closing one shows the next. Can be switched off
+// per device with the "Pop up" switch (remembered in this browser).
+const POPUP_PREF_KEY = 'cs.vm.checkinPopup';
+function readPopupPref() {
+  try { return localStorage.getItem(POPUP_PREF_KEY) !== 'off'; } catch { return true; }
+}
+
+function ArrivalPopup({ venueId, arrival, waiting, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const when = ukTime(arrival.at);
+  const badge = arrival.kind === 'registered' ? `New sign-up · ${when}` : `Just checked in · ${when}`;
+  return (
+    <div className="vmm-pop" role="dialog" aria-modal="true" aria-label="Player who just arrived" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="vmm-pop-panel">
+        <VenueMemberView key={arrival.userId} userId={arrival.userId} venueId={venueId} onClose={onClose} badge={badge} />
+        <div className="vmm-pop-foot">
+          <button type="button" className="btn btn-primary cs-btn-block" onClick={onClose}>
+            {waiting > 0 ? `Next (${waiting} more waiting)` : 'Close'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CheckinCard({ venueId }) {
   const membershipOn = useMembershipOn();
   const [today, setToday] = useState(null);
+  const [arrivals, setArrivals] = useState([]); // queue of { kind, userId, at } to pop up
+  const [popupOn, setPopupOn] = useState(readPopupPref);
+  const popupOnRef = useRef(popupOn);
+  popupOnRef.current = popupOn;
+  const togglePopup = () => {
+    const next = !popupOn;
+    setPopupOn(next);
+    if (!next) setArrivals([]);
+    try { localStorage.setItem(POPUP_PREF_KEY, next ? 'on' : 'off'); } catch { /* private mode - just this visit */ }
+  };
+  const closeArrival = () => setArrivals((q) => q.slice(1));
+  const onStreamUpdate = (info) => {
+    loadToday();
+    if (!info || !info.userId || (info.kind !== 'checkin' && info.kind !== 'registered')) return;
+    if (!popupOnRef.current) return;
+    setArrivals((q) => (q.some((a) => a.userId === info.userId)
+      ? q
+      : [...q, { kind: info.kind, userId: info.userId, at: info.at || new Date().toISOString() }]));
+  };
   const [error, setError] = useState('');
   const [showCleared, setShowCleared] = useState(false);
   const [armedClear, setArmedClear] = useState(false);
@@ -1443,7 +1495,7 @@ function CheckinCard({ venueId }) {
       .finally(() => setTodayBusy(false));
   };
   useEffect(() => {
-    setToday(null);
+    setToday(null); setArrivals([]);
     setShowCleared(false); setArmedClear(false); setArmedDelete(null);
     loadToday();
     const t = setInterval(loadToday, 30000);
@@ -1463,7 +1515,7 @@ function CheckinCard({ venueId }) {
       if (stopped || document.hidden) return;
       const mine = new AbortController();
       ctrl = mine;
-      api.streamVenueCheckins(venueId, { onUpdate: loadToday, signal: mine.signal })
+      api.streamVenueCheckins(venueId, { onUpdate: onStreamUpdate, signal: mine.signal })
         .catch(() => {})
         .finally(() => {
           if (!stopped && !mine.signal.aborted) retry = setTimeout(connect, 5000);
@@ -1506,6 +1558,9 @@ function CheckinCard({ venueId }) {
         {error && <p className="error">{error}</p>}
         <div className="ci-today-bar">
           <h3 className="ci-today-head">Today's check-ins</h3>
+          <label className="ci-pop-toggle" title="Open a player's screen automatically when they check in or sign up">
+            <input type="checkbox" checked={popupOn} onChange={togglePopup} /> Pop up
+          </label>
           {visible.length > 0 && (
             <button
               type="button"
@@ -1546,6 +1601,9 @@ function CheckinCard({ venueId }) {
           </button>
         )}
       </div>
+      {arrivals.length > 0 && (
+        <ArrivalPopup venueId={venueId} arrival={arrivals[0]} waiting={arrivals.length - 1} onClose={closeArrival} />
+      )}
     </section>
   );
 }

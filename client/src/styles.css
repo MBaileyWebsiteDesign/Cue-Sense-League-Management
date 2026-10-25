@@ -2531,6 +2531,18 @@ button.vm-tile { cursor: pointer; }
 .ci-today-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 14px 0 6px; }
 .ci-today-bar .ci-today-head { margin: 0; }
 .ci-clear { padding: 4px 12px; font-size: 0.85rem; min-height: 0; }
+/* Check-in pop-up (Matt, 2026-10-25): a player's membership screen over the
+   Venue Manager Portal when they check in or sign up from the venue's code. */
+.ci-today-bar .ci-today-head { flex: 1; }
+.ci-pop-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.ci-pop-toggle input { margin: 0; width: auto; }
+.vmm-pop { position: fixed; inset: 0; z-index: 1000; background: rgba(10, 20, 15, 0.55); display: flex; align-items: flex-start; justify-content: center; padding: 24px 16px; overflow-y: auto; animation: vmm-pop-fade 0.15s ease-out; }
+.vmm-pop-panel { width: 100%; max-width: 560px; background: var(--bg); border-radius: 12px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35); padding: 16px; }
+.vmm-pop-body .au-head { margin-top: 0; }
+.vmm-pop-badge { display: inline-block; align-self: flex-start; background: var(--cta); color: #1a1a1a; font-weight: 700; font-size: 0.8rem; padding: 2px 10px; border-radius: 999px; margin-bottom: 4px; }
+.vmm-pop-foot { margin-top: 12px; }
+@keyframes vmm-pop-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 600px) { .vmm-pop { padding: 8px; } .vmm-pop-panel { padding: 12px; border-radius: 10px; } }
 .ci-today li:not(.vmm-visit) { grid-template-columns: auto 1fr auto auto auto; }
 .ci-today li.ci-hidden { opacity: 0.55; }
 .ci-del { border: 1px solid var(--border); background: transparent; color: var(--ink, inherit); border-radius: 999px; min-width: 32px; height: 32px; padding: 0 8px; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
