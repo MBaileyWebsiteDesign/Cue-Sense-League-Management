@@ -2905,3 +2905,5 @@ button.vm-tile { cursor: pointer; }
 .mk-actions { display: flex; gap: 8px; margin-top: 8px; }
 .mk-actions .btn { flex: 1 1 0; min-height: 44px; }
 .mk-link { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-decoration: none; color: var(--primary); font-weight: 700; border-left: 4px solid var(--cta); }
+.mk-link-sub { display: block; font-weight: 400; }
+.mk-link-end { display: inline-flex; align-items: center; gap: 10px; }

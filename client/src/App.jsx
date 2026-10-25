@@ -36,6 +36,7 @@ const LeagueManagerPortal = lazy(() => import('./pages/LeagueManagerPortal.jsx')
 const AdminPortal = lazy(() => import('./pages/AdminPortal.jsx'));
 const MembershipManagement = lazy(() => import('./pages/MembershipManagement.jsx'));
 const VenueManagerPortal = lazy(() => import('./pages/VenueManagerPortal.jsx'));
+const VenueSummary = lazy(() => import('./pages/VenueManagerPortal.jsx').then((m) => ({ default: m.VenueSummary })));
 const MarketingReview = lazy(() => import('./pages/MarketingReview.jsx'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers.jsx'));
 const AdminUserEdit = lazy(() => import('./pages/AdminUserEdit.jsx'));
@@ -367,6 +368,7 @@ function AppShell() {
             <Route path="/captain" element={<RequireCaptain><CaptainPortal /></RequireCaptain>} />
             <Route path="/league-manager" element={<RequireAnyAdmin><LeagueManagerPortal /></RequireAnyAdmin>} />
             <Route path="/venue-manager" element={<RequireVenueManager><VenueManagerPortal /></RequireVenueManager>} />
+            <Route path="/venue-manager/summary" element={<RequireVenueManager><VenueSummary /></RequireVenueManager>} />
             <Route path="/venue-manager/players/:userId" element={<RequireVenueManager><VenueMember /></RequireVenueManager>} />
             <Route path="/venue-manager/marketing" element={<RequireVenueManagerOnly><MarketingReview /></RequireVenueManagerOnly>} />
             <Route path="/bar-staff" element={<RequireBarStaff><BarStaffPortal /></RequireBarStaff>} />

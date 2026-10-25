@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { api } from '../api.js';
@@ -1804,19 +1804,23 @@ function SubscriptionNotice({ venue, isAdmin }) {
   );
 }
 
+// Layout (Matt, 2026-10-25): Checked in, Table bookings and Registered players on the
+// main page; Status and Join requests moved to the Venue Summary sub-page
+// (/venue-manager/summary, VenueSummary below), linked at the bottom with Marketing
+// review. A Status tile tapped on Venue Summary comes back here as
+// ?venueId=…&bucket=all|2|4|6 and filters Registered players, as before.
+const BUCKETS = { all: 'all', 2: 2, 4: 4, 6: 6 };
+
 export default function VenueManagerPortal() {
   const { user, isAdmin } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [venues, setVenues] = useState(null);
   const [selectedVenueId, setSelectedVenueId] = useState('');
-  const [status, setStatus] = useState(null);
-  const [statusLoading, setStatusLoading] = useState(false);
+  const [pendingJoins, setPendingJoins] = useState(0);
   const [error, setError] = useState('');
   // Bumped when a join request is approved so the status counts and the
   // registered-players list reload with the new member.
-  const [memberRefresh, setMemberRefresh] = useState(0);
-  // Bumped when a player is removed so the Status counts reload (the Registered
-  // players list updates itself, so it isn't remounted and keeps its search).
-  const [statusRefresh, setStatusRefresh] = useState(0);
+  const [memberRefresh] = useState(0);
   // Bumped every 10 minutes (while the tab is showing) to quietly reload Status, Registered players and Join requests.
   const [liveTick, setLiveTick] = useState(0);
   // Which Status tile is selected: null / 'all' = everyone, 2 / 4 / 6 = due in
@@ -1829,7 +1833,7 @@ export default function VenueManagerPortal() {
       setTimeout(() => {
         const el = document.getElementById('vm-registered-players');
         if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 60);
+      }, 400);
     }
   };
 
@@ -1845,19 +1849,25 @@ export default function VenueManagerPortal() {
     api.getMyManagedVenues()
       .then((v) => {
         setVenues(v);
-        if (v.length > 0) setSelectedVenueId(v[0].id);
+        const wanted = searchParams.get('venueId');
+        const start = v.find((x) => x.id === wanted) || v[0];
+        if (start) setSelectedVenueId(start.id);
+        const b = BUCKETS[searchParams.get('bucket')];
+        if (b !== undefined) {
+          pickBucket(b);
+          setSearchParams({}, { replace: true });
+        }
       })
       .catch((e) => setError(e.message));
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
 
+  // Pending join requests, for the badge on the Venue Summary link.
   useEffect(() => {
+    setPendingJoins(0);
     if (!selectedVenueId || locked) return;
-    setStatusLoading(true);
-    api.getVenueManagerStatus(selectedVenueId)
-      .then(setStatus)
-      .catch((e) => setError(e.message))
-      .finally(() => setStatusLoading(false));
-  }, [selectedVenueId, memberRefresh, statusRefresh, locked]);
+    api.getVenueJoinRequests(selectedVenueId).then((r) => setPendingJoins(Array.isArray(r) ? r.length : 0)).catch(() => {});
+  }, [selectedVenueId, liveTick, locked]);
 
   // 10-minute refresh: paused while the tab is hidden; if the 10 minutes have passed by the
   // time the tab is shown again, it refreshes straight away. (Checked in and Table bookings
@@ -1871,11 +1881,6 @@ export default function VenueManagerPortal() {
     document.addEventListener('visibilitychange', onVisible);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
   }, []);
-  useEffect(() => {
-    if (liveTick === 0 || !selectedVenueId || locked) return;
-    api.getVenueManagerStatus(selectedVenueId).then(setStatus).catch(() => {});
-    /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [liveTick]);
 
   return (
     <div className="sx-page portal-theme">
@@ -1920,17 +1925,98 @@ export default function VenueManagerPortal() {
           <SubscriptionNotice venue={selectedVenue} isAdmin={isAdmin} />
           {locked ? null : (
             <>
+              {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
+              {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
+              {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} refreshTick={liveTick} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => {}} />}
+              {selectedVenue && (
+                <Link to={`/venue-manager/summary?venueId=${encodeURIComponent(selectedVenue.id)}`} className="card mk-link">
+                  <span>Venue Summary <span className="muted vm-small mk-link-sub">Status and join requests</span></span>
+                  <span className="mk-link-end">
+                    {pendingJoins > 0 && <span className="vm-bk-count" aria-label={`${pendingJoins} join request${pendingJoins === 1 ? '' : 's'} waiting`}>{pendingJoins}</span>}
+                    <span aria-hidden="true">›</span>
+                  </span>
+                </Link>
+              )}
               {showMarketing && (
                 <Link to={`/venue-manager/marketing?venueId=${encodeURIComponent(selectedVenue.id)}`} className="card mk-link">
                   <span>Marketing review</span>
                   <span aria-hidden="true">›</span>
                 </Link>
               )}
-              <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
-              {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
-              {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
-              {selectedVenue && <JoinRequestsCard key={selectedVenue.id} refreshTick={liveTick} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} onMembershipChange={(id, on) => setVenues((list) => (list || []).map((v) => (v.id === id ? { ...v, membershipEnabled: on } : v)))} />}
-              {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} refreshTick={liveTick} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
+            </>
+          )}
+        </MembershipOnContext.Provider>
+      )}
+    </div>
+  );
+}
+
+// Venue Summary sub-page (/venue-manager/summary?venueId=…, Matt 2026-10-25): the Status
+// tiles and Join requests, moved off the main Venue Manager page. Tapping a Status tile
+// goes back to the main page with Registered players filtered to that group.
+export function VenueSummary() {
+  const { isAdmin } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const venueId = searchParams.get('venueId') || '';
+  const [venue, setVenue] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusRefresh, setStatusRefresh] = useState(0);
+  const [error, setError] = useState('');
+  const back = venueId ? `/venue-manager?venueId=${encodeURIComponent(venueId)}` : '/venue-manager';
+  useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Venue Manager Portal', to: back }, { label: 'Venue Summary' }]);
+
+  useEffect(() => {
+    api.getMyManagedVenues()
+      .then((list) => {
+        const v = list.find((x) => x.id === venueId) || list[0] || null;
+        if (!v) setError("You haven't been assigned to a venue yet.");
+        setVenue(v);
+      })
+      .catch((e) => setError(e.message));
+  }, [venueId]);
+
+  const locked = !!(venue && venue.subscription && venue.subscription.locked) && !isAdmin;
+  useEffect(() => {
+    if (!venue || locked) return;
+    setStatusLoading(true);
+    api.getVenueManagerStatus(venue.id)
+      .then(setStatus)
+      .catch((e) => setError(e.message))
+      .finally(() => setStatusLoading(false));
+  }, [venue && venue.id, statusRefresh, locked]);
+
+  const openBucket = (value) => {
+    if (value === null || !venue) return;
+    navigate(`/venue-manager?venueId=${encodeURIComponent(venue.id)}&bucket=${value}`);
+  };
+
+  return (
+    <div className="sx-page portal-theme">
+      <div className="au-head">
+        <Link to={back} className="msg-icon-btn" aria-label="Back to the Venue Manager Portal">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </Link>
+        <span className="vm-title">
+          <h1>Venue Summary</h1>
+          {venue && <span className="muted">{venue.name}</span>}
+        </span>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {!venue && !error && <p>Loading…</p>}
+      {venue && (
+        <MembershipOnContext.Provider value={venue.membershipEnabled !== false}>
+          <SubscriptionNotice venue={venue} isAdmin={isAdmin} />
+          {!locked && (
+            <>
+              <StatusBox status={status} loading={statusLoading} selected={null} onSelect={openBucket} />
+              <JoinRequestsCard
+                key={venue.id}
+                venue={venue}
+                onApproved={() => setStatusRefresh((n) => n + 1)}
+                onMembershipChange={(id, on) => setVenue((v) => (v && v.id === id ? { ...v, membershipEnabled: on } : v))}
+              />
             </>
           )}
         </MembershipOnContext.Provider>
