@@ -10,6 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { ensureVirtualTraining, ensureVtAccess } from './services/virtualTraining.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // On a host with a persistent volume mounted (e.g. Fly.io at /data), set
@@ -314,6 +315,13 @@ export function readDb() {
     // as they were (no longer read) so a rollback still has them.
     // NFC cards linked by a Venue Manager (2026-09-25): [{ uid, label, linkedAt, linkedBy, linkedAtVenueId }].
     if (!Array.isArray(user.nfcCards)) user.nfcCards = [];
+    // Virtual Training profile (2026-10-25): running totals and bests recorded by
+    // the separate 3D training app. Every existing account starts with empty
+    // totals; the full history is kept in a separate file (see
+    // routes/virtualTraining.js), not in this one.
+    ensureVirtualTraining(user);
+    // Paywall flag (off for everyone until an Overall Admin switches it on).
+    ensureVtAccess(user);
     if (!Array.isArray(user.venueMemberships)) {
       user.venueMemberships = user.venueId
         ? [{

@@ -1,0 +1,18 @@
+/* My Account > Virtual Training (read-only). Uses the app's existing palette variables. */
+.vt-sub { margin-top: 0; }
+.vt-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 4px; }
+.vt-stat { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.vt-stat-value { font-size: 1.35rem; font-weight: 700; color: var(--primary); line-height: 1.2; }
+.vt-stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.vt-group { margin-top: 18px; }
+.vt-group h3 { margin: 0 0 8px; font-size: 1rem; color: var(--primary); }
+.vt-table-wrap { overflow-x: auto; }
+.vt-table th, .vt-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.vt-table th { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+.vt-list { margin: 8px 0 0; padding-left: 18px; font-size: 0.92rem; }
+.vt-list li { margin: 4px 0; }
+.vt-note { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+@media (min-width: 640px) { .vt-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.vt-locked { text-align: center; }
+.vt-lock-line { font-size: 1.05rem; font-weight: 700; color: var(--primary); margin: 6px 0; }
