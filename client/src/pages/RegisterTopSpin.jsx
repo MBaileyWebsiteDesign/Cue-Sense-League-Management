@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
@@ -15,9 +15,30 @@ const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 // membership straight away, even if the venue's normal join policy is
 // 'approval' (Matt, 2026-10-17: same as /RegisterAura). Afterwards the player
 // lands on My Account. Look shared with /register via registerPages.css.
+//
+// Forwards to the check-in link (Matt, 2026-10-25): this page's link is the QR code on the
+// printed Top Spin check-in poster, and scanning it should check the player in, not just
+// sign them up. So on opening it asks the server for Top Spin's current bar tag token and
+// replaces itself with /checkin/<token>: logged-out players get Sign In (with "Create one",
+// which presets Top Spin and joins straight away), then are checked in and see their
+// membership status, and appear on the Venue Manager / Bar Staff check-in list. The form
+// below is only shown if Top Spin has no tag yet or the lookup fails.
 export default function RegisterTopSpin() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [checkingLink, setCheckingLink] = useState(true);
+  useEffect(() => {
+    if (typeof api.topSpinCheckinLink !== 'function') { setCheckingLink(false); return undefined; }
+    let off = false;
+    api.topSpinCheckinLink()
+      .then((r) => {
+        if (off) return;
+        if (r && r.token) navigate(`/checkin/${encodeURIComponent(r.token)}`, { replace: true });
+        else setCheckingLink(false);
+      })
+      .catch(() => { if (!off) setCheckingLink(false); });
+    return () => { off = true; };
+  }, [navigate]);
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', password: '',
     phone: '', teamName: '', classification: '',
@@ -45,6 +66,17 @@ export default function RegisterTopSpin() {
       setSubmitting(false);
     }
   };
+
+  if (checkingLink) {
+    return (
+      <div className="rg-page">
+        <div className="rg-banner">
+          <h1>Top Spin check-in</h1>
+          <p>Loading…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rg-page">

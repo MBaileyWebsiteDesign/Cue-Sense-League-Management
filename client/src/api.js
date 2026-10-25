@@ -64,7 +64,14 @@ async function streamCheckins(base, venueId, { onUpdate, onOpen, signal } = {}) 
     while ((cut = buffer.indexOf('\n\n')) >= 0) {
       const chunk = buffer.slice(0, cut);
       buffer = buffer.slice(cut + 2);
-      if (/^event: checkins$/m.test(chunk) && onUpdate) onUpdate();
+      if (/^event: checkins$/m.test(chunk) && onUpdate) {
+        // data carries { kind: 'checkin' | 'registered', userId } when a player
+        // checked in or signed up (empty for clear/delete) - see notifyCheckinStreams.
+        let info = {};
+        const line = /^data: (.*)$/m.exec(chunk);
+        if (line) { try { info = JSON.parse(line[1]) || {}; } catch { info = {}; } }
+        onUpdate(info);
+      }
     }
   }
 }
@@ -310,6 +317,8 @@ const networkApi = {
   // Sign-up page, when the player came from a tag: the venue it registers them at (Top Spin tags only).
   checkinSignupVenue: (token) =>
     request(`/checkin/${encodeURIComponent(token)}/signup-venue`),
+  // /RegisterTopSpin (the Top Spin poster's QR link): Top Spin's current check-in tag token, or null.
+  topSpinCheckinLink: () => request('/checkin/topspin-link'),
 
   // Issues / Bugs / Features page (client/src/pages/IssuesBugsFeatures.jsx)
   // - visible to every logged-in account, not just admins.

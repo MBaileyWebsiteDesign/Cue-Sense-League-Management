@@ -356,6 +356,17 @@ app.get('/api/checkin/:token/signup-venue', asyncRoute((req, res) => {
   res.json({ venueName: venue ? venue.name : null });
 }));
 
+// /RegisterTopSpin is on the printed Top Spin check-in poster's QR code (Matt, 2026-10-25), so
+// that page now forwards players to Top Spin's bar check-in link (/checkin/<token>): sign in
+// (or "Create one", which joins Top Spin straight away via the token), get checked in, see
+// their membership status. Public because the player isn't logged in yet; it only returns
+// the token already printed on the venue's tag/poster. Looked up live, so rotating the tag
+// keeps the poster working. Null if Top Spin has no tag yet - the page then shows its form.
+app.get('/api/checkin/topspin-link', asyncRoute((req, res) => {
+  const venue = readDb().venues.find((v) => /^\s*top\s*spin\b/i.test(v.name || ''));
+  res.json({ token: venue && venue.checkinTagToken ? venue.checkinTagToken : null });
+}));
+
 app.post('/api/users/register', asyncRoute((req, res) => {
   const {
     firstName, lastName, email, password,
@@ -474,6 +485,11 @@ app.post('/api/users/register', asyncRoute((req, res) => {
 
   const { token, expiresAt } = createSessionToken(user.id);
   res.status(201).json({ token, expiresAt, user: publicUser(user) });
+
+  // Signed up from a venue's code (/RegisterTopSpin, /RegisterAura or the bar tag) - the
+  // player is at the venue, so the Venue Manager Portal pops their screen up (Matt, 2026-10-25).
+  // No visit is logged; if they then check in, that shows on Today's check-ins as normal.
+  if (signupVenue && directJoin) notifyCheckinStreams(signupVenue.id, { kind: 'registered', userId: user.id });
 
   // Tell the venue's managers about the request, as the in-app request does.
   if (venueNeedsApproval) {
@@ -3352,7 +3368,7 @@ app.post('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, re
   const user = findUserByCard(db, uid);
   if (!user) return res.json({ found: false, uid });
   const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'card', cardUid: uid, by: req.adminSession.label });
-  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id); }
+  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id, { kind: 'checkin', userId: user.id }); }
   res.json({ found: true, uid, repeat, visit, player: checkinPlayerView(db, user, venue.id) });
 }));
 
@@ -3363,10 +3379,13 @@ app.post('/api/venue-manager/checkins', requireVenueManager, asyncRoute((req, re
 // Same shape as the Table bookings stream (GET /bookings/stream above): the
 // page disconnects while its tab is hidden and keeps its 30s refresh as a backstop.
 const checkinStreams = new Map(); // venueId -> Set<res>
-function notifyCheckinStreams(venueId) {
+// `info` (Matt, 2026-10-25) says who triggered it - { kind: 'checkin' | 'registered', userId } -
+// so the Venue Manager Portal can pop that player's membership screen up straight away.
+// Clear/delete send no info (the list just reloads).
+function notifyCheckinStreams(venueId, info = null) {
   const set = checkinStreams.get(venueId);
   if (!set || set.size === 0) return;
-  const msg = `event: checkins\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`;
+  const msg = `event: checkins\ndata: ${JSON.stringify({ at: new Date().toISOString(), ...(info || {}) })}\n\n`;
   for (const res of set) {
     try {
       res.write(msg);
@@ -3616,7 +3635,7 @@ app.post('/api/checkin/:token', requireAuth, asyncRoute((req, res) => {
   const user = db.users.find((u) => u.id === req.auth.user.id);
   if (!user) throw new ApiError(404, 'Account not found');
   const { visit, repeat } = logVenueVisit(db, { venueId: venue.id, user, source: 'tag' });
-  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id); }
+  if (!repeat) { writeDb(db); notifyCheckinStreams(venue.id, { kind: 'checkin', userId: user.id }); }
   const m = membershipAt(user, venue.id);
   res.json({
     venueName: venue.name,
