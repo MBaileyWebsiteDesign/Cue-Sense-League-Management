@@ -168,6 +168,8 @@ const networkApi = {
     request(`/venue-manager/venues/${encodeURIComponent(venueId)}/expired-emails`, { method: 'POST', body: JSON.stringify({ enabled }) }),
   setVenueMembership: (venueId, enabled) =>
     request(`/venue-manager/venues/${encodeURIComponent(venueId)}/membership`, { method: 'POST', body: JSON.stringify({ enabled }) }),
+  setVenueTableCounts: (venueId, tableCounts) =>
+    request(`/venue-manager/venues/${encodeURIComponent(venueId)}/tables`, { method: 'POST', body: JSON.stringify({ tableCounts }) }),
   getVenueJoinRequests: (venueId) => request(`/venue-manager/join-requests?venueId=${encodeURIComponent(venueId)}`),
   decideVenueJoinRequest: (id, decision) =>
     request(`/venue-manager/join-requests/${encodeURIComponent(id)}/${decision === 'approve' ? 'approve' : 'decline'}`, { method: 'POST' }),
