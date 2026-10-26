@@ -14,3 +14,5 @@
 .pa-note { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
 .pa-locked-row td { color: var(--muted); }
 @media (min-width: 640px) { .pa-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.pa-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pa-chevron { flex: 0 0 auto; }

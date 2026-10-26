@@ -30,6 +30,8 @@ function Stat({ label, value }) {
 export default function PoolAcademyCard() {
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
+  // Starts minimized (2026-10-26); tap the title to open or close.
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     // The static demo build has no such call: show nothing there.
@@ -56,7 +58,14 @@ export default function PoolAcademyCard() {
 
   return (
     <section className="card pa-card">
-      <h2>Pool Academy</h2>
+      <h2>
+        <button type="button" className="pa-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          <span>Pool Academy</span>
+          <span className="pa-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+        </button>
+      </h2>
+      {open && (
+        <>
       {!a.eventCount ? (
         <p className="muted">No Pool Academy progress has been recorded on this account yet. Level 1 is free.</p>
       ) : (
@@ -138,6 +147,8 @@ export default function PoolAcademyCard() {
 
       {a.lastVisited && (
         <p className="pa-note">Last lesson opened: Level {a.lastVisited.level}, {a.lastVisited.lessonKey}, on {day(a.lastVisited.at)}.</p>
+      )}
+        </>
       )}
     </section>
   );
