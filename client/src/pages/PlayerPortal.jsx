@@ -7,6 +7,7 @@ import { FormStrip, WinRing, ResultBadge, Chevron, formatFixtureDate } from '../
 import CreateLink from '../components/CreateLink.jsx';
 import VirtualTrainingCard from '../components/VirtualTrainingCard.jsx';
 import PoolAcademyCard from '../components/PoolAcademyCard.jsx';
+import TableBookingCard from '../components/TableBookingCard.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
@@ -1194,6 +1195,7 @@ export default function PlayerPortal() {
       <RecentResults fixtures={fixtures} profile={profile} />
       <MyLeagues leagues={leagues} playerId={user.playerId} />
       <MyBookings />
+      <TableBookingCard />
       <VirtualTrainingCard />
       <PoolAcademyCard />
 

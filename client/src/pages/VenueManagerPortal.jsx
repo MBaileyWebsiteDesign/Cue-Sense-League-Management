@@ -4,6 +4,7 @@ import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { api } from '../api.js';
 import VenueTableCounts from '../components/VenueTableCounts.jsx';
+import VenueTableBooking from '../components/VenueTableBooking.jsx';
 import { VenueMemberView } from './VenueMember.jsx';
 
 // Whether the selected venue runs memberships (venue.membershipEnabled is only
@@ -2039,6 +2040,7 @@ export function VenueSummary() {
                   />
                 </div>
               </section>
+              <VenueTableBooking key={`tb-${venue.id}`} venueId={venue.id} />
             </>
           )}
         </MembershipOnContext.Provider>

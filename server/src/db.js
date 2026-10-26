@@ -141,6 +141,8 @@ export function readDb() {
   if (!state.userBlocks) state.userBlocks = [];
   if (!state.messageReports) state.messageReports = [];
   if (!state.venueVisits) state.venueVisits = [];
+  // In-app table bookings (2026-10-26) - see server/src/routes/tableBookings.js.
+  if (!Array.isArray(state.tableBookings)) state.tableBookings = [];
   if (!state.marketingItems) state.marketingItems = [];
   if (!state.passwordResets) state.passwordResets = [];
   if (!state.divisions) state.divisions = [];

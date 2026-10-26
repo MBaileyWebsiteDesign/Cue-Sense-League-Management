@@ -40,6 +40,7 @@ import {
 import { recordAudit } from './services/auditLog.js';
 import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
+import { registerTableBookingRoutes } from './routes/tableBookings.js';
 import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt, expiredEmailSentAt } from './venueEmails.js';
 import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
 import { registerMarketingReviewRoutes } from './routes/marketingReview.js';
@@ -3110,6 +3111,24 @@ registerPlayerBookingRoutes(app, {
   WALKIN_MAX_AHEAD_MS,
   wixBookingsStartingBetween,
   getBlockedTableEvents,
+});
+
+// In-app table booking for venues NOT on the Wix booking system (2026-10-26) -
+// see server/src/routes/tableBookings.js.
+registerTableBookingRoutes(app, {
+  requireAuth,
+  requireVenueManager,
+  assertVenueAccess,
+  readDb,
+  writeDb,
+  asyncRoute,
+  uuid,
+  membershipAt,
+  parseLondonLocal,
+  londonLocalString,
+  wixSiteIdForVenue,
+  venueTableCounts,
+  VENUE_TABLE_TYPES,
 });
 
 registerBookAllTablesRoute(app, {
