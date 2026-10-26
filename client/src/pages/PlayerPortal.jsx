@@ -7,6 +7,7 @@ import { FormStrip, WinRing, ResultBadge, Chevron, formatFixtureDate } from '../
 import CreateLink from '../components/CreateLink.jsx';
 import VirtualTrainingCard from '../components/VirtualTrainingCard.jsx';
 import PoolAcademyCard from '../components/PoolAcademyCard.jsx';
+import AiCoachingCard from '../components/AiCoachingCard.jsx';
 import TableBookingCard from '../components/TableBookingCard.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
@@ -1198,6 +1199,7 @@ export default function PlayerPortal() {
       <TableBookingCard />
       <VirtualTrainingCard />
       <PoolAcademyCard />
+      <AiCoachingCard />
 
       <section className="card cs-settings">
         <h2>Account settings</h2>
