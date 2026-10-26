@@ -139,6 +139,9 @@ export default function VirtualTrainingCard() {
           ))}
           <li>Timed challenge: {vt.challenges.timed.plays} played, best {val(vt.challenges.timed.bestPots)} pots.</li>
           <li>Pot streak: {vt.challenges.streak.plays} played, best {val(vt.challenges.streak.bestStreak)}.</li>
+          {vt.challenges.breakRun && vt.challenges.breakRun.plays > 0 && (
+            <li>Break and pot: {vt.challenges.breakRun.plays} played, best {val(vt.challenges.breakRun.bestPots)} balls potted, table cleared {vt.challenges.breakRun.cleared}x.</li>
+          )}
         </ul>
         {dailyDates.length > 0 && (
           <p className="vt-note">

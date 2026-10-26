@@ -314,3 +314,17 @@ test('paywall: admin list and switch on/off, with audit entries', () => {
   h.call('POST /api/admin/users/:id/virtual-training/rebuild', { params: { id: 'u3' } });
   assert.equal(h.getDb().users[2].virtualTrainingAccess.paid, false);
 });
+
+test('break and pot results: best, latest and cleared counts, in any order', () => {
+  const events = [
+    ev('challenge.result', { kind: 'breakrun', pots: 2 }, '2026-10-24T10:00:00Z'),
+    ev('challenge.result', { kind: 'breakrun', pots: 6, cleared: true }, '2026-10-24T10:10:00Z'),
+    ev('challenge.result', { kind: 'breakrun', pots: 0 }, '2026-10-24T10:20:00Z'),
+  ].map(good);
+  const vt = rebuildFromEvents(events);
+  assert.deepEqual(vt.challenges.breakRun, { plays: 3, bestPots: 6, lastPots: 0, lastAt: '2026-10-24T10:20:00.000Z', cleared: 1 });
+  assert.equal(strip(rebuildFromEvents([...events].reverse())), strip(vt));
+  assert.equal(validateEvent(ev('challenge.result', { kind: 'breakrun', pots: -1 }), NOW).ok, false);
+  assert.equal(validateEvent(ev('challenge.result', { kind: 'breakrun', pots: 3, cleared: 'yes' }), NOW).ok, false);
+  assert.equal(ensureVirtualTraining({ virtualTraining: { challenges: { timed: { plays: 1 } } } }).challenges.breakRun.plays, 0);
+});
