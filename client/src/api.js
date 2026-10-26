@@ -116,6 +116,20 @@ const networkApi = {
   // tables/lengths/opening hours for one of them, and making the booking -
   // same rules and same Wix data as the Venue Manager's walk-in booking.
   getMyBookingVenues: () => request('/users/me/booking-venues'),
+  // In-app table booking (2026-10-26) - venues not on the Wix booking system.
+  getTableBookingVenues: () => request('/users/me/table-booking/venues'),
+  getTableBookingAvailability: (venueId, type, day) =>
+    request(`/users/me/table-booking/availability?venueId=${encodeURIComponent(venueId)}&type=${encodeURIComponent(type)}&day=${encodeURIComponent(day)}`),
+  getMyTableBookings: () => request('/users/me/table-bookings'),
+  bookMyTable: (body) => request('/users/me/table-bookings', { method: 'POST', body: JSON.stringify(body) }),
+  cancelMyTableBooking: (id) => request(`/users/me/table-bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  getVenueTableBooking: (venueId) => request(`/venue-manager/table-booking?venueId=${encodeURIComponent(venueId)}`),
+  saveVenueTableBooking: (venueId, body) =>
+    request(`/venue-manager/venues/${encodeURIComponent(venueId)}/table-booking`, { method: 'POST', body: JSON.stringify(body) }),
+  getVenueTableDay: (venueId, day) =>
+    request(`/venue-manager/table-booking/day?venueId=${encodeURIComponent(venueId)}&day=${encodeURIComponent(day)}`),
+  addVenueTableBooking: (body) => request('/venue-manager/table-bookings', { method: 'POST', body: JSON.stringify(body) }),
+  cancelVenueTableBooking: (id) => request(`/venue-manager/table-bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
   getMyBookingTables: (venueId) =>
     request(`/users/me/booking-tables?venueId=${encodeURIComponent(venueId)}`),
   getMyBookingBusy: (venueId, tableId) =>
