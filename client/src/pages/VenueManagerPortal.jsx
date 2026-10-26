@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { api } from '../api.js';
+import VenueTableCounts from '../components/VenueTableCounts.jsx';
 import { VenueMemberView } from './VenueMember.jsx';
 
 // Whether the selected venue runs memberships (venue.membershipEnabled is only
@@ -2025,6 +2026,19 @@ export function VenueSummary() {
                 onApproved={() => setStatusRefresh((n) => n + 1)}
                 onMembershipChange={(id, on) => setVenue((v) => (v && v.id === id ? { ...v, membershipEnabled: on } : v))}
               />
+              <section className="card sx-card vm-panel">
+                <div className="vm-bk-band">
+                  <span className="vm-bk-band-title"><h2>Tables</h2></span>
+                </div>
+                <div className="vm-panel-body">
+                  <VenueTableCounts
+                    key={venue.id}
+                    venueId={venue.id}
+                    counts={venue.tableCounts}
+                    onSaved={(tableCounts) => setVenue((v) => (v && v.id === venue.id ? { ...v, tableCounts } : v))}
+                  />
+                </div>
+              </section>
             </>
           )}
         </MembershipOnContext.Provider>

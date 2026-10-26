@@ -177,6 +177,14 @@ export function readDb() {
     // 'pending'|'approved'|'declined', createdAt, decidedAt, decidedBy }].
     if (venue.joinPolicy !== 'approval') venue.joinPolicy = 'open';
     if (!Array.isArray(venue.joinRequests)) venue.joinRequests = [];
+    // Table counts (2026-10-26): how many tables of each type the venue has.
+    // Whole numbers, 0 by default; keys must match VENUE_TABLE_TYPES in index.js.
+    const tc = venue.tableCounts && typeof venue.tableCounts === 'object' ? venue.tableCounts : {};
+    venue.tableCounts = {};
+    for (const key of ['english', 'chinese8', 'american', 'snooker']) {
+      const n = Number(tc[key]);
+      venue.tableCounts[key] = Number.isInteger(n) && n >= 0 ? n : 0;
+    }
   }
   // Table scheduling: named tables belong to a league, and a fixture can be
   // assigned to one (plus a time) via POST /api/fixtures/:id/schedule - see

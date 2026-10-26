@@ -774,6 +774,26 @@ function userVenueIds(user) {
 function venueMembershipOn(venue) {
   return !venue || venue.membershipEnabled !== false;
 }
+// Table counts per venue (Matt, 2026-10-26): how many tables of each type a
+// venue has. Plain stored numbers for now - not linked to the Wix bookable
+// tables or to a league's named tables. Venue Managers of the venue and
+// Overall Admins can change them (POST /api/venue-manager/venues/:id/tables).
+const VENUE_TABLE_TYPES = [
+  { key: 'english', label: 'English pool' },
+  { key: 'chinese8', label: 'Chinese 8 ball' },
+  { key: 'american', label: 'American pool' },
+  { key: 'snooker', label: 'Snooker' },
+];
+const VENUE_TABLE_MAX = 100;
+function venueTableCounts(venue) {
+  const src = (venue && venue.tableCounts && typeof venue.tableCounts === 'object') ? venue.tableCounts : {};
+  const out = {};
+  for (const t of VENUE_TABLE_TYPES) {
+    const n = Number(src[t.key]);
+    out[t.key] = Number.isInteger(n) && n >= 0 ? n : 0;
+  }
+  return out;
+}
 // Adds (or returns the existing) membership entry for venueId.
 function ensureMembership(user, venueId) {
   if (!Array.isArray(user.venueMemberships)) user.venueMemberships = [];
@@ -1340,7 +1360,7 @@ app.get('/api/venues', requireAdmin, asyncRoute((req, res) => {
   const db = readDb();
   res.json([...db.venues]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((v) => ({ ...v, paid: v.paid !== false, subscription: venueSubscription(v) })));
+    .map((v) => ({ ...v, paid: v.paid !== false, subscription: venueSubscription(v), tableCounts: venueTableCounts(v) })));
 }));
 
 app.post('/api/venues', requireAdmin, asyncRoute((req, res) => {
@@ -1351,7 +1371,7 @@ app.post('/api/venues', requireAdmin, asyncRoute((req, res) => {
   if (db.venues.some((v) => v.name.toLowerCase() === trimmed.toLowerCase())) {
     throw new ApiError(409, 'A venue with this name already exists');
   }
-  const venue = { id: uuid(), name: trimmed, managerUserIds: [], joinPolicy: 'open', joinRequests: [], paid: true, unpaidSince: null, createdAt: new Date().toISOString() };
+  const venue = { id: uuid(), name: trimmed, managerUserIds: [], joinPolicy: 'open', joinRequests: [], paid: true, unpaidSince: null, tableCounts: venueTableCounts(null), createdAt: new Date().toISOString() };
   db.venues.push(venue);
   recordAudit(db, {
     actor: req.adminSession.label,
@@ -1575,6 +1595,7 @@ app.get('/api/venue-manager/venues', requireVenueManager, asyncRoute((req, res) 
         membershipEnabled: venueMembershipOn(v),
         paid: v.paid !== false,
         subscription: venueSubscription(v),
+        tableCounts: venueTableCounts(v),
         pendingJoinRequests: (joinRequests || []).filter((r) => r.status === 'pending').length,
       };
       if (req.barStaffMode) delete out.managerUserIds;
@@ -1631,6 +1652,44 @@ app.post('/api/venue-manager/venues/:id/membership', requireVenueManager, asyncR
     writeDb(db);
   }
   res.json({ membershipEnabled: venueMembershipOn(venue) });
+}));
+
+// Table counts for a venue (Matt, 2026-10-26): English pool, Chinese 8 ball,
+// American pool and Snooker. Whole numbers 0-100; only the types sent are
+// changed. Venue Managers of the venue and Overall Admins only - Bar Staff are
+// not in BAR_STAFF_ROUTES (and are refused here too).
+app.post('/api/venue-manager/venues/:id/tables', requireVenueManager, asyncRoute((req, res) => {
+  if (req.barStaffMode) throw new ApiError(403, 'Only a Venue Manager or an admin can change this');
+  const { tableCounts } = req.body || {};
+  if (!tableCounts || typeof tableCounts !== 'object' || Array.isArray(tableCounts)) throw new ApiError(400, 'tableCounts is required');
+  const db = readDb();
+  const venue = db.venues.find((v) => v.id === req.params.id);
+  if (!venue) throw new ApiError(404, 'Venue not found');
+  assertVenueAccess(req, venue);
+  const before = venueTableCounts(venue);
+  const next = { ...before };
+  for (const key of Object.keys(tableCounts)) {
+    const def = VENUE_TABLE_TYPES.find((t) => t.key === key);
+    if (!def) throw new ApiError(400, `Unknown table type: ${key}`);
+    const n = tableCounts[key];
+    if (!Number.isInteger(n) || n < 0 || n > VENUE_TABLE_MAX) {
+      throw new ApiError(400, `${def.label} must be a whole number from 0 to ${VENUE_TABLE_MAX}`);
+    }
+    next[key] = n;
+  }
+  const changed = VENUE_TABLE_TYPES.filter((t) => before[t.key] !== next[t.key]);
+  if (changed.length > 0) {
+    venue.tableCounts = next;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'venue.table_counts',
+      targetType: 'venue',
+      targetId: venue.id,
+      details: `Changed tables at "${venue.name}": ${changed.map((t) => `${t.label} ${before[t.key]} to ${next[t.key]}`).join(', ')}`,
+    });
+    writeDb(db);
+  }
+  res.json({ tableCounts: venueTableCounts(venue) });
 }));
 
 // Per-venue switch for the automatic membership-expiry emails (Matt, 2026-10-07).

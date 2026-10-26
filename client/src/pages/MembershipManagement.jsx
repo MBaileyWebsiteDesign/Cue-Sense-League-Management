@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import VenueTableCounts from '../components/VenueTableCounts.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 
 // Membership Management - Overall-Admin-only. First pass: create/rename/
@@ -288,6 +289,7 @@ function VenueCard({ venue, users, onChange, setError }) {
   const [savingPaid, setSavingPaid] = useState(false);
   const [marketingOn, setMarketingOn] = useState(venue.marketingReviewEnabled === true);
   const [savingMarketing, setSavingMarketing] = useState(false);
+  const [tableCounts, setTableCounts] = useState(venue.tableCounts || {});
   const registeredCount = users.filter((u) => (u.venueMemberships || []).some((m) => m.venueId === venue.id)).length;
 
   const changeMembership = async (next) => {
@@ -408,6 +410,9 @@ function VenueCard({ venue, users, onChange, setError }) {
             <p className="muted vm-small" style={{ margin: '0 0 12px' }}>
               Shows a Marketing review page to this venue's Venue Manager only. Overall Admins and Bar Staff never see it.
             </p>
+            <h3 style={{ margin: '4px 0 6px', fontSize: '0.95rem' }}>Tables</h3>
+            <VenueTableCounts venueId={venue.id} counts={tableCounts} onSaved={setTableCounts} />
+            <div style={{ height: 14 }} />
             <RenameVenueForm venue={venue} onSaved={onChange} setError={setError} />
             <button className="btn btn-danger cs-btn-block" type="button" disabled={deleting} onClick={onDelete}>
               {deleting ? 'Deleting…' : 'Delete venue'}
