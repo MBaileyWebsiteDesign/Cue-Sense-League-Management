@@ -26,9 +26,10 @@ export const MAX_EVENT_BYTES = 2048;
 const MEDAL_RANK = { bronze: 1, silver: 2, gold: 3 };
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const KEY_RE = /^[A-Za-z0-9_.:-]{1,40}$/;
+const UNSAFE_KEYS = ['__proto__', 'constructor', 'prototype'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TABLE_SIZES = ['6ft', '7ft'];
-const CHALLENGE_KINDS = ['daily', 'ladder', 'run', 'timed', 'streak', 'breakrun'];
+const CHALLENGE_KINDS = ['daily', 'ladder', 'run', 'timed', 'streak', 'breakrun', 'drill'];
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const TWO_YEARS_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 
@@ -79,6 +80,8 @@ export function defaultVirtualTraining() {
       streak: { plays: 0, bestStreak: null, lastStreak: null, lastAt: null },
       // "Break and pot" (added 2026-10-26): balls potted before the first miss; cleared = attempts that potted every ball.
       breakRun: { plays: 0, bestPots: null, lastPots: null, lastAt: null, cleared: 0 },
+      // Drill games (added 2026-10-26): drillId -> { plays, best, lastScore, lastAt }. Higher score is better for every drill.
+      drills: {},
     },
     matches: { played: 0, won: 0, lost: 0, framesWon: 0, framesLost: 0, lastPlayedAt: null },
     practice: { sessions: 0, shots: 0, pots: 0, scratches: 0, seconds: 0, lastPracticeAt: null },
@@ -173,6 +176,11 @@ export function validateEvent(raw, nowMs = Date.now()) {
         if (!isInt(d.pots, 0, 100)) return { ok: false, error: 'pots must be a whole number 0-100' };
         if (d.cleared !== undefined && typeof d.cleared !== 'boolean') return { ok: false, error: 'cleared must be true or false' };
         Object.assign(out, { pots: d.pots, cleared: d.cleared === true });
+      } else if (d.kind === 'drill') {
+        // Drill games (added 2026-10-26): the Virtual Training app's practice drills. key = the drill's id.
+        if (!isKey(d.key) || UNSAFE_KEYS.includes(d.key)) return { ok: false, error: 'drill key is required' };
+        if (!isInt(d.score, 0, 10000)) return { ok: false, error: 'score must be a whole number 0-10000' };
+        Object.assign(out, { key: d.key, score: d.score });
       } else {
         if (!isInt(d.streak, 0, 10000)) return { ok: false, error: 'streak must be a whole number' };
         Object.assign(out, { streak: d.streak });
@@ -313,6 +321,11 @@ export function applyEvent(vt, event) {
       if (d.cleared) c.breakRun.cleared += 1;
       if (c.breakRun.bestPots === null || d.pots > c.breakRun.bestPots) c.breakRun.bestPots = d.pots;
       if (laterOrEqual(at, c.breakRun.lastAt)) { c.breakRun.lastPots = d.pots; c.breakRun.lastAt = at; }
+    } else if (d.kind === 'drill') {
+      const e = (c.drills[d.key] ||= { plays: 0, best: null, lastScore: null, lastAt: null });
+      e.plays += 1;
+      if (e.best === null || d.score > e.best) e.best = d.score;
+      if (laterOrEqual(at, e.lastAt)) { e.lastScore = d.score; e.lastAt = at; }
     } else {
       c.streak.plays += 1;
       if (c.streak.bestStreak === null || d.streak > c.streak.bestStreak) c.streak.bestStreak = d.streak;

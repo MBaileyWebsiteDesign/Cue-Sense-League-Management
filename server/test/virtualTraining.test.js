@@ -328,3 +328,30 @@ test('break and pot results: best, latest and cleared counts, in any order', () 
   assert.equal(validateEvent(ev('challenge.result', { kind: 'breakrun', pots: 3, cleared: 'yes' }), NOW).ok, false);
   assert.equal(ensureVirtualTraining({ virtualTraining: { challenges: { timed: { plays: 1 } } } }).challenges.breakRun.plays, 0);
 });
+
+test('drill game results: plays, best and latest score per drill, in any order', () => {
+  const events = [
+    ev('challenge.result', { kind: 'drill', key: 'drill-distance', score: 2, passed: true }, '2026-10-25T10:00:00Z'),
+    ev('challenge.result', { kind: 'drill', key: 'drill-distance', score: 4, passed: true }, '2026-10-25T10:10:00Z'),
+    ev('challenge.result', { kind: 'drill', key: 'drill-distance', score: 1, passed: true }, '2026-10-25T10:20:00Z'),
+    ev('challenge.result', { kind: 'drill', key: 'drill-spot', score: 7 }, '2026-10-25T10:30:00Z'),
+  ].map(good);
+  const vt = rebuildFromEvents(events);
+  assert.deepEqual(vt.challenges.drills['drill-distance'], { plays: 3, best: 4, lastScore: 1, lastAt: '2026-10-25T10:20:00.000Z' });
+  assert.deepEqual(vt.challenges.drills['drill-spot'], { plays: 1, best: 7, lastScore: 7, lastAt: '2026-10-25T10:30:00.000Z' });
+  assert.equal(strip(rebuildFromEvents([...events].reverse())), strip(vt));
+  // other challenge kinds are untouched
+  assert.equal(vt.challenges.streak.plays, 0);
+  // old accounts get the new field
+  assert.deepEqual(ensureVirtualTraining({ virtualTraining: { challenges: { timed: { plays: 1 } } } }).challenges.drills, {});
+  // bad input
+  const bad = (data) => assert.equal(validateEvent(ev('challenge.result', data), NOW).ok, false);
+  bad({ kind: 'drill', key: 'drill-spot', score: -1 });
+  bad({ kind: 'drill', key: 'drill-spot', score: 1.5 });
+  bad({ kind: 'drill', key: 'drill-spot', score: 10001 });
+  bad({ kind: 'drill', score: 3 });
+  bad({ kind: 'drill', key: 'bad key!', score: 3 });
+  bad({ kind: 'drill', key: '__proto__', score: 3 });
+  bad({ kind: 'drill', key: 'constructor', score: 3 });
+  assert.equal(({}).polluted, undefined);
+});
