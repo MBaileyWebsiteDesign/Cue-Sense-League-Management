@@ -146,14 +146,12 @@ export default function TableBookingCard() {
       )}
       {open && venue && (
         <div className="tb-steps">
-          {venues.length > 1 && (
-            <label className="ll-field">Venue
-              <select className="mm-input" value={venueId} onChange={(e) => setVenueId(e.target.value)}>
-                {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </label>
-          )}
-          {venues.length === 1 && <p className="muted" style={{ margin: 0 }}>{venue.name}</p>}
+          <div className="tb-step">
+            <h3>Venue</h3>
+            <select className="mm-input" aria-label="Venue to book at" value={venueId} onChange={(e) => setVenueId(e.target.value)}>
+              {venues.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          </div>
           <div className="tb-step">
             <h3>1. Table type</h3>
             <div className="tb-types">
@@ -206,7 +204,7 @@ export default function TableBookingCard() {
           <div className="tb-summary">
             <span>
               {time && slot && slot.maxBlocks > 0
-                ? <><strong>{(venue.types.find((t) => t.key === type) || {}).label}</strong><br />{dayShort(day)} · {time}–{addMin(time, blocks * 30)}</>
+                ? <><strong>{venue.name}</strong><br />{(venue.types.find((t) => t.key === type) || {}).label} · {dayShort(day)} · {time}–{addMin(time, blocks * 30)}</>
                 : <span className="muted">Pick a type, day and start time</span>}
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
