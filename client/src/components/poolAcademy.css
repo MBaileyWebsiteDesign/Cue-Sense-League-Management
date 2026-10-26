@@ -1,0 +1,16 @@
+/* My Account > Pool Academy (read-only). Uses the app's existing palette variables. */
+.pa-sub { margin-top: 0; }
+.pa-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 4px; }
+.pa-stat { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.pa-stat-value { font-size: 1.35rem; font-weight: 700; color: var(--primary); line-height: 1.2; }
+.pa-stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.pa-group { margin-top: 18px; }
+.pa-group h3 { margin: 0 0 8px; font-size: 1rem; color: var(--primary); }
+.pa-table-wrap { overflow-x: auto; }
+.pa-table th, .pa-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.pa-table th { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+.pa-list { margin: 8px 0 0; padding-left: 18px; font-size: 0.92rem; }
+.pa-list li { margin: 4px 0; }
+.pa-note { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+.pa-locked-row td { color: var(--muted); }
+@media (min-width: 640px) { .pa-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

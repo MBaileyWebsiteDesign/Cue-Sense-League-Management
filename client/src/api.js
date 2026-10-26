@@ -96,6 +96,10 @@ const networkApi = {
   adminListVirtualTraining: () => request('/admin/virtual-training/users'),
   adminSetVirtualTrainingAccess: (id, paid) =>
     request(`/admin/users/${id}/virtual-training-access`, { method: 'POST', body: JSON.stringify({ paid }) }),
+  getMyAcademy: () => request('/users/me/academy'),
+  adminListAcademy: () => request('/admin/academy/users'),
+  adminSetAcademyAccess: (id, paid) =>
+    request(`/admin/users/${id}/academy-access`, { method: 'POST', body: JSON.stringify({ paid }) }),
   updateMe: (data) => request('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
   changePassword: (currentPassword, newPassword) =>
     request('/users/me/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),

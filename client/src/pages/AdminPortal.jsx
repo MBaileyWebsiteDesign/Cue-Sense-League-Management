@@ -41,6 +41,7 @@ const ICONS = {
   keys: ['M15 7a4 4 0 1 1-3.9 5H3v3h3v3h3v-3h2.1A4 4 0 0 1 15 7z'],
   backup: ['M4 7h16v13H4z', 'M4 7l2-3h12l2 3', 'M12 11v6', 'M9 14l3 3 3-3'],
   server: ['M3 4h18v6H3z', 'M3 14h18v6H3z', 'M7 7h0', 'M7 17h0'],
+  academy: ['M2 9l10-5 10 5-10 5z', 'M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5', 'M22 9v6'],
   trainer: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M12 12h0'],
 };
 
@@ -68,6 +69,7 @@ const SECTIONS = [
     accent: 'system',
     tools: [
       { to: '/admin/virtual-training', icon: 'trainer', title: 'Virtual Training', desc: 'Switch the training app on or off for players who have paid.' },
+      { to: '/admin/pool-academy', icon: 'academy', title: 'Pool Academy', desc: 'Switch Academy Levels 2 to 5 on or off for players who have paid.' },
     ],
   },
   {

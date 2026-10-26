@@ -55,6 +55,7 @@ const PublicDivisionTable = lazy(() => import('./pages/PublicDivisionTable.jsx')
 const PublicDivisionFixtures = lazy(() => import('./pages/PublicDivisionFixtures.jsx'));
 const AdminApiKeys = lazy(() => import('./pages/AdminApiKeys.jsx'));
 const AdminVirtualTraining = lazy(() => import('./pages/AdminVirtualTraining.jsx'));
+const AdminPoolAcademy = lazy(() => import('./pages/AdminPoolAcademy.jsx'));
 const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
 const AdminEmail = lazy(() => import('./pages/AdminEmail.jsx'));
 const AdminServerPerformance = lazy(() => import('./pages/AdminServerPerformance.jsx'));
@@ -296,7 +297,7 @@ function adminThemeClass(pathname) {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/admin') return ' admin-theme admin-theme-home';
   if (path === '/admin/users' || path === '/admin/membership') return ' admin-theme admin-theme-people';
-  if (['/admin/audit-log', '/admin/email', '/admin/server-performance', '/admin/api-keys', '/admin/backup', '/admin/virtual-training'].includes(path)) {
+  if (['/admin/audit-log', '/admin/email', '/admin/server-performance', '/admin/api-keys', '/admin/backup', '/admin/virtual-training', '/admin/pool-academy'].includes(path)) {
     return ' admin-theme admin-theme-system';
   }
   return '';
@@ -390,6 +391,7 @@ function AppShell() {
             <Route path="/admin/issues" element={<Navigate to="/issues-bugs-features" replace />} />
             <Route path="/admin/api-keys" element={<RequireAdmin><AdminApiKeys /></RequireAdmin>} />
             <Route path="/admin/virtual-training" element={<RequireAdmin><AdminVirtualTraining /></RequireAdmin>} />
+            <Route path="/admin/pool-academy" element={<RequireAdmin><AdminPoolAcademy /></RequireAdmin>} />
             <Route path="/admin/backup" element={<RequireAdmin><AdminBackup /></RequireAdmin>} />
             <Route path="/admin/email" element={<RequireAdmin><AdminEmail /></RequireAdmin>} />
             <Route path="/admin/server-performance" element={<RequireAdmin><AdminServerPerformance /></RequireAdmin>} />

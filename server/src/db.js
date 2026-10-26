@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'fs
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { ensureVirtualTraining, ensureVtAccess } from './services/virtualTraining.js';
+import { ensureAcademy, ensureAcademyAccess } from './services/poolAcademy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // On a host with a persistent volume mounted (e.g. Fly.io at /data), set
@@ -332,6 +333,10 @@ export function readDb() {
     ensureVirtualTraining(user);
     // Paywall flag (off for everyone until an Overall Admin switches it on).
     ensureVtAccess(user);
+    // Pool Academy profile (2026-10-26): progress totals (full history is in a separate
+    // file, see routes/poolAcademy.js) and the Levels 2-5 paywall flag (off for everyone).
+    ensureAcademy(user);
+    ensureAcademyAccess(user);
     if (!Array.isArray(user.venueMemberships)) {
       user.venueMemberships = user.venueId
         ? [{
