@@ -6,6 +6,7 @@ import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { FormStrip, WinRing, ResultBadge, Chevron, formatFixtureDate } from '../components/StatsUI.jsx';
 import CreateLink from '../components/CreateLink.jsx';
 import VirtualTrainingCard from '../components/VirtualTrainingCard.jsx';
+import PoolAcademyCard from '../components/PoolAcademyCard.jsx';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
 
@@ -1194,6 +1195,7 @@ export default function PlayerPortal() {
       <MyLeagues leagues={leagues} playerId={user.playerId} />
       <MyBookings />
       <VirtualTrainingCard />
+      <PoolAcademyCard />
 
       <section className="card cs-settings">
         <h2>Account settings</h2>

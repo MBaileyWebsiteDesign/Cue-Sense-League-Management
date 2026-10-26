@@ -87,7 +87,9 @@ export function publicUser(user) {
   // virtualTraining (the stats block) is never sent with the account: it has its
   // own paywalled endpoint (GET /api/users/me/virtual-training). The paid flag,
   // virtualTrainingAccess, does travel with the account.
-  const { passwordHash, virtualTraining, ...rest } = user;
+  // academy (the Pool Academy progress block) is likewise never sent with the account
+  // (GET /api/users/me/academy); the paid flag, academyAccess, does travel.
+  const { passwordHash, virtualTraining, academy, ...rest } = user;
   return rest;
 }
 
