@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import { useAuth } from '../AuthContext.jsx';
+import { canSeeSubApps } from '../subAppAccess.js';
 
 // The Admin Management Portal - the single landing page for everything an
 // admin manages: players/accounts, whole new seasons (leagues + divisions +
@@ -95,6 +97,7 @@ const SECTIONS = [
 
 export default function AdminPortal() {
   useSetBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Admin Portal' }]);
+  const { user } = useAuth();
 
   // Open abuse reports from Player Messages, and disputed results (same
   // "fixtures needing attention" source as Game Adjustments / the League
@@ -119,7 +122,7 @@ export default function AdminPortal() {
 
   const badgeCount = (badge) => (badge === 'reports' ? openReports : badge === 'disputes' ? disputeCount : 0);
   const q = filter.trim().toLowerCase();
-  const sections = SECTIONS.map((s) => ({
+  const sections = SECTIONS.filter((s) => s.title !== 'Sub apps' || canSeeSubApps(user)).map((s) => ({
     ...s,
     tools: q ? s.tools.filter((t) => `${t.title} ${t.desc}`.toLowerCase().includes(q)) : s.tools,
   })).filter((s) => s.tools.length > 0);
