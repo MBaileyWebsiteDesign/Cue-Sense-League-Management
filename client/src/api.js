@@ -83,6 +83,9 @@ const networkApi = {
     request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   register: (data) =>
     request('/users/register', { method: 'POST', body: JSON.stringify(data) }),
+  // Top Spin Singles League sign-up link (/registerTopSpinSingleLeague): new or existing account.
+  registerTopSpinSingleLeague: (data) =>
+    request('/users/register-top-spin-singles', { method: 'POST', body: JSON.stringify(data) }),
   // Public - consumes an admin-generated password reset link (see
   // adminSendResetLink below).
   // Public - asks for a reset link to be emailed to the given address. The

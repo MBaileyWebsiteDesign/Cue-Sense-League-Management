@@ -43,6 +43,7 @@ import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
 import { registerTableBookingRoutes } from './routes/tableBookings.js';
 import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt, expiredEmailSentAt } from './venueEmails.js';
 import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
+import { registerTopSpinSingleLeagueRoute } from './routes/registerTopSpinSingleLeague.js';
 import { registerMarketingReviewRoutes } from './routes/marketingReview.js';
 import { registerServerPerformanceRoutes } from './routes/serverPerformance.js';
 import { registerVirtualTrainingRoutes } from './routes/virtualTraining.js';
@@ -337,6 +338,11 @@ registerVenueEmailTestRoute(app, { requireAdmin, asyncRoute, sendMail, getMailLo
 startMembershipExpiryEmailJob({ readDb, writeDb, sendMail, membershipAt, canEmail, recordAudit });
 // League entry-fee payment request email (bank details, test send, email unpaid players) - see leaguePaymentEmail.js.
 registerLeaguePaymentEmailRoutes(app, { requireAnyAdmin, assertLeagueAccess, asyncRoute, ApiError, readDb, writeDb, sendMail, canEmail, recordAudit });
+// Top Spin + Top Spin Singles League sign-up link (Matt, 2026-10-27) - see routes/registerTopSpinSingleLeague.js.
+registerTopSpinSingleLeagueRoute(app, {
+  asyncRoute, ApiError, readDb, writeDb, uuid, verifyPassword, hashPassword, createSessionToken, publicUser,
+  createUserAccount, ensureMembership, membershipAt, pendingJoinRequest, recordAudit, userDisplayName, notifyCheckinStreams,
+});
 
 // Registering from the Top Spin check-in tag (Matt, 2026-10-15): the tag's link carries the
 // venue's checkinTagToken. For Top Spin ONLY, the sign-up page presets the venue (looked up
