@@ -13,6 +13,7 @@ import Register from './pages/Register.jsx';
 import RegisterWix from './pages/RegisterWix.jsx';
 import RegisterAura from './pages/RegisterAura.jsx';
 import RegisterTopSpin from './pages/RegisterTopSpin.jsx';
+import RegisterTopSpinSingleLeague from './pages/RegisterTopSpinSingleLeague.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import PlayerPortal from './pages/PlayerPortal.jsx';
@@ -567,6 +568,16 @@ export default function App() {
         element={
           <AuthProvider>
             <RegisterTopSpin />
+          </AuthProvider>
+        }
+      />
+      {/* Top Spin + Top Spin Singles League sign-up (Matt, 2026-10-27): new or existing account,
+          adds Top Spin and registers (unpaid) interest in the league. Own route/component. */}
+      <Route
+        path="/registerTopSpinSingleLeague"
+        element={
+          <AuthProvider>
+            <RegisterTopSpinSingleLeague />
           </AuthProvider>
         }
       />
