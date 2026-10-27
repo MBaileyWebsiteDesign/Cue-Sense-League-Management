@@ -8,6 +8,7 @@ import CreateLink from '../components/CreateLink.jsx';
 import VirtualTrainingCard from '../components/VirtualTrainingCard.jsx';
 import PoolAcademyCard from '../components/PoolAcademyCard.jsx';
 import AiCoachingCard from '../components/AiCoachingCard.jsx';
+import AskTheRefCard from '../components/AskTheRefCard.jsx';
 import { canSeeSubApps } from '../subAppAccess.js';
 import TableBookingCard from '../components/TableBookingCard.jsx';
 
@@ -1203,6 +1204,7 @@ export default function PlayerPortal() {
           <VirtualTrainingCard />
           <PoolAcademyCard />
           <AiCoachingCard />
+          <AskTheRefCard />
         </>
       )}
 
