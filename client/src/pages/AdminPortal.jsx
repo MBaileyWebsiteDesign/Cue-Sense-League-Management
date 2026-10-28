@@ -89,6 +89,7 @@ const SECTIONS = [
       { to: '/admin/audit-log', icon: 'audit', title: 'Audit Log', desc: 'Who changed what, and when.' },
       { to: '/admin/email', icon: 'email', title: 'Email', desc: 'Check sending works and see recent results.' },
       { to: '/admin/server-performance', icon: 'server', title: 'Server Performance', desc: 'Is the Fly.io machine short of memory, CPU or disk?' },
+      { to: '/admin/ask-the-ref', icon: 'reports', title: 'Ask the Ref', desc: 'Every question players have asked the Ref, and its answers.' },
       { to: '/admin/api-keys', icon: 'keys', title: 'API Keys', desc: 'Keys for StreamDeck and other integrations.' },
       { to: '/admin/backup', icon: 'backup', title: 'Backup & Restore', desc: 'Export, restore or wipe all data - use with care.', danger: true },
     ],

@@ -5,8 +5,8 @@
 // numbers and say so when the rules do not cover the situation.
 //
 // Data: db.askTheRef = [{ id, userId, ruleset, question, answer, createdAt }]
-// Every successful question is saved. A player only ever sees their own (no
-// admin view yet - Matt has not said who else should see them).
+// Every successful question is saved. A player only sees their own; Overall
+// Admins can see every player's (GET /api/admin/ask-the-ref - Matt, 2026-10-28).
 // No daily limit (Matt's choice), so cost is only limited by usage.
 import { ApiError } from '../errors.js';
 import { ASK_THE_REF_RULESETS } from '../data/askTheRefRules.js';
@@ -15,6 +15,7 @@ const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 const MIN_QUESTION = 8;
 const MAX_QUESTION = 1000;
 const HISTORY_SHOWN = 30;
+const ADMIN_LIST_LIMIT = 200;
 
 function systemPrompt(ruleset) {
   return [
@@ -74,7 +75,7 @@ async function askClaude(ruleset, question) {
   return text.slice(0, 4000);
 }
 
-export function registerAskTheRefRoutes(app, { requireAuth, readDb, writeDb, asyncRoute, uuid }) {
+export function registerAskTheRefRoutes(app, { requireAuth, requireAdmin, readDb, writeDb, asyncRoute, uuid }) {
   const rulesetList = () => ASK_THE_REF_RULESETS.map((r) => ({ key: r.key, name: r.name, label: r.label }));
   const shape = (e) => ({ id: e.id, ruleset: e.ruleset, question: e.question, answer: e.answer, createdAt: e.createdAt });
 
@@ -86,6 +87,22 @@ export function registerAskTheRefRoutes(app, { requireAuth, readDb, writeDb, asy
       .slice(0, HISTORY_SHOWN)
       .map(shape);
     res.json({ rulesets: rulesetList(), history: mine });
+  }));
+
+  // Overall Admins only: every saved question from every player, newest first
+  // (the latest ADMIN_LIST_LIMIT; `total` is the full count).
+  app.get('/api/admin/ask-the-ref', requireAdmin, asyncRoute((req, res) => {
+    const db = readDb();
+    const all = db.askTheRef || [];
+    const users = new Map((db.users || []).map((u) => [u.id, u]));
+    const entries = [...all]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, ADMIN_LIST_LIMIT)
+      .map((e) => {
+        const u = users.get(e.userId);
+        return { ...shape(e), playerName: u ? `${u.firstName} ${u.lastName}`.trim() : 'Deleted account', email: u ? (u.email || '') : '' };
+      });
+    res.json({ total: all.length, entries });
   }));
 
   // Not wrapped in asyncRoute: that helper only catches synchronous throws, and

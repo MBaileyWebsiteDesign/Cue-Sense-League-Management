@@ -3139,7 +3139,7 @@ registerTableBookingRoutes(app, {
 });
 
 // Ask the Ref - AI rules Q&A for players (2026-10-28) - see server/src/routes/askTheRef.js.
-registerAskTheRefRoutes(app, { requireAuth, readDb, writeDb, asyncRoute, uuid });
+registerAskTheRefRoutes(app, { requireAuth, requireAdmin, readDb, writeDb, asyncRoute, uuid });
 
 registerBookAllTablesRoute(app, {
   requireVenueManager,
