@@ -41,6 +41,7 @@ import { recordAudit } from './services/auditLog.js';
 import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
 import { registerTableBookingRoutes } from './routes/tableBookings.js';
+import { registerAskTheRefRoutes } from './routes/askTheRef.js';
 import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt, expiredEmailSentAt } from './venueEmails.js';
 import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
 import { registerTopSpinSingleLeagueRoute } from './routes/registerTopSpinSingleLeague.js';
@@ -3137,6 +3138,9 @@ registerTableBookingRoutes(app, {
   venueTableCounts,
   VENUE_TABLE_TYPES,
 });
+
+// Ask the Ref - AI rules Q&A for players (2026-10-28) - see server/src/routes/askTheRef.js.
+registerAskTheRefRoutes(app, { requireAuth, requireAdmin, readDb, writeDb, asyncRoute, uuid });
 
 registerBookAllTablesRoute(app, {
   requireVenueManager,

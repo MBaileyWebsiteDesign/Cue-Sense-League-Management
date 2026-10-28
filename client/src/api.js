@@ -130,6 +130,8 @@ const networkApi = {
   getMyTableBookings: () => request('/users/me/table-bookings'),
   bookMyTable: (body) => request('/users/me/table-bookings', { method: 'POST', body: JSON.stringify(body) }),
   cancelMyTableBooking: (id) => request(`/users/me/table-bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  getAskTheRef: () => request('/users/me/ask-the-ref'),
+  askTheRef: (body) => request('/users/me/ask-the-ref', { method: 'POST', body: JSON.stringify(body) }),
   getVenueTableBooking: (venueId) => request(`/venue-manager/table-booking?venueId=${encodeURIComponent(venueId)}`),
   saveVenueTableBooking: (venueId, body) =>
     request(`/venue-manager/venues/${encodeURIComponent(venueId)}/table-booking`, { method: 'POST', body: JSON.stringify(body) }),
@@ -164,6 +166,7 @@ const networkApi = {
   adminGetUserByPlayer: (playerId) => request(`/admin/users/by-player/${playerId}`),
   adminImportUsers: (rows) => request('/admin/users/import', { method: 'POST', body: JSON.stringify({ rows }) }),
   adminGetAuditLog: () => request('/admin/audit-log'),
+  adminGetAskTheRef: () => request('/admin/ask-the-ref'),
   // Venue memberships (a player can belong to several venues, each with
   // optional start/end dates) - admin side.
   adminSetVenueMembership: (id, { venueId, startDate = null, renewalDate = null }) =>

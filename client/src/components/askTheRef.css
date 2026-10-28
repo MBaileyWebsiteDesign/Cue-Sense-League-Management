@@ -1,0 +1,17 @@
+/* Ask the Ref card (2026-10-28). Green/gold palette via the app's CSS variables. */
+.atr-card .atr-question { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; resize: vertical; margin-top: 8px; }
+.atr-card select.mm-input { width: 100%; box-sizing: border-box; font-size: 16px; margin-top: 8px; }
+.atr-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.atr-small { font-size: 0.8rem; margin: 10px 0 0; }
+.atr-answer { margin-top: 12px; padding: 12px 14px; border-radius: 10px; border: 2px solid var(--primary, #1f6b3a); background: #f3f8f4; }
+.atr-answer p { margin: 6px 0 0; white-space: pre-wrap; line-height: 1.45; }
+.atr-history { margin-top: 14px; }
+.atr-history > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.atr-past { border-top: 1px solid var(--border, #cfd8d2); padding: 4px 0; }
+.atr-past > summary { cursor: pointer; font-size: 0.9rem; min-height: 44px; display: flex; align-items: center; }
+.atr-q { margin: 4px 0; font-weight: 600; white-space: pre-wrap; }
+.atr-a { margin: 4px 0 10px; white-space: pre-wrap; line-height: 1.45; }
+.atr-admin-list { margin-top: 8px; }
+.atr-admin-item > summary { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 0; min-height: 44px; justify-content: center; }
+.atr-admin-who { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.atr-admin-q { font-size: 0.9rem; }

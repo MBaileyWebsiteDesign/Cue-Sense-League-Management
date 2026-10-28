@@ -60,6 +60,7 @@ const AdminPoolAcademy = lazy(() => import('./pages/AdminPoolAcademy.jsx'));
 const AdminBackup = lazy(() => import('./pages/AdminBackup.jsx'));
 const AdminEmail = lazy(() => import('./pages/AdminEmail.jsx'));
 const AdminServerPerformance = lazy(() => import('./pages/AdminServerPerformance.jsx'));
+const AdminAskTheRef = lazy(() => import('./pages/AdminAskTheRef.jsx'));
 const Help = lazy(() => import('./pages/Help.jsx'));
 const Messages = lazy(() => import('./pages/Messages.jsx'));
 const MessageReports = lazy(() => import('./pages/MessageReports.jsx'));
@@ -396,6 +397,7 @@ function AppShell() {
             <Route path="/admin/backup" element={<RequireAdmin><AdminBackup /></RequireAdmin>} />
             <Route path="/admin/email" element={<RequireAdmin><AdminEmail /></RequireAdmin>} />
             <Route path="/admin/server-performance" element={<RequireAdmin><AdminServerPerformance /></RequireAdmin>} />
+            <Route path="/admin/ask-the-ref" element={<RequireAdmin><AdminAskTheRef /></RequireAdmin>} />
             <Route path="/admin/game-adjustments" element={<RequireAnyAdmin><GameAdjustments /></RequireAnyAdmin>} />
             <Route path="/admin/seasons/new" element={<RequireAdmin><AdminSeasonWizard /></RequireAdmin>} />
             <Route path="/admin/manage-fixtures" element={<RequireAnyAdmin><ManageFixtures /></RequireAnyAdmin>} />

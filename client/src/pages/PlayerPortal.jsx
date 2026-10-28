@@ -9,6 +9,7 @@ import VirtualTrainingCard from '../components/VirtualTrainingCard.jsx';
 import TableBookingCard from '../components/TableBookingCard.jsx';
 import PoolAcademyCard from '../components/PoolAcademyCard.jsx';
 import AiCoachingCard from '../components/AiCoachingCard.jsx';
+import AskTheRefCard from '../components/AskTheRefCard.jsx';
 import { canSeeSubApps } from '../subAppAccess.js';
 
 const CLASSIFICATIONS = ['A', 'B', 'C', 'D'];
@@ -1203,6 +1204,7 @@ export default function PlayerPortal() {
           <VirtualTrainingCard />
           <PoolAcademyCard />
           <AiCoachingCard />
+          <AskTheRefCard />
         </>
       )}
 
