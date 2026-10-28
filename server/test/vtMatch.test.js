@@ -140,6 +140,24 @@ test('presence: online while polling, offline after a while, and leave is record
   assert.equal(h.poll(a.code, a.token).out.seats[1].left, true);
 });
 
+test('older aim messages from the same player are replaced, and the newest state is kept for a reload', () => {
+  const h = harness();
+  const a = h.create('A').out;
+  const b = h.join(a.code, 'B').out;
+  h.send(a.code, a.token, [{ type: 'aim', data: { aimDeg: 1 } }, { type: 'aim', data: { aimDeg: 2 } }, { type: 'state', data: { n: 1 } }]);
+  h.send(a.code, b.token, [{ type: 'aim', data: { aimDeg: 9 } }]);
+  h.send(a.code, a.token, [{ type: 'aim', data: { aimDeg: 3 } }]);
+  const p = h.poll(a.code, b.token, 0).out;
+  assert.deepEqual(p.events.filter((e) => e.type === 'aim').map((e) => [e.seat, e.data.aimDeg]), [[1, 9], [0, 3]]);
+  assert.equal(p.lastState.data.n, 1);
+  // Flood the list with newer messages: the state is still handed out on a first poll.
+  for (let i = 0; i < MAX_EVENTS_KEPT + 10; i += 1) { h.send(a.code, b.token, [{ type: 'shot', data: { i } }]); h.advance(200); }
+  const again = h.poll(a.code, b.token, 0).out;
+  assert.equal(again.events.some((e) => e.type === 'state'), false);
+  assert.equal(again.lastState.data.n, 1);
+  assert.equal(h.poll(a.code, b.token, 1).out.lastState, null);
+});
+
 test('idle matches are removed', () => {
   const h = harness();
   const a = h.create('A').out;

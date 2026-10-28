@@ -86,7 +86,7 @@ export function registerVtMatchRoutes(app, { asyncRoute, ApiError, now = () => D
     const code = newCode();
     const token = crypto.randomBytes(16).toString('hex');
     const room = {
-      code, seq: 0, events: [], created: t, lastActive: t,
+      code, seq: 0, events: [], lastState: null, created: t, lastActive: t,
       seats: [{ token, name: cleanName(req.body && req.body.name, 'Player 1'), lastSeen: t, left: false, sent: [] }, null],
     };
     rooms.set(code, room);
@@ -111,7 +111,9 @@ export function registerVtMatchRoutes(app, { asyncRoute, ApiError, now = () => D
     room.seats[seat].lastSeen = t;
     room.lastActive = t;
     const since = Math.max(parseInt(req.query && req.query.since, 10) || 0, 0);
-    res.json({ ...view(room), seat, events: room.events.filter((e) => e.seq > since) });
+    // lastState: the newest full table state, handed out on a first poll (since = 0) so a phone that reloaded
+    // can pick the match up again even if that message has already been pushed out of the recent list.
+    res.json({ ...view(room), seat, events: room.events.filter((e) => e.seq > since), lastState: since === 0 ? room.lastState : null });
   }));
 
   app.post('/api/vt-match/:code/events', asyncRoute((req, res) => {
@@ -131,7 +133,11 @@ export function registerVtMatchRoutes(app, { asyncRoute, ApiError, now = () => D
     }
     for (const item of raw) {
       room.seq += 1;
-      room.events.push({ seq: room.seq, seat, type: item.type, data: item.data, at: new Date(t).toISOString() });
+      const event = { seq: room.seq, seat, type: item.type, data: item.data, at: new Date(t).toISOString() };
+      // Only the newest aim from a player matters, so older ones are dropped instead of piling up.
+      if (item.type === 'aim') room.events = room.events.filter((e) => !(e.type === 'aim' && e.seat === seat));
+      if (item.type === 'state') room.lastState = event;
+      room.events.push(event);
       me.sent.push(t);
       if (item.type === 'leave') me.left = true;
     }
