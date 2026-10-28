@@ -48,6 +48,7 @@ import { registerMarketingReviewRoutes } from './routes/marketingReview.js';
 import { registerServerPerformanceRoutes } from './routes/serverPerformance.js';
 import { registerVirtualTrainingRoutes } from './routes/virtualTraining.js';
 import { registerPoolAcademyRoutes } from './routes/poolAcademy.js';
+import { registerVtMatchRoutes } from './routes/vtMatch.js';
 
 const STATUSES = ['active', 'suspended'];
 
@@ -3160,6 +3161,7 @@ registerServerPerformanceRoutes(app, { requireAdmin, asyncRoute, sendMail, email
 // player's results on their own account - see routes/virtualTraining.js.
 registerVirtualTrainingRoutes(app, { requireAuth, requireAdmin, asyncRoute, ApiError, readDb, writeDb, recordAudit, DATA_DIR });
 registerPoolAcademyRoutes(app, { requireAuth, requireAdmin, asyncRoute, ApiError, readDb, writeDb, recordAudit, DATA_DIR });
+registerVtMatchRoutes(app, { asyncRoute, ApiError });
 
 // Quick-renew buttons (Search players, Registered players, the check-in
 // result and the member page reached from Today's check-ins) - 1, 6 or 12
