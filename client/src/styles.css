@@ -1451,10 +1451,6 @@ button.cs-tile:focus-visible { outline: 2px solid var(--primary); outline-offset
 .btn-brand-green { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn-brand-green:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); color: #fff; }
 
-/* Light green "Scan score card" button on the Next match card (2026-11-02). */
-.btn.btn-scan { background: #dcefdf; border-color: var(--secondary); color: var(--primary); }
-.btn.btn-scan:hover:not(:disabled) { background: #c9e5ce; border-color: var(--secondary-dark); color: var(--primary-dark); }
-
 /* ------------------------------------------------------------------
    Ad Hoc Game / Head-to-Head setup redesign (2026-09-23) - AdHocGame.jsx.
    ------------------------------------------------------------------ */

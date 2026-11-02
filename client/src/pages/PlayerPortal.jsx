@@ -368,7 +368,7 @@ function BookTableButton() {
   }, []);
   if (!target) return null;
   return (
-    <button type="button" className="btn" onClick={() => window.dispatchEvent(new CustomEvent('cs-book-table', { detail: target }))}>
+    <button type="button" className="btn btn-primary" onClick={() => window.dispatchEvent(new CustomEvent('cs-book-table', { detail: target }))}>
       Book a table
     </button>
   );
@@ -408,7 +408,7 @@ function NextMatch({ fixtures }) {
           </div>
           <div className="cs-next-actions">
             <Link to={`/fixtures/${next.id}`} className="btn btn-primary">Start game</Link>
-            {next.scanCardAvailable && <Link to={`/fixtures/${next.id}?scan=1`} className="btn btn-scan">Scan score card</Link>}
+            {next.scanCardAvailable && <Link to={`/fixtures/${next.id}?scan=1`} className="btn btn-brand-green">Scan score card</Link>}
             {next.opponentUserId && <Link to={`/messages/${next.opponentUserId}`} className="btn btn-brand-green">Message opponent</Link>}
             <BookTableButton />
           </div>
