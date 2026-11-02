@@ -349,6 +349,31 @@ function QuickActions({ showReports }) {
   );
 }
 
+// "Book a table" button on the Next match card (Matt, 2026-11-02). Only shows
+// when the player can book somewhere: a Wix-linked venue (the My Bookings
+// form) or an in-app venue (the Table booking card). It opens whichever
+// applies and scrolls to it. If both apply it opens the Wix form; the in-app
+// card sits just below it.
+function BookTableButton() {
+  const [target, setTarget] = useState(null);
+  useEffect(() => {
+    let live = true;
+    const wix = typeof api.getMyBookingVenues === 'function' ? api.getMyBookingVenues().catch(() => []) : Promise.resolve([]);
+    const app = typeof api.getTableBookingVenues === 'function' ? api.getTableBookingVenues().catch(() => []) : Promise.resolve([]);
+    Promise.all([wix, app]).then(([w, p]) => {
+      if (!live) return;
+      setTarget(Array.isArray(w) && w.length > 0 ? 'wix' : Array.isArray(p) && p.length > 0 ? 'app' : null);
+    });
+    return () => { live = false; };
+  }, []);
+  if (!target) return null;
+  return (
+    <button type="button" className="btn" onClick={() => window.dispatchEvent(new CustomEvent('cs-book-table', { detail: target }))}>
+      Book a table
+    </button>
+  );
+}
+
 function NextMatch({ fixtures }) {
   if (!fixtures) return null;
   const upcoming = fixtures.filter((f) => f.status !== 'completed' && f.status !== 'pending_confirmation');
@@ -383,8 +408,9 @@ function NextMatch({ fixtures }) {
           </div>
           <div className="cs-next-actions">
             <Link to={`/fixtures/${next.id}`} className="btn btn-primary">Start game</Link>
-            {next.scanCardAvailable && <Link to={`/fixtures/${next.id}?scan=1`} className="btn">Scan score card</Link>}
+            {next.scanCardAvailable && <Link to={`/fixtures/${next.id}?scan=1`} className="btn btn-scan">Scan score card</Link>}
             {next.opponentUserId && <Link to={`/messages/${next.opponentUserId}`} className="btn btn-brand-green">Message opponent</Link>}
+            <BookTableButton />
           </div>
           {upcoming.length > 1 && (
             <div className="cs-rows" style={{ marginTop: 10 }}>
@@ -833,6 +859,21 @@ function MyBookings() {
 
   useEffect(() => { load(); }, []);
 
+  // The Next match card's "Book a table" button opens this form.
+  useEffect(() => {
+    const onBook = (e) => {
+      if (e.detail !== 'wix') return;
+      setNotice('');
+      setBookOpen(true);
+      setTimeout(() => {
+        const el = document.getElementById('my-bookings-card');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    };
+    window.addEventListener('cs-book-table', onBook);
+    return () => window.removeEventListener('cs-book-table', onBook);
+  }, []);
+
   // "Book a table" only shows at all once we know whether this player has
   // an active membership at a venue that has table booking set up.
   useEffect(() => {
@@ -873,7 +914,7 @@ function MyBookings() {
   }
 
   return (
-    <section className="card">
+    <section className="card" id="my-bookings-card">
       <h2>My Bookings</h2>
       {error && <p className="error">{error}</p>}
       {notice && <p className="banner banner-success">{notice}</p>}

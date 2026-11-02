@@ -116,11 +116,25 @@ export default function TableBookingCard() {
     }
   };
 
+  // The Next match card's "Book a table" button opens this card's booking steps.
+  useEffect(() => {
+    const onBook = (e) => {
+      if (e.detail !== 'app') return;
+      setOpen(true); setNotice(''); setError('');
+      setTimeout(() => {
+        const el = document.getElementById('table-booking-card');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    };
+    window.addEventListener('cs-book-table', onBook);
+    return () => window.removeEventListener('cs-book-table', onBook);
+  }, []);
+
   if (!supported || venues === null) return null;
   if (venues.length === 0 && mine.length === 0) return null;
 
   return (
-    <section className="card">
+    <section className="card" id="table-booking-card">
       <h2>Table booking</h2>
       {notice && <p className="banner banner-success">{notice}</p>}
       {error && <p className="error">{error}</p>}
