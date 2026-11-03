@@ -1,0 +1,26 @@
+# Top Spin Pool and Sports Bar website (static, nginx). Deployed by
+# .github/workflows/deploy-topspin-website.yml on every push to the
+# `topspin-website` branch.
+app = "topspin-website"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "3s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

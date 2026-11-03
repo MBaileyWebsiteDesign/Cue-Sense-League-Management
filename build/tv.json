@@ -1,0 +1,13 @@
+{
+  "_note": "Sky Sports Main Event listings, taken from skysports.com/watch (sport-on-sky and the per-sport pages). 'onAir' = channel start time; 'start' = kick-off/start time where Sky shows one. Times are UK time. Past items hide automatically on the page.",
+  "updated": "2026-10-17",
+  "source": "https://www.skysports.com/watch/sky-sports-main-event",
+  "items": [
+    { "date": "2026-10-17", "onAir": "15:00", "title": "Soccer Saturday", "competition": "Live scores and reaction", "sport": "Football" },
+    { "date": "2026-10-17", "onAir": "17:00", "start": "17:30", "title": "Newcastle United v Aston Villa", "competition": "Premier League", "sport": "Football" },
+    { "date": "2026-10-18", "onAir": "13:00", "start": "14:00", "title": "Leeds United v Manchester United", "competition": "Premier League", "sport": "Football" },
+    { "date": "2026-10-20", "onAir": "08:30", "title": "Pakistan v England", "competition": "Men's ODI tri-series", "sport": "Cricket" },
+    { "date": "2026-10-22", "onAir": "08:30", "title": "Sri Lanka v England", "competition": "Men's ODI tri-series", "sport": "Cricket" },
+    { "date": "2026-10-25", "onAir": "07:30", "title": "Pakistan v England", "competition": "Men's ODI tri-series", "sport": "Cricket" }
+  ]
+}

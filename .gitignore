@@ -1,0 +1,4 @@
+build/wix-images.json
+media/*
+!media/.gitkeep
+node_modules/

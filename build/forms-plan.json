@@ -1,0 +1,30 @@
+{ "forms": [
+ { "name": "Top Spin Enquiry", "submitText": "Send enquiry",
+   "thankYou": "Thanks for getting in touch with Top Spin. Your message has reached the team.",
+   "fields": [
+    { "label": "First name", "kind": "firstName", "required": true },
+    { "label": "Last name", "kind": "lastName" },
+    { "label": "Email", "kind": "email", "required": true },
+    { "label": "Phone", "kind": "phone", "country": "GB" },
+    { "label": "What is it about?", "kind": "select", "required": true, "choices": ["General enquiry", "Group or team night", "Block-booking tables", "Leagues and tournaments", "Darts teams", "Membership", "Cue care"], "other": true },
+    { "label": "Preferred date", "kind": "date", "min": "$now" },
+    { "label": "Number of people", "kind": "number", "min": 1, "max": 200, "step": 1 },
+    { "label": "Message", "kind": "textarea", "required": true }
+   ] },
+ { "name": "Top Spin Newsletter", "submitText": "Subscribe",
+   "thankYou": "You're on the list. Watch your inbox for offers, events and club news.",
+   "fields": [
+    { "label": "Email", "kind": "email", "required": true },
+    { "label": "First name", "kind": "firstName" },
+    { "label": "Yes, subscribe me to the Top Spin newsletter.", "kind": "checkbox", "required": true }
+   ] },
+ { "name": "Top Spin Cue Care Request", "submitText": "Request a slot",
+   "thankYou": "Thanks. We'll confirm your slot by email. Once confirmed, drop your cue with the staff behind the bar.",
+   "fields": [
+    { "label": "First name", "kind": "firstName", "required": true },
+    { "label": "Last name", "kind": "lastName", "required": true },
+    { "label": "Email", "kind": "email", "required": true },
+    { "label": "Cue care service", "kind": "radio", "required": true, "choices": ["Full re-tip (£25)", "Re-tip using your own tip (£15)", "Tip shaping"] },
+    { "label": "Anything we should know?", "kind": "textarea" }
+   ] }
+]}

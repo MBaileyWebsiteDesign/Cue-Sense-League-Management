@@ -1,0 +1,34 @@
+# Deploys the Top Spin website to the Fly app "topspin-website" on every push
+# to the topspin-website branch. Needs the repository secret
+# TOPSPIN_WEBSITE_FLY_TOKEN (a deploy token: fly tokens create deploy -a topspin-website);
+# without it the deploy is skipped with a warning.
+# Repository variables (Settings > Variables): TOPSPIN_SITE_URL (default
+# https://topspin-website.fly.dev) and TOPSPIN_STAGING (default 1 = noindex;
+# set 0 when the real domain moves over).
+name: Deploy Top Spin website (Fly.io)
+on:
+  push:
+    branches: [topspin-website]
+  workflow_dispatch: {}
+concurrency: topspin-website
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.TOPSPIN_WEBSITE_FLY_TOKEN }}
+      SITE_URL: ${{ vars.TOPSPIN_SITE_URL }}
+      STAGING: ${{ vars.TOPSPIN_STAGING }}
+    steps:
+      - name: Check the Fly deploy token is set
+        if: env.FLY_API_TOKEN == ''
+        run: echo "::warning::TOPSPIN_WEBSITE_FLY_TOKEN is not set - skipping deploy"
+      - uses: actions/checkout@v4
+        if: env.FLY_API_TOKEN != ''
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: env.FLY_API_TOKEN != ''
+      - name: Deploy
+        if: env.FLY_API_TOKEN != ''
+        run: |
+          flyctl deploy --remote-only \
+            --build-arg SITE_URL="${SITE_URL:-https://topspin-website.fly.dev}" \
+            --build-arg STAGING="${STAGING:-1}"

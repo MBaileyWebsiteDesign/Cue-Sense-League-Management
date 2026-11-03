@@ -1,0 +1,42 @@
+# Top Spin Pool and Sports Bar
+
+> Pool hall and sports bar on the first floor at 88-90 Lodge Road, Southampton SO14 6RF, UK. English pool tables, Chinese pool tables, six free dartboards, live sport on big screens (Sky Sports, TNT Sports), food and drink, pool leagues and tournaments.
+
+## Key facts
+- Address: 1st Floor, 88-90 Lodge Rd, Southampton SO14 6RF
+- Email: info@TopSpinPoolAndSportsBar.co.uk
+- Phone: coming soon
+- Opening hours: Monday-Saturday 11:00-00:00; Sunday 11:00-22:00
+- Table prices: standard table £10/hour (£18 for 2 hours); match table £12/hour; 1 hour of pool + 4-pint pitcher £25
+- Membership: £40/month or £400/year (payment at the bar; no online payments yet). Membership includes access to the Cue Sense app (https://app.cuesense.co.uk) to manage, monitor and improve your game; more at https://cuesense.co.uk
+- Darts: six boards, free to use; house darts available; two darts teams play Mondays and Thursdays
+- Leagues: Top Spin Singles League, five divisions (Premier League to Division 5), run on Cue Sense (https://app.cuesense.co.uk)
+- Tournaments: announced in the Top Spin Facebook group (https://www.facebook.com/groups/1084847893069131/)
+- Cue care: full re-tip £25 (£15 with own tip), tip shaping, ball cleaning £2 per session
+- Food: 14" pizzas £12 (Margherita, Vegetarian, Pepperoni, Meat Feast), burgers, jumbo hot dog, chicken and chips, chips, cheesy chips
+- Facilities: car park, dogs allowed, family friendly, smoking area, real ale, live music
+
+## Pages
+- [Top Spin Pool and Sports Bar](https://topspin-website.fly.dev/): Pool tables, Chinese pool, six free dartboards and live sport on big screens. Top Spin is a first-floor pool and sports bar on Lodge Road, Southampton SO14.
+- [Pool Tables & Prices in Southampton](https://topspin-website.fly.dev/pool.html): Pool table prices at Top Spin Southampton: standard tables £10/hour, match tables £12/hour, 2 hours for £18, monthly membership £40. English and Chinese pool tables.
+- [Free Darts in Southampton](https://topspin-website.fly.dev/darts.html): Play darts for free at Top Spin, Southampton. Six quality dartboards, house darts to borrow, and two darts teams with league and practice nights on Mondays and Thursdays.
+- [Pool Leagues & Tournaments in Southampton](https://topspin-website.fly.dev/leagues.html): Join the Top Spin Singles League (five divisions, Premier to Division 5), weekly open pool tournaments, seasonal leagues, handicap nights and team events in Southampton.
+- [Food & Drink](https://topspin-website.fly.dev/food-drink.html): The Top Spin bar menu: 14-inch pizzas for £12 (ideal for 2), chicken burgers, cheeseburgers, jumbo hot dogs and chips, plus real ale. Food served during opening hours.
+- [Live Sport in Southampton](https://topspin-website.fly.dev/live-sport.html): Watch live sport on the big screens at Top Spin, Southampton: Sky Sports, TNT Sports, football, rugby, cricket, racing and terrestrial TV, with food, drinks and pool.
+- [Group Bookings, Team Nights & Private Events](https://topspin-website.fly.dev/groups.html): Plan a group night out, team night or mini-tournament at Top Spin in Southampton. Block-book pool tables, add food and pitchers, and set custom formats and prizes.
+- [Cue Re-tipping & Pool Ball Cleaning in Southampton](https://topspin-website.fly.dev/cue-care.html): Professional cue re-tipping (£25, or £15 with your own tip), tip shaping and pool ball cleaning (£2 a session) at Top Spin Pool and Sports Bar, Southampton.
+- [About Top Spin](https://topspin-website.fly.dev/about.html): About Top Spin Pool and Sports Bar, Southampton: pool and Chinese pool tables, dartboards, big-screen sport, food, real ale, car park, dogs allowed and family friendly.
+- [FAQs](https://topspin-website.fly.dev/faq.html): Answers about Top Spin Southampton: opening hours, pool table prices, Chinese pool, free darts, membership, leagues, live sport, food, parking and group bookings.
+- [Gallery](https://topspin-website.fly.dev/gallery.html): Photo albums from Top Spin Southampton: the Ladies Tournament, the Darts Tournament and highlights from tournaments and social play. 321 photos.
+- [Ladies Pool Tournament Photos](https://topspin-website.fly.dev/gallery-ladies-tournament.html): Photos from the Ladies' Pool Competition at Top Spin, held on 26 September 2026. 121 photos from Top Spin Pool and Sports Bar, Lodge Road, Southampton.
+- [Darts Tournament Photos](https://topspin-website.fly.dev/gallery-darts-tournament.html): Photos from the darts event at Top Spin on 26 September 2026. 53 photos from Top Spin Pool and Sports Bar, Lodge Road, Southampton.
+- [Highlights: Tournaments & Social Play](https://topspin-website.fly.dev/gallery-highlights.html): A selection of photos from Top Spin's tournaments and social play. 147 photos from Top Spin Pool and Sports Bar, Lodge Road, Southampton.
+- [Book a Pool Table](https://topspin-website.fly.dev/book.html): Book a pool table at Top Spin, Lodge Road, Southampton: Table 13, Match Tables 1-3 or the Chinese 8 Ball table. Pick a time online and pay at the bar.
+- [Contact & Directions](https://topspin-website.fly.dev/contact.html): Contact Top Spin Pool and Sports Bar: 1st Floor, 88-90 Lodge Rd, Southampton SO14 6RF. Email info@TopSpinPoolAndSportsBar.co.uk or send an enquiry online.
+- [What's On](https://topspin-website.fly.dev/events.html): Upcoming pool knockouts, leagues, darts competitions and events at Top Spin Pool and Sports Bar, Lodge Road, Southampton.
+
+## Social
+- facebook: https://www.facebook.com/TopspinPoolandsports
+- instagram: https://www.instagram.com/topspinsouthampton/
+- tiktok: https://www.tiktok.com/@topspinsouthampton
+- youtube: https://www.youtube.com/@TopSpinSouthampton
