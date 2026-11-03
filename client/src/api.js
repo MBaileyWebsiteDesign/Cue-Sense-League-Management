@@ -125,11 +125,14 @@ const networkApi = {
   getMyBookingVenues: () => request('/users/me/booking-venues'),
   // In-app table booking (2026-10-26) - venues not on the Wix booking system.
   getTableBookingVenues: () => request('/users/me/table-booking/venues'),
-  getTableBookingAvailability: (venueId, type, day) =>
-    request(`/users/me/table-booking/availability?venueId=${encodeURIComponent(venueId)}&type=${encodeURIComponent(type)}&day=${encodeURIComponent(day)}`),
+  // `pick` is a table type key, or { table: '<type>-<number>' } for a venue with named tables;
+  // `ignore` is the caller's own booking id when moving it.
+  getTableBookingAvailability: (venueId, pick, day, ignore) =>
+    request(`/users/me/table-booking/availability?venueId=${encodeURIComponent(venueId)}${pick && typeof pick === 'object' ? `&table=${encodeURIComponent(pick.table)}` : `&type=${encodeURIComponent(pick)}`}&day=${encodeURIComponent(day)}${ignore ? `&ignore=${encodeURIComponent(ignore)}` : ''}`),
   getMyTableBookings: () => request('/users/me/table-bookings'),
   bookMyTable: (body) => request('/users/me/table-bookings', { method: 'POST', body: JSON.stringify(body) }),
   cancelMyTableBooking: (id) => request(`/users/me/table-bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  moveMyTableBooking: (id, body) => request(`/users/me/table-bookings/${encodeURIComponent(id)}/move`, { method: 'POST', body: JSON.stringify(body) }),
   getAskTheRef: () => request('/users/me/ask-the-ref'),
   askTheRef: (body) => request('/users/me/ask-the-ref', { method: 'POST', body: JSON.stringify(body) }),
   getVenueTableBooking: (venueId) => request(`/venue-manager/table-booking?venueId=${encodeURIComponent(venueId)}`),
@@ -139,6 +142,9 @@ const networkApi = {
     request(`/venue-manager/table-booking/day?venueId=${encodeURIComponent(venueId)}&day=${encodeURIComponent(day)}`),
   addVenueTableBooking: (body) => request('/venue-manager/table-bookings', { method: 'POST', body: JSON.stringify(body) }),
   cancelVenueTableBooking: (id) => request(`/venue-manager/table-bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  // Overall Admin: move a Wix-linked venue (Top Spin) to the in-app booking, or back.
+  setVenueBookingSystem: (venueId, system) =>
+    request(`/venue-manager/venues/${encodeURIComponent(venueId)}/booking-system`, { method: 'POST', body: JSON.stringify({ system }) }),
   getMyBookingTables: (venueId) =>
     request(`/users/me/booking-tables?venueId=${encodeURIComponent(venueId)}`),
   getMyBookingBusy: (venueId, tableId) =>
@@ -859,6 +865,11 @@ const barStaffNetworkApi = {
     request(`/bar-staff/players/${playerId}/cards/${encodeURIComponent(uid)}?venueId=${encodeURIComponent(venueId)}`, { method: 'DELETE' }),
   getCheckinTag: (venueId, rotate = false) =>
     request('/bar-staff/checkin-tag', { method: 'POST', body: JSON.stringify({ venueId, rotate }) }),
+  getVenueTableBooking: (venueId) => request(`/bar-staff/table-booking?venueId=${encodeURIComponent(venueId)}`),
+  getVenueTableDay: (venueId, day) =>
+    request(`/bar-staff/table-booking/day?venueId=${encodeURIComponent(venueId)}&day=${encodeURIComponent(day)}`),
+  addVenueTableBooking: (body) => request('/bar-staff/table-bookings', { method: 'POST', body: JSON.stringify(body) }),
+  cancelVenueTableBooking: (id) => request(`/bar-staff/table-bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 };
 
 export const barStaffApi = DEMO_MODE ? demoApi : { ...networkApi, ...barStaffNetworkApi };

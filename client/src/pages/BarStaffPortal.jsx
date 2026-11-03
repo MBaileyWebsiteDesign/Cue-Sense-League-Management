@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { barStaffApi as api } from '../api.js';
+import VenueTableBooking from '../components/VenueTableBooking.jsx';
 
 // Whether the selected venue runs memberships (venue.membershipEnabled is only
 // ever switched off with an explicit false). When off, every membership
@@ -1841,6 +1842,7 @@ export default function BarStaffPortal() {
               <StatusBox status={status} loading={statusLoading} selected={bucket} onSelect={pickBucket} />
               {selectedVenueId && <CheckinCard venueId={selectedVenueId} />}
               {selectedVenueId && <BookingsCard venueId={selectedVenueId} />}
+              {selectedVenueId && <VenueTableBooking key={`tb-${selectedVenueId}`} venueId={selectedVenueId} apiObj={api} barStaff />}
               {selectedVenue && <JoinRequestsCard key={selectedVenue.id} refreshTick={liveTick} venue={selectedVenue} onApproved={() => setMemberRefresh((n) => n + 1)} />}
               {selectedVenueId && <RegisteredPlayersList key={`${selectedVenueId}-${memberRefresh}`} refreshTick={liveTick} venueId={selectedVenueId} bucket={bucket} onShowAll={() => setBucket(null)} onRemoved={() => setStatusRefresh((n) => n + 1)} />}
             </>
