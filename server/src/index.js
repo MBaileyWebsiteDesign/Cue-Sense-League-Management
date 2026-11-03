@@ -41,6 +41,7 @@ import { recordAudit } from './services/auditLog.js';
 import { registerPlayerBookingRoutes } from './routes/playerBookings.js';
 import { registerBookAllTablesRoute } from './routes/bookAllTables.js';
 import { registerTableBookingRoutes } from './routes/tableBookings.js';
+import { registerVenueFormRoutes } from './routes/venueForms.js';
 import { registerAskTheRefRoutes } from './routes/askTheRef.js';
 import { registerVenueEmailTestRoute, startMembershipExpiryEmailJob, expiryEmailSentAt, expiredEmailSentAt } from './venueEmails.js';
 import { registerLeaguePaymentEmailRoutes } from './leaguePaymentEmail.js';
@@ -3131,6 +3132,7 @@ registerPlayerBookingRoutes(app, {
 
 // In-app table booking for venues NOT on the Wix booking system (2026-10-26) -
 // see server/src/routes/tableBookings.js.
+registerVenueFormRoutes(app, { requireVenueManager, assertVenueAccess, readDb, writeDb, asyncRoute, uuid });
 registerTableBookingRoutes(app, {
   requireAuth,
   requireVenueManager,

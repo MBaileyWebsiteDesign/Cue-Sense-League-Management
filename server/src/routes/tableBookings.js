@@ -73,7 +73,7 @@ function todayUk(now = Date.now()) {
 }
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
-function normOrigin(o) {
+export function normOrigin(o) {
   try {
     const u = new URL(String(o).trim());
     if (u.protocol !== 'https:' && !/^(localhost|127\.0\.0\.1)$/.test(u.hostname)) return null;
