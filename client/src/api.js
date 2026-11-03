@@ -142,6 +142,11 @@ const networkApi = {
     request(`/venue-manager/table-booking/day?venueId=${encodeURIComponent(venueId)}&day=${encodeURIComponent(day)}`),
   addVenueTableBooking: (body) => request('/venue-manager/table-bookings', { method: 'POST', body: JSON.stringify(body) }),
   cancelVenueTableBooking: (id) => request(`/venue-manager/table-bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  // Venue website forms (enquiry / newsletter / cue care) - server/src/routes/venueForms.js
+  getVenueWebsiteMessages: (venueId) => request(`/venue-manager/venue-forms?venueId=${encodeURIComponent(venueId)}`),
+  setVenueWebsiteMessageStatus: (id, status) =>
+    request(`/venue-manager/venue-forms/${encodeURIComponent(id)}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+  deleteVenueWebsiteMessage: (id) => request(`/venue-manager/venue-forms/${encodeURIComponent(id)}/delete`, { method: 'POST' }),
   // Overall Admin: move a Wix-linked venue (Top Spin) to the in-app booking, or back.
   setVenueBookingSystem: (venueId, system) =>
     request(`/venue-manager/venues/${encodeURIComponent(venueId)}/booking-system`, { method: 'POST', body: JSON.stringify({ system }) }),

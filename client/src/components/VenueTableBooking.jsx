@@ -215,7 +215,7 @@ export default function VenueTableBooking({ venueId, apiObj, barStaff = false })
                 style={{ width: 22, height: 22, minHeight: 0, margin: 0, padding: 0, flex: '0 0 auto', accentColor: 'var(--primary)' }} />
               <span>Let anyone book from the website</span>
             </label>
-            <label className="ll-field" style={{ marginTop: 8 }}>Website addresses allowed to take bookings (one per line, https://)
+            <label className="ll-field" style={{ marginTop: 8 }}>Venue website addresses (one per line, https://) - used for website bookings and the website's forms
               <textarea className="mm-input" rows={2} value={form.guestOrigins} onChange={(e) => setForm((f) => ({ ...f, guestOrigins: e.target.value }))} />
             </label>
             <label className="ll-field" style={{ marginTop: 8 }}>Website page for moving or cancelling (link in the confirmation email)
