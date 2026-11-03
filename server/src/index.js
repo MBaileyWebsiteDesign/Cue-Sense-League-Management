@@ -1569,6 +1569,11 @@ const BAR_STAFF_ROUTES = [
   ['POST', '/players/:id/cards'],
   ['DELETE', '/players/:id/cards/:uid'],
   ['POST', '/checkin-tag'],
+  // In-app table booking (day view, walk-ins, blocks, cancel) - not the settings.
+  ['GET', '/table-booking'],
+  ['GET', '/table-booking/day'],
+  ['POST', '/table-bookings'],
+  ['POST', '/table-bookings/:id/cancel'],
 ];
 const BAR_STAFF_ROUTE_MATCHERS = BAR_STAFF_ROUTES.map(([method, pattern]) => ({
   method,
@@ -2004,6 +2009,9 @@ const WIX_REFRESH_MIN_MS = 60 * 1000; // Refresh button: at most one Wix call a 
 const WIX_BOOKINGS_FILE = path.join(DATA_DIR, 'wix-bookings.json');
 
 function wixSiteIdForVenue(venue) {
+  // An Overall Admin can move a venue off Wix onto the in-app table booking
+  // (POST /api/venue-manager/venues/:id/booking-system in routes/tableBookings.js).
+  if (venue && venue.wixBooking === false) return null;
   if (venue && typeof venue.wixSiteId === 'string' && venue.wixSiteId.trim()) return venue.wixSiteId.trim();
   if (venue && /^\s*top\s*spin\b/i.test(venue.name || '')) return WIX_TOPSPIN_SITE_ID;
   return null;
