@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { divisionFormat, sortDivisionsPremierFirst } from '../divisionDisplay.js';
+import AutoDivisionsWizard from '../components/AutoDivisionsWizard.jsx';
 import LeagueScoringFields, { scoringToForm, validateScoringForm, scoringFormToPayload, scoringSummary } from '../components/LeagueScoringFields.jsx';
 
 // Named physical tables for this league - see server/src/index.js's
@@ -628,6 +629,8 @@ export default function LeagueDetail() {
   // server/src/services/killer.js.
   const [startingLives, setStartingLives] = useState(3);
   const [showForm, setShowForm] = useState(false);
+  // "Automatically manage divisions" draw wizard (2026-11-20).
+  const [showAuto, setShowAuto] = useState(false);
 
   const isKiller = scheduling === 'killer_classic' || scheduling === 'cards_killer';
   const isFreePlay = scheduling === 'free_play';
@@ -759,9 +762,14 @@ export default function LeagueDetail() {
           {league.venueName && <span className="ol-chip">{league.venueName} members only</span>}
         </div>
         {canManage && (
-          <button className="btn cs-btn-block" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? 'Cancel' : '+ New Division'}
-          </button>
+          <div className="lg-head-actions">
+            <button className="btn cs-btn-block" onClick={() => setShowForm((v) => !v)}>
+              {showForm ? 'Cancel' : 'Manually manage divisions'}
+            </button>
+            <button className="btn cs-btn-block cs-btn-auto" onClick={() => setShowAuto(true)}>
+              Automatically manage divisions
+            </button>
+          </div>
         )}
       </section>
 
@@ -932,6 +940,10 @@ export default function LeagueDetail() {
           </p>
         )}
       </section>
+
+      {showAuto && canManage && (
+        <AutoDivisionsWizard league={league} onClose={() => setShowAuto(false)} onSaved={load} />
+      )}
 
       <DivisionsCard divisions={league.divisions} />
 

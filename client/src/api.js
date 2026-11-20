@@ -499,6 +499,9 @@ const networkApi = {
     request(`/league-interests/${id}/decline`, { method: 'POST' }),
   bulkAssignLeagueInterests: (interestIds, divisionId) =>
     request('/league-interests/bulk-assign', { method: 'POST', body: JSON.stringify({ interestIds, divisionId }) }),
+  // Staging only (dev-app): adds made-up players with pending interests for testing the auto draw.
+  seedTestLeagueInterests: (leagueId, count = 30) =>
+    request(`/leagues/${leagueId}/seed-test-interests`, { method: 'POST', body: JSON.stringify({ count }) }),
   // League entry-fee payment request email (bank details, test, email unpaid players).
   getLeaguePaymentEmail: (leagueId) => request(`/leagues/${leagueId}/payment-email`),
   saveLeaguePaymentEmail: (leagueId, data) =>
