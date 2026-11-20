@@ -22,6 +22,8 @@ const SPEEDS = { normal: { spin: 2800, hold: 900 }, fast: { spin: 900, hold: 300
 const TAU = Math.PI * 2;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const WHEEL_COLOURS = ['#123d24', '#2f7d39'];
+// Third green used for the last segment when the count is odd, so no two neighbours match.
+const WHEEL_THIRD = '#1f5f35';
 const WHEEL_GOLD = '#d9a62a';
 
 function Wheel({ names, spinId, targetIdx, spinMs, onSettled }) {
@@ -47,8 +49,8 @@ function Wheel({ names, spinId, targetIdx, spinMs, onSettled }) {
       ctx.moveTo(0, 0);
       ctx.arc(0, 0, r, a0, a0 + seg);
       ctx.closePath();
-      const gold = n % 2 === 1 && i === n - 1;
-      ctx.fillStyle = gold ? WHEEL_GOLD : WHEEL_COLOURS[i % 2];
+      const third = n % 2 === 1 && i === n - 1;
+      ctx.fillStyle = third ? WHEEL_THIRD : WHEEL_COLOURS[i % 2];
       ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.55)';
       ctx.lineWidth = 1;
@@ -60,7 +62,7 @@ function Wheel({ names, spinId, targetIdx, spinMs, onSettled }) {
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
-        ctx.fillStyle = gold ? '#1a1a1a' : '#fff';
+        ctx.fillStyle = '#fff';
         const label = names[i].length > 16 ? `${names[i].slice(0, 15)}…` : names[i];
         ctx.fillText(label, r - 12, 0);
         ctx.restore();
