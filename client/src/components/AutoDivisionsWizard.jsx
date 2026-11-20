@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { sortDivisionsPremierFirst } from '../divisionDisplay.js';
 import { buildAssignment, initials, nextDivisionNames } from '../autoDivisions.js';
+import PoolTable from './PoolTable.jsx';
 import './autoDivisions.css';
 
 // "Automatically manage divisions" (Matt, 2026-11-20). Opened from the League page.
@@ -159,7 +160,7 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
   const [interests, setInterests] = useState([]);
   const [divisionCount, setDivisionCount] = useState('2');
   const [mode, setMode] = useState('new'); // new | existing
-  const [visual, setVisual] = useState('wheel'); // wheel | balls
+  const [visual, setVisual] = useState('wheel'); // wheel | balls | pool
   const [speed, setSpeed] = useState('normal');
 
   const [plan, setPlan] = useState(null); // { assignment, labels, targets }
@@ -415,6 +416,10 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
                     <input type="radio" name="ad-visual" checked={visual === 'balls'} onChange={() => setVisual('balls')} />
                     <span><strong>Ball draw (option B)</strong><br /><span className="muted">Player balls in a rack - one is drawn and drops into its division.</span></span>
                   </label>
+                  <label className="ad-choice">
+                    <input type="radio" name="ad-visual" checked={visual === 'pool'} onChange={() => setVisual('pool')} />
+                    <span><strong>Pool table (option C)</strong><br /><span className="muted">A cue pots one player's ball at a time - the full name shows above the table.</span></span>
+                  </label>
                 </fieldset>
 
                 <fieldset className="ad-field ad-choices ad-inline">
@@ -445,6 +450,15 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
                     spinMs={timing.spin}
                     onSettled={() => settledRef.current && settledRef.current()}
                   />
+                ) : visual === 'pool' ? (
+                  <PoolTable
+                    remaining={remainingPlayers}
+                    spinId={spin.id}
+                    targetId={spin.targetId}
+                    spinMs={timing.spin}
+                    landed={landed}
+                    onSettled={() => settledRef.current && settledRef.current()}
+                  />
                 ) : (
                   <BallRack
                     remaining={remainingPlayers}
@@ -458,7 +472,7 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
                 <p className="ad-done">Draw complete - {plan.assignment.length} players placed.</p>
               )}
               <div className="ad-caption" aria-live="polite">
-                {drawing && landed ? (
+                {drawing && landed && visual !== 'pool' ? (
                   <>
                     <strong>{landed.name}</strong> <span aria-hidden="true">&rarr;</span> <span className="ad-caption-div">{landed.division}</span>
                   </>
