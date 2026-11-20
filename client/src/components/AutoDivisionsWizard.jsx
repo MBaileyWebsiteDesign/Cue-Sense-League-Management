@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { sortDivisionsPremierFirst } from '../divisionDisplay.js';
-import { buildAssignment, initials, nextDivisionNames } from '../autoDivisions.js';
+import { buildAssignment, initials, nextDivisionNames, shuffle } from '../autoDivisions.js';
 import PoolTable from './PoolTable.jsx';
 import './autoDivisions.css';
 
@@ -175,6 +175,8 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
   const skipRef = useRef(false);
   const speedRef = useRef(speed);
   speedRef.current = speed;
+  const visualRef = useRef(visual);
+  visualRef.current = visual;
 
   const paywall = !!league.payment?.required;
   const hasDivisions = (league.divisions || []).length > 0;
@@ -249,6 +251,7 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
       .sort((a, b) => (nameById[a] || '').localeCompare(nameById[b] || ''));
     (async () => {
       const done = [];
+      const pottedIds = [];
       for (let i = 0; i < plan.assignment.length; i += 1) {
         if (cancelled || skipRef.current) break;
         const item = plan.assignment[i];
@@ -256,19 +259,33 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
         const idx = remainingIds.indexOf(item.id);
         const timing = SPEEDS[speedRef.current] || SPEEDS.normal;
         setLanded(null);
-        await new Promise((resolve) => {
+        // Pool table: the table decides who is potted next; the division comes from the rotation.
+        const free = visualRef.current === 'pool';
+        const potted = await new Promise((resolve) => {
           settledRef.current = resolve;
-          setSpin({ id: `${runId}-${i}`, idx, targetId: item.id });
+          setSpin({ id: `${runId}-${i}`, idx, targetId: free ? null : item.id, nextId: null });
         });
         if (cancelled || skipRef.current) break;
-        setLanded({ name: nameById[item.id], division: plan.labels[item.divisionIndex] });
+        if (free && potted) {
+          plan.assignment[i] = { id: potted, divisionIndex: item.divisionIndex };
+          pottedIds.push(potted);
+        }
+        const cur = plan.assignment[i];
+        setLanded({ name: nameById[cur.id], division: plan.labels[cur.divisionIndex] });
         await sleep(timing.hold * 0.6);
         if (cancelled || skipRef.current) break;
-        done.push(item.id);
+        done.push(cur.id);
         setRevealed([...done].map((id) => plan.assignment.find((a) => a.id === id)));
         await sleep(timing.hold * 0.4);
       }
       if (cancelled) return;
+      if (visualRef.current === 'pool' && pottedIds.length < plan.assignment.length) {
+        // Skipped part-way: deal the players not yet potted into the remaining slots.
+        const left = shuffle(eligible.map((r) => r.id).filter((id) => !pottedIds.includes(id)));
+        for (let j = pottedIds.length; j < plan.assignment.length; j += 1) {
+          plan.assignment[j] = { id: left.shift(), divisionIndex: plan.assignment[j].divisionIndex };
+        }
+      }
       setRevealed(plan.assignment);
       setLanded(null);
       setDrawing(false);
@@ -457,7 +474,7 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
                     targetId={spin.targetId}
                     spinMs={timing.spin}
                     landed={landed}
-                    onSettled={() => settledRef.current && settledRef.current()}
+                    onSettled={(id) => settledRef.current && settledRef.current(id)}
                   />
                 ) : (
                   <BallRack

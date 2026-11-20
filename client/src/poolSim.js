@@ -93,7 +93,7 @@ function buildPlan(S, T, c, G, cx, cy, respot) {
   };
 }
 
-export function planShot(S, targetId) {
+export function planShot(S, targetId, opts = {}) {
   const r = S.r;
   const T = S.balls.find((b) => b.id === targetId && b.live);
   if (!T) return null;
@@ -108,13 +108,14 @@ export function planShot(S, targetId) {
     const ux = dx / D;
     const uy = dy / D;
     const entry = -(ux * p.nx + uy * p.ny) / len(p.nx, p.ny);
-    if (entry < (p.kind === 'side' ? 0.6 : 0.47)) return;
+    if (entry < (p.kind === 'side' ? 0.45 : 0.3)) return;
     const tpClear = others.every((o) => segDist(o.x, o.y, T.x, T.y, p.x, p.y) >= 2 * r + 1);
     cands.push({ pi, p, D, ux, uy, tpClear, entry });
   });
 
   if (cueReady) {
     let best = null;
+    const all = [];
     for (const c of cands) {
       const G = { x: T.x - c.ux * 2 * r, y: T.y - c.uy * 2 * r };
       if (!inBounds(G.x, G.y, r - 0.5)) continue;
@@ -123,13 +124,18 @@ export function planShot(S, targetId) {
       const dc = len(gx, gy);
       if (dc < 2) continue;
       const cos = (gx / dc) * c.ux + (gy / dc) * c.uy;
-      if (cos < 0.5) continue;
-      if (!others.every((o) => segDist(o.x, o.y, S.cue.x, S.cue.y, G.x, G.y) > 2 * r + 1.5)) continue;
+      if (cos < 0.2) continue;
+      if (!others.every((o) => segDist(o.x, o.y, S.cue.x, S.cue.y, G.x, G.y) > 2 * r + 0.6)) continue;
       const score = Math.acos(Math.min(1, cos)) * 2 + (c.tpClear ? 0 : 3) + c.D / 1000;
+      all.push({ c, G, score });
       if (!best || score < best.score) best = { c, G, score };
     }
-    if (best) return buildPlan(S, T, best.c, best.G, S.cue.x, S.cue.y, false);
+    if (opts.all) return all.sort((x, y) => x.score - y.score).map((x) => ({ ...buildPlan(S, T, x.c, x.G, S.cue.x, S.cue.y, false), score: x.score }));
+    if (best) return { ...buildPlan(S, T, best.c, best.G, S.cue.x, S.cue.y, false), score: best.score };
   }
+  if (opts.all) return [];
+
+  if (opts.directOnly) return null;
 
   // Cue ball is repositioned (ball-in-hand): look for a clear approach to the ghost ball.
   const order = (list) => [...list].sort((a2, b2) => (b2.tpClear - a2.tpClear) || a2.D - b2.D);
@@ -170,6 +176,107 @@ export function planShot(S, targetId) {
   const cx = Math.max(PX0 + r, Math.min(PX1 - r, T.x - ux * dist));
   const cy = Math.max(PY0 + r, Math.min(PY1 - r, T.y - uy * dist));
   return buildPlan(S, T, c, G, cx, cy, true);
+}
+
+// A non-potting shot used when no pot is available from where the cue ball sits. A handful of
+// candidate shots are tried on a copy of the table; one that leaves a pot on next is preferred.
+function cloneTable(S) {
+  return { r: S.r, cue: { ...S.cue }, balls: S.balls.map((b) => ({ ...b })), target: null, hit: false, plan: { miss: true }, events: [] };
+}
+
+function makeMiss(S, targetId, vx, vy, s0) {
+  return {
+    targetId, pocketIdx: -1, pocket: null, G: { x: S.cue.x + vx * 160, y: S.cue.y + vy * 160 }, ux: vx, uy: vy,
+    cx: S.cue.x, cy: S.cue.y, respot: false, miss: true, vx, vy, angle: Math.atan2(vy, vx), s0, vT: 0, dc: 160, D: 0,
+    power: Math.max(0, Math.min(1, (s0 - 300) / 1100)), r: S.r,
+  };
+}
+
+export function missPlan(S, targetId) {
+  const T = targetId ? S.balls.find((b) => b.id === targetId && b.live) : null;
+  if ((targetId && !T) || !S.cue.on) return null;
+  const live = S.balls.filter((b) => b.live);
+  const cands = [];
+  for (let i = 0; i < 28; i += 1) {
+    let ang;
+    if (T && i % 2 === 0) {
+      // clip the target ball on a random side
+      const base = Math.atan2(T.y - S.cue.y, T.x - S.cue.x);
+      ang = base + (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.6) * (S.r * 2) / Math.max(60, len(T.x - S.cue.x, T.y - S.cue.y));
+    } else if (i % 4 === 1) {
+      const o = live[Math.floor(Math.random() * live.length)];
+      ang = Math.atan2(o.y - S.cue.y, o.x - S.cue.x) + (Math.random() - 0.5) * 0.12;
+    } else {
+      ang = Math.random() * Math.PI * 2;
+    }
+    cands.push({ vx: Math.cos(ang), vy: Math.sin(ang), s0: 350 + Math.random() * 1050 });
+  }
+  for (const c of cands) {
+    const C = cloneTable(S);
+    C.cue.vx = c.vx * c.s0;
+    C.cue.vy = c.vy * c.s0;
+    let t = 0;
+    while (t < 2.6) {
+      step(C, 1 / 120);
+      t += 1 / 120;
+      if (!C.cue.on || atRest(C)) break;
+    }
+    if (!C.cue.on) continue;
+    stopAll(C);
+    if (T) {
+      const ct = C.balls.find((b) => b.id === targetId);
+      if (!ct || !ct.live) continue;
+      if (planShot(C, targetId, { directOnly: true })) return makeMiss(S, targetId, c.vx, c.vy, c.s0);
+    } else if (C.balls.some((b) => b.live && planShot(C, b.id, { directOnly: true }))) {
+      return makeMiss(S, null, c.vx, c.vy, c.s0);
+    }
+  }
+  const c = cands[0];
+  return makeMiss(S, targetId, c.vx, c.vy, c.s0);
+}
+
+// Play from where the cue ball lies. The next player's ball is known, so among the available
+// pots prefer one that leaves the cue ball with a pot on that next ball. Only if two tries
+// cannot pot (or the cue ball was potted) does the cue ball get placed, so every pick completes.
+function leavesNextShot(S, plan, nextId) {
+  const C = cloneTable(S);
+  C.plan = { ...plan };
+  C.target = C.balls.find((b) => b.id === plan.targetId);
+  C.hit = false;
+  C.cue.vx = plan.vx * plan.s0;
+  C.cue.vy = plan.vy * plan.s0;
+  let t = 0;
+  while (t < 7) {
+    step(C, 1 / 120);
+    t += 1 / 120;
+    if (!C.hit && atRest(C)) forcePot(C);
+    if (!C.target.live && atRest(C)) break;
+  }
+  if (C.target.live || !C.cue.on) return false;
+  stopAll(C);
+  return !!planShot(C, nextId, { directOnly: true });
+}
+
+export function chooseShot(S, targetId, attempt, nextId) {
+  let plan = null;
+  if (S.cue.on) {
+    const plans = planShot(S, targetId, { directOnly: true, all: true });
+    if (plans.length) {
+      plan = plans[0];
+      if (nextId) {
+        outer: for (const p of plans.slice(0, 5)) {
+          for (const mult of [1, 1.4, 1.9]) {
+            const cand = { ...p, s0: Math.min(2600, p.s0 * mult) };
+            if (leavesNextShot(S, cand, nextId)) { plan = cand; break outer; }
+          }
+        }
+      }
+    } else if (attempt < 2) {
+      plan = missPlan(S, targetId);
+    }
+  }
+  if (!plan) plan = planShot(S, targetId);
+  return plan;
 }
 
 export function startShot(S, plan) {
@@ -260,7 +367,7 @@ function collide(a, b, r, S) {
     b.vx += p * nx;
     b.vy += p * ny;
   }
-  if (!S.hit && T && ((a === S.cue && b === T) || (b === S.cue && a === T))) {
+  if (!S.hit && T && !S.plan.miss && ((a === S.cue && b === T) || (b === S.cue && a === T))) {
     S.hit = true;
     const plan = S.plan;
     const dx2 = plan.pocket.x - T.x;
@@ -337,4 +444,24 @@ export function step(S, h) {
       }
     }
   }
+}
+
+// "Free" draw: no player is chosen beforehand. The cue plays the easiest pot from where the cue
+// ball lies and whichever ball drops is the pick.
+export function chooseFree(S, attempt) {
+  const live = S.balls.filter((b) => b.live);
+  if (!live.length) return null;
+  let plan = null;
+  if (S.cue.on) {
+    for (const b of live) {
+      const ps = planShot(S, b.id, { directOnly: true, all: true });
+      if (ps.length && (!plan || ps[0].score < plan.score)) plan = ps[0];
+    }
+    if (!plan && attempt < 2) plan = missPlan(S, null);
+  }
+  if (!plan) {
+    const pick = live[Math.floor(Math.random() * live.length)];
+    plan = planShot(S, pick.id);
+  }
+  return plan ? { ...plan, free: true } : null;
 }

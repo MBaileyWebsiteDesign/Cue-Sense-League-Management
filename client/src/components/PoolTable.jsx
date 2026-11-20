@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { initials } from '../autoDivisions.js';
 import {
   W, H, RAIL, PX0, PX1, PY0, PY1, POCKETS, POCKET_R,
-  ballRadius, createTable, planShot, startShot, fireShot, forcePot, step, atRest, stopAll,
+  ballRadius, createTable, chooseShot, chooseFree, startShot, fireShot, forcePot, step, atRest, stopAll,
 } from '../poolSim.js';
 
 // Pool-table draw: a virtual cue pots one ball per pick. Everything is drawn on a canvas with
@@ -371,7 +371,7 @@ function drawCueStick(ctx, tipX, tipY, angle, alpha, shadowOff) {
   ctx.restore();
 }
 
-export default function PoolTable({ remaining, spinId, targetId, spinMs, landed, onSettled }) {
+export default function PoolTable({ remaining, spinId, targetId, nextId, spinMs, landed, onSettled }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const [dims, setDims] = useState({ cw: 0, ch: 0, portrait: false });
@@ -382,6 +382,8 @@ export default function PoolTable({ remaining, spinId, targetId, spinMs, landed,
   const fxRef = useRef([]);
   const settledRef = useRef(onSettled);
   settledRef.current = onSettled;
+  const nextRef = useRef(nextId);
+  nextRef.current = nextId;
   const tsRef = useRef(1);
   tsRef.current = spinMs <= 1000 ? 2.4 : 1;
   const remainingRef = useRef(remaining);
@@ -467,18 +469,18 @@ export default function PoolTable({ remaining, spinId, targetId, spinMs, landed,
 
   // Start a shot for each new pick.
   useEffect(() => {
-    if (spinId == null || !targetId) return;
+    if (spinId == null) return;
     const S = simRef.current;
-    const meta = metaRef.current[targetId];
+    const plan = targetId ? chooseShot(S, targetId, 0, nextRef.current) : chooseFree(S, 0);
+    const meta = plan && plan.targetId ? metaRef.current[plan.targetId] : null;
     setPlaque(meta ? meta.name : '');
-    const plan = planShot(S, targetId);
     if (!plan) {
       setTimeout(() => settledRef.current && settledRef.current(), 50);
       return;
     }
     stopAll(S);
     startShot(S, plan);
-    shotRef.current = { phase: plan.respot ? 'respot' : 'aim', t: 0, plan, cueAlpha: plan.respot ? 0 : 1, stick: 0 };
+    shotRef.current = { phase: plan.respot ? 'respot' : 'aim', t: 0, plan, cueAlpha: plan.respot ? 0 : 1, stick: 0, attempt: 0 };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinId]);
 
@@ -498,9 +500,9 @@ export default function PoolTable({ remaining, spinId, targetId, spinMs, landed,
     let last = performance.now();
     let alive = true;
 
-    const finish = () => {
+    const finish = (id) => {
       shotRef.current = { phase: 'idle', t: 0 };
-      if (settledRef.current) settledRef.current();
+      if (settledRef.current) settledRef.current(id);
     };
 
     const processEvents = (S) => {
@@ -548,9 +550,26 @@ export default function PoolTable({ remaining, spinId, targetId, spinMs, landed,
           sh.strikeAt = { x: S.cue.x, y: S.cue.y };
         }
       } else if (sh.phase === 'roll') {
-        if (!S.hit && atRest(S)) forcePot(S);
-        if (sh.t > 9 && !S.hit) forcePot(S);
-        if (gone) { sh.phase = 'settle'; sh.t = 0; }
+        if (plan.miss) {
+          // Missed on purpose: play the next shot from wherever the balls came to rest.
+          if (atRest(S) || sh.t > 7) {
+            stopAll(S);
+            const next = plan.free ? chooseFree(S, sh.attempt + 1) : chooseShot(S, plan.targetId, sh.attempt + 1, nextRef.current);
+            if (plan.free) {
+              const m = next.targetId ? metaRef.current[next.targetId] : null;
+              setPlaque(m ? m.name : '');
+            }
+            startShot(S, next);
+            shotRef.current = {
+              phase: next.respot ? 'respot' : 'aim', t: 0, plan: next, cueAlpha: next.respot ? 0 : 1, stick: 0, attempt: sh.attempt + 1,
+            };
+            return;
+          }
+        } else {
+          if (!S.hit && atRest(S)) forcePot(S);
+          if (sh.t > 9 && !S.hit) forcePot(S);
+          if (gone) { sh.phase = 'settle'; sh.t = 0; }
+        }
       } else if (sh.phase === 'settle') {
         if (atRest(S) || sh.t > 1.6) {
           stopAll(S);
@@ -558,7 +577,7 @@ export default function PoolTable({ remaining, spinId, targetId, spinMs, landed,
           sh.t = 0;
         }
       } else if (sh.phase === 'finish') {
-        if (sh.t > 0.25) finish();
+        if (sh.t > 0.25) finish(plan.targetId);
       }
       sh.plan = plan;
     };
@@ -612,22 +631,28 @@ export default function PoolTable({ remaining, spinId, targetId, spinMs, landed,
         ctx.moveTo(S.cue.x, S.cue.y);
         ctx.lineTo(plan.G.x, plan.G.y);
         ctx.stroke();
-        ctx.strokeStyle = `rgba(240,200,80,${a})`;
-        ctx.beginPath();
-        ctx.moveTo(T.x, T.y);
-        ctx.lineTo(plan.pocket.x, plan.pocket.y);
-        ctx.stroke();
+        if (plan.pocket) {
+          ctx.strokeStyle = `rgba(240,200,80,${a})`;
+          ctx.beginPath();
+          ctx.moveTo(T.x, T.y);
+          ctx.lineTo(plan.pocket.x, plan.pocket.y);
+          ctx.stroke();
+        }
         ctx.setLineDash([]);
-        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.arc(plan.G.x, plan.G.y, r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.strokeStyle = `rgba(240,200,80,${a + 0.2})`;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(plan.pocket.x, plan.pocket.y, 38, 0, Math.PI * 2);
-        ctx.stroke();
+        if (!plan.miss) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.arc(plan.G.x, plan.G.y, r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        if (plan.pocket) {
+          ctx.strokeStyle = `rgba(240,200,80,${a + 0.2})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(plan.pocket.x, plan.pocket.y, 38, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         ctx.restore();
       }
 
