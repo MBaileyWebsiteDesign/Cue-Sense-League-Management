@@ -297,11 +297,6 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
 
-  const skip = () => {
-    skipRef.current = true;
-    if (settledRef.current) settledRef.current();
-  };
-
   const save = async () => {
     if (!plan) return;
     setStep('saving');
@@ -513,9 +508,7 @@ export default function AutoDivisionsWizard({ league, onClose, onSaved }) {
             </div>
 
             <div className="ad-actions">
-              {drawing ? (
-                <button type="button" className="btn" onClick={skip}>Skip to result</button>
-              ) : (
+              {drawing ? null : (
                 <>
                   <button type="button" className="btn" onClick={onClose} disabled={step === 'saving'}>Cancel</button>
                   <button type="button" className="btn" onClick={startDraw} disabled={step === 'saving'}>Draw again</button>
