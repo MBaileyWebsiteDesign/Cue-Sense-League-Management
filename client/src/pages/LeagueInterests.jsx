@@ -42,6 +42,7 @@ export default function LeagueInterests() {
   const [failures, setFailures] = useState([]);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
+  const [seedMsg, setSeedMsg] = useState('');
 
   useSetBreadcrumbs([
     { label: 'Home', to: '/' },
@@ -101,6 +102,16 @@ export default function LeagueInterests() {
     });
   };
 
+  // Staging (dev-app) only: adds 30 made-up players with pending interests so the
+  // "Automatically manage divisions" draw can be tested (2026-11-20).
+  const isStaging = typeof window !== 'undefined' && window.location.hostname.startsWith('dev-app.');
+  const seedTestPlayers = () => run(async () => {
+    setSeedMsg('');
+    const res = await api.seedTestLeagueInterests(leagueId, 30);
+    setSeedMsg(`Added ${res.created} test players.`);
+    await loadInterests();
+  });
+
   const toggle = (id) => setSelected((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
   if (!league) return error ? <p className="error">{error}</p> : <p>Loading…</p>;
@@ -142,6 +153,15 @@ export default function LeagueInterests() {
       </section>
 
       {error && <p className="error">{error}</p>}
+
+      {isStaging && (
+        <div className="card li-seed">
+          <strong>Testing (staging only)</strong>
+          <span className="muted">Adds 30 made-up players with pending interest in this league, for trying the automatic division draw.</span>
+          <button type="button" className="btn" onClick={seedTestPlayers} disabled={busy}>Add 30 test players</button>
+          {seedMsg && <span>{seedMsg}</span>}
+        </div>
+      )}
 
       {paywall && api.getLeaguePaymentEmail && <LeaguePaymentEmailCard leagueId={leagueId} refreshKey={interests} selectedIds={selected} onChased={loadInterests} />}
 

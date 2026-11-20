@@ -5965,6 +5965,80 @@ app.post('/api/league-interests/bulk-assign', requireAnyAdmin, asyncRoute((req, 
   res.json({ division: hydrateDivision(db, division), results });
 }));
 
+// Staging-only test data (Matt, 2026-11-20): adds N made-up players, each with a pending
+// league interest, so the "Automatically manage divisions" draw can be tried without real
+// players. Refused unless the request came in on the dev-app (staging) hostname, so it can
+// never run on production even though the code is shared. The test accounts have no real
+// email and cannot log in (same as walk-ins) and are marked isTestData. If the league has an
+// entry fee their payment is marked waived so they can be placed straight away.
+const TEST_FIRST_NAMES = ['Alex', 'Jamie', 'Sam', 'Chris', 'Taylor', 'Morgan', 'Jordan', 'Casey', 'Riley', 'Drew', 'Robin', 'Charlie'];
+const TEST_LAST_NAMES = ['Archer', 'Bishop', 'Carver', 'Dalton', 'Everett', 'Fisher', 'Granger', 'Holloway', 'Ingram', 'Jennings', 'Kendall', 'Lawson'];
+app.post('/api/leagues/:id/seed-test-interests', requireAnyAdmin, asyncRoute((req, res) => {
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+  if (!host.startsWith('dev-app.')) {
+    throw new ApiError(403, 'Test players can only be added on the staging site (dev-app.cuesense.co.uk)');
+  }
+  const db = readDb();
+  const league = db.leagues.find((l) => l.id === req.params.id);
+  if (!league) throw new ApiError(404, 'League not found');
+  assertLeagueAccess(req, league);
+  const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 30, 1), 100);
+  const takenNames = new Set(db.players.map((p) => String(p.name || '').toLowerCase()));
+  const pick = (list) => list[Math.floor(Math.random() * list.length)];
+  const names = [];
+  let guard = 0;
+  while (names.length < count && guard < 5000) {
+    guard += 1;
+    const firstName = pick(TEST_FIRST_NAMES);
+    const lastName = pick(TEST_LAST_NAMES);
+    const full = `${firstName} ${lastName}`;
+    if (takenNames.has(full.toLowerCase())) continue;
+    takenNames.add(full.toLowerCase());
+    const user = createUserAccount(db, {
+      firstName,
+      lastName,
+      email: `test-player-${uuid()}@no-login.cuesense`,
+      passwordHash: hashPassword(generateTempPassword()),
+      teamName: 'Unassigned',
+    });
+    user.isTestData = true;
+    db.leagueInterests.push({
+      id: uuid(),
+      leagueId: league.id,
+      playerId: user.playerId,
+      userId: user.id,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      decidedAt: null,
+      decidedBy: null,
+      isTestData: true,
+    });
+    if (league.payment && league.payment.required) {
+      db.leaguePayments.push({
+        id: uuid(),
+        leagueId: league.id,
+        playerId: user.playerId,
+        status: 'waived',
+        amount: league.payment.amount,
+        currency: league.payment.currency,
+        confirmedBy: 'Test data',
+        confirmedAt: new Date().toISOString(),
+        notes: 'Test player',
+      });
+    }
+    names.push(full);
+  }
+  recordAudit(db, {
+    actor: req.adminSession.label,
+    action: 'league_interest.seed_test_players',
+    targetType: 'league',
+    targetId: league.id,
+    details: `Added ${names.length} test player(s) with pending interest in "${league.name}" (staging only)`,
+  });
+  writeDb(db);
+  res.status(201).json({ created: names.length, names });
+}));
+
 // ---- Teams (team divisions only) ----
 
 // Seats a late entrant into a still-open reserved bye box (see
