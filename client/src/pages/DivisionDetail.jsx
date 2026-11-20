@@ -1699,6 +1699,23 @@ export default function DivisionDetail() {
   const [division, setDivision] = useState(null);
   const [registeredPlayers, setRegisteredPlayers] = useState([]);
   const [error, setError] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const submitRename = async (ev) => {
+    ev.preventDefault();
+    setError('');
+    setRenameBusy(true);
+    try {
+      const updated = await api.renameDivision(divisionId, renameValue.trim());
+      setDivision((prev) => ({ ...prev, name: updated.name }));
+      setRenaming(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRenameBusy(false);
+    }
+  };
   const mountedRef = useRef(true);
   // Splits the page into Overview / Standings / Fixtures tabs instead of one
   // long scroll - a Killer division has nothing to put in Standings or
@@ -1882,7 +1899,39 @@ export default function DivisionDetail() {
           <Link to={backTo} className="msg-icon-btn" aria-label={isPlayerSession ? 'Back to my account' : 'Back to league'}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
           </Link>
-          <h1>{division.name}</h1>
+          {renaming ? (
+            <form onSubmit={submitRename} style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1, minWidth: 0 }}>
+              <input
+                autoFocus
+                value={renameValue}
+                maxLength={80}
+                onChange={(e) => setRenameValue(e.target.value)}
+                aria-label="Division name"
+                style={{ flex: 1, minWidth: 0, fontSize: 16, padding: '6px 10px', borderRadius: 8, border: '2px solid var(--cta)' }}
+              />
+              <button type="submit" className="cs-btn" disabled={renameBusy || !renameValue.trim()}>
+                {renameBusy ? 'Saving...' : 'Save'}
+              </button>
+              <button type="button" className="cs-btn" onClick={() => setRenaming(false)} disabled={renameBusy}>
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <>
+              <h1>{division.name}</h1>
+              {canManage && (
+                <button
+                  type="button"
+                  className="msg-icon-btn"
+                  aria-label="Rename division"
+                  title="Rename division"
+                  onClick={() => { setRenameValue(division.name); setRenaming(true); }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>
+                </button>
+              )}
+            </>
+          )}
           <span className={`lg-div-status lg-div-status-${statusChip.tone}`}>{statusChip.label}</span>
         </div>
         <div className="ol-chips">

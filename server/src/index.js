@@ -4316,6 +4316,34 @@ app.get('/api/divisions/:id', requireAuth, asyncRoute((req, res) => {
   res.json(hydrated);
 }));
 
+// Rename a division. Open to Overall Admins and the League Managers of the
+// division's league. Unlike the game-type PATCH below this stays allowed after
+// fixtures exist, since the name is display-only (everything else reads
+// division.name at request time).
+app.patch('/api/divisions/:id/name', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const division = db.divisions.find((d) => d.id === req.params.id);
+  if (!division) throw new ApiError(404, 'Division not found');
+  const league = db.leagues.find((l) => l.id === division.leagueId);
+  assertLeagueAccess(req, league);
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  if (!name) throw new ApiError(400, 'Division name is required');
+  if (name.length > 80) throw new ApiError(400, 'Division name must be 80 characters or fewer');
+  const oldName = division.name;
+  if (name !== oldName) {
+    division.name = name;
+    recordAudit(db, {
+      actor: req.adminSession.label,
+      action: 'division.edit',
+      targetType: 'division',
+      targetId: division.id,
+      details: `Renamed division "${oldName}" to "${name}"`,
+    });
+    writeDb(db);
+  }
+  res.json(hydrateDivision(db, division));
+}));
+
 // "Change Game Type" (see client/src/pages/DivisionDetail.jsx's
 // GenerateFixturesButton): lets an admin revise a division's entryType/
 // scheduling/raceTo/legsPerMatch/pairingSize before fixtures exist, mainly so

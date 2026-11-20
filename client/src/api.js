@@ -483,6 +483,7 @@ const networkApi = {
   // "Change Game Type" (DivisionDetail.jsx's GenerateFixturesButton): only
   // works while the division has no fixtures yet - see server/src/index.js's
   // PATCH /api/divisions/:id for the full validation/gating.
+  renameDivision: (id, name) => request(`/divisions/${id}/name`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   updateDivision: (id, data) => request(`/divisions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Toggle "Is Open" on an existing division from Admin: Manage this League
   // - see server/src/index.js's POST /api/divisions/:id/set-open.
