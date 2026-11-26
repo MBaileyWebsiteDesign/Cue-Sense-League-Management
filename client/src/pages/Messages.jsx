@@ -111,14 +111,14 @@ function Inbox() {
         <h1>Messages</h1>
       </div>
       <div className="msg-intro">
-        <p className="muted">Arrange games with players you share a league or venue with.</p>
+        <p className="muted">Arrange games with players registered at the same venue as you.</p>
       </div>
       {error && <p className="error">{error}</p>}
 
       <section className="msg-card">
         <h2>Conversations</h2>
         {threads === null ? (
-          <p className="muted">Loading…</p>
+          <p className="muted">Loadingâ¦</p>
         ) : threads.length === 0 ? (
           <p className="muted msg-empty">No conversations yet - start one below.</p>
         ) : (
@@ -154,16 +154,16 @@ function Inbox() {
           type="search"
           className="msg-search"
           aria-label="Search players you can message"
-          placeholder="Search players you can message…"
+          placeholder="Search players you can messageâ¦"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         {contacts.length === 0 ? (
           <p className="muted msg-empty">
-            No players available yet. You can message players who are in the same league as you, or registered at the same venue.
+            No players available yet. You can only message players who are registered at the same venue as you.
           </p>
         ) : shownContacts.length === 0 ? (
-          <p className="muted msg-empty">No players match “{query.trim()}”.</p>
+          <p className="muted msg-empty">No players match â{query.trim()}â.</p>
         ) : (
           <ul className="msg-list">
             {shownContacts.slice(0, 50).map((c) => (
@@ -363,7 +363,7 @@ function Thread({ userId }) {
     }
   };
 
-  if (!data) return error ? <p className="error">{error}</p> : <p>Loading…</p>;
+  if (!data) return error ? <p className="error">{error}</p> : <p>Loadingâ¦</p>;
 
   // Group messages under a divider for each day.
   const items = [];
@@ -439,7 +439,7 @@ function Thread({ userId }) {
               aria-label="Type a message"
               rows={1}
               maxLength={MAX_LEN}
-              placeholder="Type a message…"
+              placeholder="Type a messageâ¦"
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
@@ -460,7 +460,7 @@ function Thread({ userId }) {
           <p className="muted">
             {data.blockedByMe
               ? 'You have blocked this player. Unblock them to send a message.'
-              : 'You can no longer message this player (you no longer share a league, venue, or ad hoc/head-to-head game).'}
+              : 'You can no longer message this player (you no longer share a venue).'}
           </p>
           {data.blockedByMe && (
             <button type="button" className="btn cs-btn-block" onClick={toggleBlock}>Unblock</button>
