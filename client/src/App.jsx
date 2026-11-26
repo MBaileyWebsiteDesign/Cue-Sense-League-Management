@@ -21,6 +21,7 @@ import OpenLeagues from './pages/OpenLeagues.jsx';
 import { AuthProvider, useAuth } from './AuthContext.jsx';
 import { BreadcrumbProvider } from './BreadcrumbContext.jsx';
 import Breadcrumbs from './components/Breadcrumbs.jsx';
+import MessageToast from './components/MessageToast.jsx';
 
 // Lazy-loaded: everything below is either admin/captain-only (most visitors
 // are plain players and never touch these) or, for AdminSeasonWizard/
@@ -345,6 +346,7 @@ function AppShell() {
         </div>
       </header>
       <StagingBanner />
+      <MessageToast />
       <Breadcrumbs />
       <main className={`app-main${adminThemeClass(location.pathname)}`}>
         <Suspense fallback={<p className="muted">Loading…</p>}>
