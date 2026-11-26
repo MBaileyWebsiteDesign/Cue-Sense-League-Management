@@ -2870,7 +2870,7 @@ function walkinPlayerRequest(body) {
     if (!lastName) throw new ApiError(400, 'Last name is needed to sign up.');
     if (!email) throw new ApiError(400, 'Email is needed to sign up.');
   }
-  if (email && !SIMPLE_EMAIL_RE.test(email)) throw new ApiError(400, 'That email address doesn’t look right.');
+  if (email && !SIMPLE_EMAIL_RE.test(email)) throw new ApiError(400, 'That email address doesnât look right.');
   if (firstName.length > 60 || lastName.length > 60 || email.length > 200) throw new ApiError(400, 'Name or email is too long.');
   return { firstName, lastName, email, signUp, membershipMonths, wantsAccount };
 }
@@ -5015,7 +5015,7 @@ app.get('/api/admin/fixtures/needs-attention', requireAnyAdmin, asyncRoute((req,
           divisionName: division?.name,
           round: f.round,
           status: leg.status,
-          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber}`,
+          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} â Leg ${leg.legNumber}`,
           scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
           disputeReason: leg.disputeReason || null,
           noShowClaim: leg.noShowClaim || null,
@@ -11440,9 +11440,10 @@ function sharedAdHocDivisionIds(adHocMap, a, b) {
 
 function canMessageUser(leagueMap, adHocMap, me, other) {
   if (!other || me.id === other.id || !isMessageableUser(other)) return false;
-  if (userVenueIds(me).some((id) => membershipAt(other, id))) return true;
-  if (sharedRealLeagueIds(leagueMap, me, other).length > 0) return true;
-  return sharedAdHocDivisionIds(adHocMap, me, other).length > 0;
+  // Matt, 2026-11-26: players can only message each other when they are
+  // registered at the same venue. Sharing a league or an ad hoc game no longer
+  // counts (leagueMap/adHocMap kept in the signature so callers are unchanged).
+  return userVenueIds(me).some((id) => membershipAt(other, id));
 }
 
 const isUserBlocked = (db, blockerId, blockedId) =>
@@ -11524,13 +11525,11 @@ app.get('/api/messages/contacts', requireAuth, asyncRoute((req, res) => {
     if (blocked.has(u.id) || !canMessageUser(leagueMap, adHocMap, me, u)) continue;
     const name = messageDisplayName(u);
     if (q && !name.toLowerCase().includes(q)) continue;
-    const shared = sharedRealLeagueIds(leagueMap, me, u).map((id) => leagueNames.get(id)).filter(Boolean);
-    const sharedAdHoc = sharedAdHocDivisionIds(adHocMap, me, u).map((id) => divisionNames.get(id)).filter(Boolean);
     const sharedVenues = myVenueIds.filter((id) => membershipAt(u, id)).map((id) => venueNames.get(id)).filter(Boolean);
     contacts.push({
       userId: u.id,
       name,
-      via: [...shared, ...sharedAdHoc, ...sharedVenues].join(', '),
+      via: sharedVenues.join(', '),
     });
   }
   contacts.sort((a, b) => a.name.localeCompare(b.name));
@@ -11577,7 +11576,7 @@ app.post('/api/messages/with/:userId', requireAuth, asyncRoute((req, res) => {
   const leagueMap = buildPlayerLeagueMap(db);
   const adHocMap = buildPlayerAdHocDivisionMap(db);
   if (!canMessageUser(leagueMap, adHocMap, me, other)) {
-    throw new ApiError(403, 'You can only message players you share a league, venue, or ad hoc/head-to-head game with');
+    throw new ApiError(403, 'You can only message players who are registered at the same venue as you');
   }
   if (isUserBlocked(db, me.id, other.id)) {
     throw new ApiError(403, 'You have blocked this player - unblock them to send a message');
