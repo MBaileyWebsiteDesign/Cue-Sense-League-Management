@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../AuthContext.jsx';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
+import AwaitingAcceptanceCard from '../components/AwaitingAcceptanceCard.jsx';
 
 // The League Manager Portal. League Managers get scoped admin access to
 // specific leagues an Overall Admin has assigned them to (see
@@ -119,6 +120,8 @@ export default function LeagueManagerPortal() {
             );
           })}
         </section>
+
+        <AwaitingAcceptanceCard />
 
         {SECTIONS.map((s) => (
           <section key={s.title} className={`ap-section ap-sec-${s.accent}`}>

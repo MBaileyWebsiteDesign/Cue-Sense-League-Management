@@ -84,7 +84,9 @@ function ResultConfirmationPanel({
             </div>
           ) : (
             <div className="inline-form">
-              <button className="btn btn-primary" disabled={busy} onClick={() => run(onConfirm)}>Confirm Result</button>
+              <button className="btn btn-primary" disabled={busy} onClick={() => run(onConfirm)}>
+                {isAdmin && !isHomeEntrant && !isAwayEntrant ? 'Accept for the players' : 'Confirm Result'}
+              </button>
               <button className="btn" disabled={busy} onClick={() => setDisputing(true)}>Dispute Result</button>
             </div>
           )
@@ -544,7 +546,7 @@ function LegRow({ fixture, leg, onChange, setError, onOptimisticLegFrame, onRoll
 
           <ResultConfirmationPanel
             status={leg.status}
-            isAdmin={isAdmin}
+            isAdmin={isAdmin || !!fixture.canConfirmForPlayers}
             isHomeEntrant={isHomeNominee}
             isAwayEntrant={isAwayNominee}
             homeConfirmed={!!leg.homeConfirmed}
@@ -944,7 +946,7 @@ function SinglesFixtureView({ fixture, isDoubles, onChange, setError, onOptimist
 
       <ResultConfirmationPanel
         status={fixture.status}
-        isAdmin={isAdmin}
+        isAdmin={isAdmin || !!fixture.canConfirmForPlayers}
         isHomeEntrant={amHomeEntrant}
         isAwayEntrant={amAwayEntrant}
         homeConfirmed={!!fixture.homeConfirmed}

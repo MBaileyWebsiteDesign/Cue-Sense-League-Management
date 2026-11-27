@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useSetBreadcrumbs } from '../BreadcrumbContext.jsx';
 import { useAuth } from '../AuthContext.jsx';
 import { canSeeSubApps } from '../subAppAccess.js';
+import AwaitingAcceptanceCard from '../components/AwaitingAcceptanceCard.jsx';
 
 // The Admin Management Portal - the single landing page for everything an
 // admin manages: players/accounts, whole new seasons (leagues + divisions +
@@ -162,6 +163,8 @@ export default function AdminPortal() {
           );
         })}
       </section>
+
+      <AwaitingAcceptanceCard />
 
       <input
         type="search"
