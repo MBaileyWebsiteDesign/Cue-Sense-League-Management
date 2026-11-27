@@ -375,6 +375,8 @@ function BookTableButton() {
 }
 
 function NextMatch({ fixtures }) {
+  // "Show more" under the Also coming up list expands to every upcoming fixture (Matt, 2026-11-27).
+  const [showAll, setShowAll] = useState(false);
   if (!fixtures) return null;
   const upcoming = fixtures.filter((f) => f.status !== 'completed' && f.status !== 'pending_confirmation');
   const next = upcoming[0];
@@ -415,7 +417,7 @@ function NextMatch({ fixtures }) {
           {upcoming.length > 1 && (
             <div className="cs-rows" style={{ marginTop: 10 }}>
               <span className="cs-kicker">Also coming up</span>
-              {upcoming.slice(1, 4).map((f) => (
+              {(showAll ? upcoming.slice(1) : upcoming.slice(1, 4)).map((f) => (
                 <Link key={f.id} to={`/fixtures/${f.id}`} className="cs-row cs-row-link cs-row-inline">
                   <span className="cs-grow">
                     <strong>vs {f.opponentName}</strong>
@@ -425,6 +427,11 @@ function NextMatch({ fixtures }) {
                   <Chevron />
                 </Link>
               ))}
+              {upcoming.length > 4 && (
+                <button type="button" className="btn vm-bk-more" style={{ width: '100%' }} aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
+                  {showAll ? 'Show less' : `Show more (${upcoming.length - 4} more)`}
+                </button>
+              )}
             </div>
           )}
         </>
