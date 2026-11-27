@@ -419,6 +419,8 @@ const networkApi = {
   // Admin: Game Adjustments
   adminGetPlayerFixtures: (playerId) => request(`/admin/players/${playerId}/fixtures`),
   adminGetFixturesNeedingAttention: () => request('/admin/fixtures/needs-attention'),
+  // Results waiting on a player's acceptance (Admin / League Manager card). Not in demoApi - callers check it exists.
+  adminGetFixturesAwaitingAcceptance: () => request('/admin/fixtures/awaiting-acceptance'),
   adminReopenFixture: (fixtureId) => request(`/fixtures/${fixtureId}/reopen`, { method: 'POST' }),
   adminReopenLeg: (fixtureId, legNumber) => request(`/fixtures/${fixtureId}/legs/${legNumber}/reopen`, { method: 'POST' }),
 

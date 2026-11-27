@@ -5055,6 +5055,77 @@ app.get('/api/admin/fixtures/needs-attention', requireAnyAdmin, asyncRoute((req,
   res.json(results);
 }));
 
+// Powers the "Waiting for the second player to accept" card on the Admin
+// Portal and League Manager Portal: every singles/doubles result (and team
+// leg) sitting at pending_confirmation where a side hasn't confirmed yet, so
+// an Overall Admin or the league's Manager can accept it on that player's
+// behalf (POST .../confirm-result accepts for them - see canConfirmOnBehalf).
+// Scoped like needs-attention above: League Managers only see leagues they
+// manage. The card hides itself when this returns an empty list.
+app.get('/api/admin/fixtures/awaiting-acceptance', requireAnyAdmin, asyncRoute((req, res) => {
+  const db = readDb();
+  const user = req.auth.user;
+  const results = [];
+  const userName = (id) => {
+    const u = id ? db.users.find((x) => x.id === id) : null;
+    return u ? `${u.firstName} ${u.lastName}`.trim() : null;
+  };
+  for (const f of db.fixtures) {
+    if (!canConfirmOnBehalf(db, user, f)) continue;
+    const division = db.divisions.find((d) => d.id === f.divisionId);
+    const league = db.leagues.find((l) => l.id === f.leagueId);
+
+    if (f.legs) {
+      const homeTeam = db.teams.find((t) => t.id === f.homeTeamId);
+      const awayTeam = db.teams.find((t) => t.id === f.awayTeamId);
+      for (const leg of f.legs) {
+        if (leg.status !== 'pending_confirmation') continue;
+        if (leg.homeConfirmed && leg.awayConfirmed) continue;
+        const homeName = entrantName(db, null, leg.homePlayerId);
+        const awayName = entrantName(db, null, leg.awayPlayerId);
+        results.push({
+          fixtureId: f.id,
+          legNumber: leg.legNumber,
+          leagueName: league?.name,
+          divisionName: division?.name,
+          round: f.round,
+          label: `${homeTeam ? homeTeam.name : 'TBD'} vs ${awayTeam ? awayTeam.name : 'TBD'} — Leg ${leg.legNumber} (${homeName} v ${awayName})`,
+          scoreLabel: `${leg.homeFrameScore}-${leg.awayFrameScore} frames`,
+          waitingOn: [!leg.homeConfirmed && homeName, !leg.awayConfirmed && awayName].filter(Boolean),
+          submittedAt: leg.resultSubmittedAt || null,
+          submittedBy: userName(leg.resultSubmittedBy),
+        });
+      }
+      continue;
+    }
+
+    if (f.status !== 'pending_confirmation') continue;
+    if (f.homeConfirmed && f.awayConfirmed) continue;
+    const homeName = entrantName(db, division, f.homePlayerId);
+    const awayName = entrantName(db, division, f.awayPlayerId);
+    results.push({
+      fixtureId: f.id,
+      legNumber: null,
+      leagueName: league?.name,
+      divisionName: division?.name,
+      round: f.round,
+      label: `${homeName} vs ${awayName}`,
+      scoreLabel: `${f.homeFrameScore}-${f.awayFrameScore} frames`,
+      waitingOn: [!f.homeConfirmed && homeName, !f.awayConfirmed && awayName].filter(Boolean),
+      submittedAt: f.resultSubmittedAt || null,
+      submittedBy: userName(f.resultSubmittedBy),
+    });
+  }
+  // Oldest submission first - the one that's been waiting longest.
+  results.sort((x, y) => {
+    if (!x.submittedAt && !y.submittedAt) return 0;
+    if (!x.submittedAt) return 1;
+    if (!y.submittedAt) return -1;
+    return x.submittedAt.localeCompare(y.submittedAt);
+  });
+  res.json(results);
+}));
+
 // Powers the Admin Portal's "Issue / Bug Tracker" section - a read-only
 // mirror of the project's GitHub Issues (github.com/MBaileyWebsiteDesign/
 // Cue-Sense-League-Management/issues), admin-only. The repo is public, so
@@ -8346,6 +8417,24 @@ function canControlFixture(db, user, fixture, { allowReferee = true } = {}) {
   return isHomeEntrant(db, division, fixture, user.playerId) || isAwayEntrant(db, division, fixture, user.playerId);
 }
 
+// Overall Admins and the League Manager(s) of a fixture's league may accept
+// (confirm) a submitted result on behalf of the player(s) who haven't yet -
+// same power Overall Admins already had on POST .../confirm-result.
+function canConfirmOnBehalf(db, user, fixture) {
+  if (!user || !fixture) return false;
+  if (user.isAdmin) return true;
+  const division = db.divisions.find((d) => d.id === fixture.divisionId);
+  const league = db.leagues.find((l) => l.id === (fixture.leagueId || division?.leagueId));
+  return !!(user.isLeagueManager && league && Array.isArray(league.managerUserIds) && league.managerUserIds.includes(user.id));
+}
+
+// Display name of a fixture side: a doubles pairing or a player.
+function entrantName(db, division, id) {
+  if (!id) return 'TBD';
+  if (division?.entryType === 'doubles') return db.pairings.find((p) => p.id === id)?.name || 'TBD';
+  return db.players.find((p) => p.id === id)?.name || 'TBD';
+}
+
 function assertCanControlFixture(req, db, fixture) {
   if (!canControlFixture(db, req.auth.user, fixture)) {
     throw new ApiError(403, 'Only a player in this fixture, its referee, or an admin/league manager can control this match');
@@ -8360,6 +8449,7 @@ function fixtureAccessInfo(db, user, fixture) {
   return {
     canControl: canControlFixture(db, user, fixture),
     canManageReferees: canControlFixture(db, user, fixture, { allowReferee: false }),
+    canConfirmForPlayers: canConfirmOnBehalf(db, user, fixture),
     refereeUsers,
   };
 }
@@ -9011,17 +9101,33 @@ app.post('/api/fixtures/:id/confirm-result', requireAuth, asyncRoute((req, res) 
   const fixture = db.fixtures.find((f) => f.id === req.params.id);
   if (!fixture) throw new ApiError(404, 'Fixture not found');
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
-  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+  // Overall Admins and this league's Managers can accept for the players.
+  const staff = canConfirmOnBehalf(db, req.auth.user, fixture);
+  if (!staff && !isRoundVisible(division, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
   }
   if (fixture.status !== 'pending_confirmation') throw new ApiError(400, 'This result is not awaiting confirmation');
   const isHome = isHomeEntrant(db, division, fixture, req.auth.user.playerId);
   const isAway = isAwayEntrant(db, division, fixture, req.auth.user.playerId);
-  if (!req.auth.user.isAdmin && !isHome && !isAway) {
-    throw new ApiError(403, 'Only a player in this fixture (or an admin) can confirm this result');
+  if (!staff && !isHome && !isAway) {
+    throw new ApiError(403, 'Only a player in this fixture (or an admin / League Manager) can confirm this result');
   }
 
-  if (req.auth.user.isAdmin) {
+  if (staff) {
+    const homeName = entrantName(db, division, fixture.homePlayerId);
+    const awayName = entrantName(db, division, fixture.awayPlayerId);
+    const onBehalfOf = [];
+    if (!fixture.homeConfirmed && !isHome) onBehalfOf.push(homeName);
+    if (!fixture.awayConfirmed && !isAway) onBehalfOf.push(awayName);
+    if (onBehalfOf.length) {
+      recordAudit(db, {
+        actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+        action: 'fixture.confirm_on_behalf',
+        targetType: 'fixture',
+        targetId: fixture.id,
+        details: `Accepted the submitted result (${homeName} ${fixture.homeFrameScore}-${fixture.awayFrameScore} ${awayName}) on behalf of ${onBehalfOf.join(' and ')}`,
+      });
+    }
     fixture.homeConfirmed = true;
     fixture.awayConfirmed = true;
   } else {
@@ -9432,16 +9538,31 @@ app.post('/api/fixtures/:id/legs/:legNumber/confirm-result', requireAuth, asyncR
   const db = readDb();
   const { fixture, leg } = findTeamFixtureAndLeg(db, req.params.id, req.params.legNumber);
   const division = db.divisions.find((d) => d.id === fixture.divisionId);
-  if (!req.auth.user.isAdmin && !isRoundVisible(division, fixture.round)) {
+  const staff = canConfirmOnBehalf(db, req.auth.user, fixture);
+  if (!staff && !isRoundVisible(division, fixture.round)) {
     throw new ApiError(403, "This round hasn't been released to players yet");
   }
   if (leg.status !== 'pending_confirmation') throw new ApiError(400, "This leg's result is not awaiting confirmation");
   const isHome = !!req.auth.user.playerId && leg.homePlayerId === req.auth.user.playerId;
   const isAway = !!req.auth.user.playerId && leg.awayPlayerId === req.auth.user.playerId;
-  if (!req.auth.user.isAdmin && !isHome && !isAway) {
-    throw new ApiError(403, 'Only a nominated player in this leg (or an admin) can confirm this leg');
+  if (!staff && !isHome && !isAway) {
+    throw new ApiError(403, 'Only a nominated player in this leg (or an admin / League Manager) can confirm this leg');
   }
-  if (req.auth.user.isAdmin) {
+  if (staff) {
+    const homeName = entrantName(db, null, leg.homePlayerId);
+    const awayName = entrantName(db, null, leg.awayPlayerId);
+    const onBehalfOf = [];
+    if (!leg.homeConfirmed && !isHome) onBehalfOf.push(homeName);
+    if (!leg.awayConfirmed && !isAway) onBehalfOf.push(awayName);
+    if (onBehalfOf.length) {
+      recordAudit(db, {
+        actor: `${req.auth.user.firstName} ${req.auth.user.lastName}`.trim(),
+        action: 'fixture.confirm_on_behalf',
+        targetType: 'fixture',
+        targetId: fixture.id,
+        details: `Accepted the submitted result for leg ${leg.legNumber} (${homeName} ${leg.homeFrameScore}-${leg.awayFrameScore} ${awayName}) on behalf of ${onBehalfOf.join(' and ')}`,
+      });
+    }
     leg.homeConfirmed = true;
     leg.awayConfirmed = true;
   } else {
