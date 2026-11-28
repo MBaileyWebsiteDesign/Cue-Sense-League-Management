@@ -40,6 +40,14 @@
 .lg-modal-note { margin: 8px 0 0; font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
 .lg-modal-btn { display: block; width: 100%; min-height: 46px; font-size: 1rem; }
 .lg-modal-close { display: block; width: 100%; min-height: 44px; margin-top: 6px; }
+/* iPhone / iPad install help: inline icons, "open in Safari" box, URL to copy. */
+.lg-ico { display: inline-block; width: 1.35em; height: 1.35em; margin: 0 2px; vertical-align: -0.3em; color: var(--primary); }
+.lg-modal-steps-ios li { margin-bottom: 12px; }
+.lg-modal-steps-ios .lg-modal-note { display: block; margin-top: 4px; }
+.lg-modal-warn { margin: 0 0 14px; padding: 12px; border: 1px solid #d9b94f; border-radius: 12px; background: #fff7dc; font-size: 0.92rem; line-height: 1.45; }
+.lg-modal-warn p { margin: 6px 0 8px; }
+.lg-modal-warn .lg-modal-btn { margin-top: 8px; }
+.lg-modal-url { display: block; margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: #fff; font-size: 0.88rem; word-break: break-all; -webkit-user-select: all; user-select: all; }
 
 /* "Create Link" as a button (Matt, 2026-10-17): same faded green as the
    "Welcome back" banner (.rg-banner). Used under Sign In and at the bottom of

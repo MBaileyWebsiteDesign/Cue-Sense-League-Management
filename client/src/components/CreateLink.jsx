@@ -11,7 +11,12 @@ import '../pages/loginPage.css';
 //    prompt, kept from the `beforeinstallprompt` event (needs the web app
 //    manifest + icons from vite.config.js).
 //  - iPhone / iPad (Safari): no install prompt exists for websites, so short
-//    step-by-step instructions are shown instead.
+//    step-by-step instructions are shown instead, with the Share / ... / Add to
+//    Home Screen icons drawn in line, the newer (iOS 26) and older Share-button
+//    positions, and an "Edit Actions" tip. If the page was opened in another
+//    browser or inside another app (Facebook, WhatsApp, email...), a "Copy link"
+//    box asks them to paste it into Safari first - that is the usual reason
+//    Add to Home Screen is missing.
 //  - Phones (iPhone/iPad/Android): a slim "Install app" bar pinned to the bottom of
 //    the screen instead of the in-page button. It is hidden once the app is
 //    installed (opened from the home-screen icon, or - Android Chrome - reported
@@ -104,6 +109,53 @@ function downloadShortcut(kind) {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
 
+// iPhone / iPad only: 'safari', 'other' (Chrome, Firefox, Edge...) or 'inapp'
+// (a browser built into another app). Safari's own user agent contains
+// "Safari/"; app web views normally do not.
+function detectIosBrowser() {
+  const ua = navigator.userAgent || '';
+  if (/FBAN|FBAV|FB_IAB|Instagram|Line\/|Messenger|Snapchat|TikTok|Twitter|LinkedInApp|MicroMessenger|GSA\//.test(ua)) return 'inapp';
+  if (/CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|DuckDuckGo|Brave|YaBrowser/.test(ua)) return 'other';
+  if (!/Safari\//.test(ua)) return 'inapp';
+  return 'safari';
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to the older method */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// Small line icons so the steps show what to look for on the phone.
+const iconProps = { className: 'lg-ico', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
+const ShareIcon = () => (
+  <svg {...iconProps}><path d="M12 15V3M8 7l4-4 4 4M6 10H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1" /></svg>
+);
+const DotsIcon = () => (
+  <svg {...iconProps} fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
+);
+const PlusSquareIcon = () => (
+  <svg {...iconProps}><rect x="3" y="3" width="18" height="18" rx="4" /><path d="M12 8v8M8 12h8" /></svg>
+);
+
 const SHORTCUT_LABEL = {
   windows: 'Windows shortcut (.url)',
   mac: 'Mac shortcut (.webloc)',
@@ -118,7 +170,9 @@ export default function CreateLink({ variant = 'link' }) {
   // Android Chrome only: null = unknown, true/false = the browser's answer.
   const [relatedInstalled, setRelatedInstalled] = useState(null);
   const [dismissed, setDismissed] = useState(readDismissed());
+  const [copied, setCopied] = useState('');
   const platform = detectPlatform();
+  const iosBrowser = platform === 'ios' ? detectIosBrowser() : null;
   const isDesktop = platform === 'windows' || platform === 'mac' || platform === 'linux';
   const isMobile = platform === 'ios' || platform === 'android';
   const isInstalled = installed || relatedInstalled === true;
@@ -175,6 +229,11 @@ export default function CreateLink({ variant = 'link' }) {
     }
   };
 
+  const copyLink = async () => {
+    const ok = await copyText(`${window.location.origin}/`);
+    setCopied(ok ? 'ok' : 'fail');
+  };
+
   const dismiss = () => {
     try { window.localStorage.setItem(DISMISS_KEY, '1'); } catch { /* ignore */ }
     setDismissed(true);
@@ -220,13 +279,47 @@ export default function CreateLink({ variant = 'link' }) {
               </div>
             )}
 
+            {platform === 'ios' && iosBrowser !== 'safari' && (
+              <div className="lg-modal-warn">
+                <strong>Step 1: open this page in Safari.</strong>
+                <p>
+                  {iosBrowser === 'inapp'
+                    ? 'You seem to be in a browser inside another app (Facebook, WhatsApp, email and so on). Those usually cannot add an icon to the home screen.'
+                    : 'Safari is the browser that reliably offers \u201cAdd to Home Screen\u201d on iPhone and iPad. Other browsers often do not.'}
+                </p>
+                <button type="button" className="btn btn-primary lg-modal-btn" onClick={copyLink}>
+                  {copied === 'ok' ? 'Link copied' : 'Copy link'}
+                </button>
+                <code className="lg-modal-url">{`${window.location.origin}/`}</code>
+                <p>
+                  {copied === 'fail' ? 'Copying did not work here - press and hold the address above to copy it. ' : ''}
+                  Open <strong>Safari</strong>, tap its address bar, paste the link and go, then follow the steps below.
+                </p>
+              </div>
+            )}
+
             {platform === 'ios' && (
-              <ol className="lg-modal-steps">
-                <li>Open this page in <strong>Safari</strong>.</li>
-                <li>Tap the <strong>Share</strong> button (the square with an arrow pointing up).</li>
-                <li>Scroll down and tap <strong>Add to Home Screen</strong>.</li>
-                <li>Tap <strong>Add</strong>. The icon appears on your home screen.</li>
-              </ol>
+              <>
+                <ol className="lg-modal-steps lg-modal-steps-ios">
+                  <li>
+                    Tap the <strong>Share</strong> button <ShareIcon /> (a square with an arrow pointing up).
+                    It is in the bar at the bottom of Safari (at the top on an iPad).
+                    <span className="lg-modal-note"> On newer iPhones there is no Share button in the bar: tap the three dots <DotsIcon /> next to the address bar, then tap <strong>Share</strong>.</span>
+                  </li>
+                  <li>
+                    Scroll down the list and tap <strong>Add to Home Screen</strong> <PlusSquareIcon />.
+                    <span className="lg-modal-note"> If you see <strong>View More</strong>, tap it first.</span>
+                  </li>
+                  <li>
+                    If you see an <strong>Open as Web App</strong> switch, leave it on. Tap <strong>Add</strong>.
+                    The icon appears on your home screen.
+                  </li>
+                </ol>
+                <p className="lg-modal-note">
+                  <strong>Can&rsquo;t see Add to Home Screen?</strong> Scroll to the very bottom of the Share list, tap <strong>Edit Actions</strong>,
+                  then tap the <strong>+</strong> beside Add to Home Screen. Make sure you are in Safari and not inside another app.
+                </p>
+              </>
             )}
 
             {platform === 'android' && !canPrompt && (
